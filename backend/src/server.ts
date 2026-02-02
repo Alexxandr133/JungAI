@@ -49,17 +49,11 @@ export const io = new SocketIOServer(httpServer, {
 app.set('trust proxy', 1);
 
 // Настройка Helmet с разрешением загрузки изображений
+// Временно отключаем CSP полностью для отладки проблемы с аватарами
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "blob:", "http://212.193.30.213", "https://212.193.30.213"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-    },
-  },
+  contentSecurityPolicy: false, // Отключаем CSP временно для отладки
 }));
 
 app.use(cors({
@@ -74,7 +68,7 @@ const uploadsStaticPath = path.join(process.cwd(), 'backend', 'uploads');
 console.log(`[Server] Static uploads path: ${uploadsStaticPath}`);
 console.log(`[Server] Uploads directory exists: ${existsSync(uploadsStaticPath)}`);
 
-// Статическая раздача файлов из папки uploads с CORS заголовками
+// Middleware для /uploads - настраиваем CORS
 app.use('/uploads', (req, res, next) => {
   // Устанавливаем CORS заголовки для статических файлов
   const origin = req.headers.origin;
