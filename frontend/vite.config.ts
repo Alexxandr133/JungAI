@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
 
 // Максимально простой и безопасный конфиг Vite
 export default defineConfig({
@@ -12,13 +13,16 @@ export default defineConfig({
       },
     },
   },
+  resolve: {
+    // Критично: гарантируем, что используется одна и та же копия React
+    // Это исправляет ошибку "Cannot read properties of null (reading 'useContext')"
+    dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
+  },
   // Чуть более удобный прод‑бандл для отладки:
   // читаемые sourcemaps и отключённую минификацию JS.
   build: {
     sourcemap: true,
     minify: false,
-    // Критично: гарантируем, что в бандле только одна копия React
-    // Это исправляет ошибку "Cannot read properties of null (reading 'useContext')"
     commonjsOptions: {
       include: [/node_modules/],
       transformMixedEsModules: true,
