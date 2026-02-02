@@ -39,7 +39,11 @@ if [ ! -f .env ]; then
 fi
 
 echo "Установка зависимостей backend..."
-npm ci --production=false
+if [ -f package-lock.json ]; then
+  npm ci --production=false
+else
+  npm install
+fi
 
 echo "Сборка TypeScript..."
 npm run build
@@ -57,7 +61,11 @@ echo -e "\n${YELLOW}📦 Сборка frontend...${NC}"
 cd frontend
 
 echo "Установка зависимостей frontend..."
-npm ci
+if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
 
 echo "Сборка frontend..."
 npm run build
