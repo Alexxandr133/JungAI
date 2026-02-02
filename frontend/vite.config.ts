@@ -17,5 +17,22 @@ export default defineConfig({
   build: {
     sourcemap: true,
     minify: false,
+    // Критично: гарантируем, что в бандле только одна копия React
+    // Это исправляет ошибку "Cannot read properties of null (reading 'useContext')"
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true,
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
+    },
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
+    force: true, // Пересобрать зависимости при следующем запуске
   },
 })
