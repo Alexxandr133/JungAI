@@ -52,6 +52,14 @@ app.set('trust proxy', 1);
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "blob:", "http://212.193.30.213", "https://212.193.30.213"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    },
+  },
 }));
 
 app.use(cors({
@@ -66,6 +74,7 @@ const uploadsStaticPath = path.join(process.cwd(), 'backend', 'uploads');
 console.log(`[Server] Static uploads path: ${uploadsStaticPath}`);
 console.log(`[Server] Uploads directory exists: ${existsSync(uploadsStaticPath)}`);
 
+// Статическая раздача файлов из папки uploads с CORS заголовками
 app.use('/uploads', (req, res, next) => {
   // Устанавливаем CORS заголовки для статических файлов
   const origin = req.headers.origin;
@@ -83,7 +92,10 @@ app.use('/uploads', (req, res, next) => {
   }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(uploadsStaticPath, {
+});
+
+// Отдельно настраиваем express.static для uploads
+app.use('/uploads', express.static(uploadsStaticPath, {
   setHeaders: (res, filePath) => {
     // Устанавливаем правильный Content-Type для изображений
     if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
@@ -132,7 +144,12 @@ app.use('/api/researcher', researcher);
 app.use('/api/admin', admin);
 app.use('/api', support);
 
-app.use((req, res) => {
+// Catch-all для всех остальных путей (только если это не /uploads)
+app.use((req, res, next) => {
+  // Пропускаем /uploads, они обрабатываются выше
+  if (req.path.startsWith('/uploads')) {
+    return next();
+  }
   res.status(404).json({ error: 'Not found', path: req.path });
 });
 
