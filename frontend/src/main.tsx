@@ -62,10 +62,10 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <I18nProvider>
-      <AuthProvider>
-        <ErrorBoundary>
-          <BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <I18nProvider>
+          <AuthProvider>
             <Routes>
               <Route path="/" element={<App />} />
               <Route path="/login" element={<Login />} />
@@ -451,9 +451,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
               <Route path="*" element={<div>Not found</div>} />
             </Routes>
-          </BrowserRouter>
-        </ErrorBoundary>
-      </AuthProvider>
-    </I18nProvider>
+          </AuthProvider>
+        </I18nProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 )
