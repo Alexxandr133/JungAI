@@ -217,6 +217,9 @@ router.post('/profile/avatar', requireAuth, requireRole(['psychologist', 'admin'
     
     // Сохраняем относительный путь для URL
     const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    console.log(`[Psychologist] Avatar uploaded: ${req.file.filename}`);
+    console.log(`[Psychologist] Avatar saved to: ${req.file.path}`);
+    console.log(`[Psychologist] Avatar URL: ${avatarUrl}`);
     
     await prisma.profile.upsert({
       where: { userId: req.user!.id },

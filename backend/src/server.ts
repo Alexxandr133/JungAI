@@ -4,6 +4,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import { existsSync } from 'fs';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config';
@@ -61,6 +62,10 @@ app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 
 // Статическая раздача файлов из папки uploads с CORS заголовками
+const uploadsStaticPath = path.join(process.cwd(), 'backend', 'uploads');
+console.log(`[Server] Static uploads path: ${uploadsStaticPath}`);
+console.log(`[Server] Uploads directory exists: ${existsSync(uploadsStaticPath)}`);
+
 app.use('/uploads', (req, res, next) => {
   // Устанавливаем CORS заголовки для статических файлов
   const origin = req.headers.origin;
@@ -78,7 +83,7 @@ app.use('/uploads', (req, res, next) => {
   }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(path.join(process.cwd(), 'backend', 'uploads'), {
+}, express.static(uploadsStaticPath, {
   setHeaders: (res, filePath) => {
     // Устанавливаем правильный Content-Type для изображений
     if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
