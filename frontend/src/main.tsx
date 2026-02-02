@@ -188,6 +188,21 @@ const router = createBrowserRouter([
   { path: '*', element: <div>Not found</div> }
 ])
 
+// Дополнительный лог, чтобы увидеть, какие именно элементы хранятся в конфиге роутера
+try {
+  const anyRouter = router as any
+  const routesSnapshot =
+    anyRouter?.routes?.map((r: any) => ({
+      path: r.path,
+      elementType: r.element ? typeof r.element.type : typeof r.element,
+      elementValue: r.element && r.element.type,
+    })) ?? []
+  // ВАЖНО: удалить после диагностики
+  console.log('[ROUTER DEBUG] routes snapshot:', routesSnapshot)
+} catch (e) {
+  console.error('[ROUTER DEBUG] failed to inspect routes:', e)
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <I18nProvider>
