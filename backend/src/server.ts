@@ -78,7 +78,7 @@ app.use('/uploads', (req, res, next) => {
   }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(path.join(__dirname, '../uploads'), {
+}, express.static(path.join(process.cwd(), 'backend', 'uploads'), {
   setHeaders: (res, filePath) => {
     // Устанавливаем правильный Content-Type для изображений
     if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {

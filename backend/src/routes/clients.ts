@@ -9,7 +9,9 @@ import { config } from '../config';
 const router = Router();
 
 // Настройка multer для загрузки аватаров клиентов
-const avatarsDir = path.join(__dirname, '../../uploads/avatars');
+// Используем process.cwd() для определения корня проекта (работает и в dev, и в production)
+const uploadsBaseDir = path.join(process.cwd(), 'backend', 'uploads');
+const avatarsDir = path.join(uploadsBaseDir, 'avatars');
 if (!fs.existsSync(avatarsDir)) {
   fs.mkdirSync(avatarsDir, { recursive: true });
 }
@@ -618,7 +620,7 @@ router.post('/client/profile/avatar', requireAuth, requireRole(['client', 'admin
     
     // Удаляем старый аватар, если есть
     if (profile?.avatarUrl) {
-      const oldPath = path.join(__dirname, '../../', profile.avatarUrl);
+      const oldPath = path.join(uploadsBaseDir, profile.avatarUrl.replace('/uploads/', ''));
       if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
       }

@@ -72,8 +72,10 @@ router.get('/public', async (req, res) => {
 });
 
 // Настройка multer для загрузки файлов
-const verificationDir = path.join(__dirname, '../../uploads/verification');
-const avatarsDir = path.join(__dirname, '../../uploads/avatars');
+// Используем process.cwd() для определения корня проекта (работает и в dev, и в production)
+const uploadsBaseDir = path.join(process.cwd(), 'backend', 'uploads');
+const verificationDir = path.join(uploadsBaseDir, 'verification');
+const avatarsDir = path.join(uploadsBaseDir, 'avatars');
 if (!fs.existsSync(verificationDir)) {
   fs.mkdirSync(verificationDir, { recursive: true });
 }
@@ -207,7 +209,7 @@ router.post('/profile/avatar', requireAuth, requireRole(['psychologist', 'admin'
     
     // Удаляем старый аватар, если есть
     if (profile?.avatarUrl) {
-      const oldPath = path.join(__dirname, '../../', profile.avatarUrl);
+      const oldPath = path.join(uploadsBaseDir, profile.avatarUrl.replace('/uploads/', ''));
       if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
       }
