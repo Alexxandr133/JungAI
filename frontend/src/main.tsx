@@ -5,6 +5,7 @@ import App from './App.tsx'
 import './index.css'
 import { AuthProvider } from './context/AuthContext'
 import { I18nProvider } from './context/I18nContext'
+import { ErrorBoundary } from './ErrorBoundary'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import DreamsList from './pages/dreams/List'
@@ -121,7 +122,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <I18nProvider>
       <AuthProvider>
-        <RouterProvider router={router} />
+        <ErrorBoundary>
+          <RouterProvider router={router} />
+        </ErrorBoundary>
       </AuthProvider>
     </I18nProvider>
   </React.StrictMode>,
