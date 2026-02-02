@@ -11,5 +11,11 @@ export default defineConfig({
         changeOrigin: true
       }
     }
-  }
+  },
+  // ВРЕМЕННО: отключаем минификацию и включаем sourcemap,
+  // чтобы в проде видеть нормальные тексты ошибок React, а не "#130"
+  build: {
+    sourcemap: true,
+    minify: false,
+  },
 })
