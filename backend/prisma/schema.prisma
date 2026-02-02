@@ -1,0 +1,336 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  role      String
+  isVerified Boolean @default(false) // Верифицирован ли психолог
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  verificationRequest VerificationRequest?
+  profile              Profile?
+}
+
+model Profile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String?  // ФИО
+  avatarUrl     String?  // URL аватара
+  phone         String?  // Номер телефона
+  location      String?  // Локация
+  age           Int?
+  gender        String?
+  interests     Json
+  bio           String?
+  specialization String?
+  experience    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Dream {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  symbols   Json
+  userId    String?
+  clientId  String? // Связь с клиентом
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  // Связь с амплификациями
+  amplifications DreamAmplification[]
+}
+
+model ParanormalCase {
+  id          String   @id @default(cuid())
+  type        String
+  description String
+  tags        Json
+  createdAt   DateTime @default(now())
+  userId      String?
+}
+
+// CRM сущности
+model Client {
+  id             String   @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  psychologistId String
+  registrationToken String? @unique // Токен для регистрации клиента
+  tokenExpiresAt DateTime? // Срок действия токена
+  createdAt      DateTime @default(now())
+
+  // Связи
+  dreams           Dream[]
+  testResults      TestResult[]
+  journalEntries   JournalEntry[]
+  therapySessions  TherapySession[]
+  clientNotes      ClientNote[]
+  documents        ClientDocument[]
+  documentVersions DocumentVersion[]
+  supportRequests  SupportRequest[]
+  tabs             ClientTabs?
+}
+
+model TherapySession {
+  id         String   @id @default(cuid())
+  clientId   String
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date       DateTime
+  summary    String?
+  videoUrl   String?
+  eventId    String? // Связь с Event
+  topics     Json? // Темы сессии (массив строк)
+  techniques Json? // Использованные техники (массив строк)
+  homework   String? // Домашнее задание
+  nextFocus  String? // Фокус следующей сессии
+  moodBefore String? // Настроение до сессии
+  moodAfter  String? // Настроение после сессии
+  createdAt  DateTime @default(now())
+}
+
+model ClientNote {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+// Документы рабочей области (Ведение клиента, запрос, анамнез, ценности/кредо и т.д.)
+model ClientDocument {
+  id             String   @id @default(cuid())
+  clientId       String
+  tabName        String // Название вкладки: "Ведение клиента", "запрос", "анамнез", "ценности/кредо" и т.д.
+  content        String // HTML или текстовое содержимое документа
+  psychologistId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Связи
+  versions DocumentVersion[]
+  client   Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, tabName, psychologistId])
+}
+
+// История изменений документов
+model DocumentVersion {
+  id         String         @id @default(cuid())
+  documentId String
+  document   ClientDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String // Содержимое на момент версии
+  changedBy  String // ID пользователя, который внес изменения
+  changeNote String? // Заметка об изменении
+  changedAt  DateTime       @default(now())
+  Client     Client?        @relation(fields: [clientId], references: [id])
+  clientId   String?
+}
+
+// Порядок и список вкладок для клиента
+model ClientTabs {
+  id             String   @id @default(cuid())
+  clientId       String   @unique
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  psychologistId String
+  tabs           Json     // Массив строк с названиями вкладок в порядке отображения
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model DreamFeedback {
+  id             String   @id @default(cuid())
+  dreamId        String
+  psychologistId String
+  content        String
+  createdAt      DateTime @default(now())
+}
+
+model Material {
+  id          String    @id @default(cuid())
+  title       String
+  type        String // article, course, lecture
+  content     String
+  tags        Json
+  authorId    String?
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model Event {
+  id          String    @id @default(cuid())
+  title       String
+  type        String // conference, supervision, webinar, hackathon, session
+  description String?
+  startsAt    DateTime
+  endsAt      DateTime?
+  createdBy   String
+  clientId    String? // ID клиента для сессий
+  createdAt   DateTime  @default(now())
+  
+  // Связь с голосовой комнатой
+  voiceRoom   VoiceRoom?
+  
+  // Статус принятия сессии клиентом (только для type='session')
+  sessionStatus String? // 'pending', 'accepted', 'declined'
+  sessionDeclineComment String? // Комментарий при отклонении
+  actualStartTime DateTime? // Фактическое время начала (если начато раньше)
+}
+
+// Голосовые комнаты для событий
+model VoiceRoom {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  roomId      String   @unique // Уникальный ID комнаты (для генерации ссылки)
+  roomUrl     String   // Полная ссылка на комнату
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  ownerId     String // psychologist or researcher
+  clientId    String?
+  title       String
+  description String?
+  status      String // todo, in_progress, done
+  dueAt       DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model ChatRoom {
+  id        String   @id @default(cuid())
+  name      String?
+  createdAt DateTime @default(now())
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+// Результаты тестов клиентов
+model TestResult {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  testType  String // 'spiral-dynamics', 'i-ching', etc.
+  result    Json // Результаты теста
+  createdAt DateTime @default(now())
+}
+
+// Файловые вложения
+model FileAttachment {
+  id         String   @id @default(cuid())
+  fileName   String
+  filePath   String
+  mimeType   String
+  size       Int // Размер в байтах
+  entityType String // 'session', 'dream', 'document', 'journal', 'note'
+  entityId   String // ID сущности
+  uploadedBy String // ID пользователя
+  createdAt  DateTime @default(now())
+}
+
+// Уведомления
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String // ID получателя
+  type       String // 'new_dream', 'new_journal', 'session_reminder', 'homework_due', etc.
+  title      String
+  message    String
+  entityType String? // Тип связанной сущности
+  entityId   String? // ID связанной сущности
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
+
+// Записи дневника клиента
+model JournalEntry {
+  id        String   @id @default(cuid())
+  clientId  String // ID клиента
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  content   String // Содержимое записи
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Амплификации (сборник символов и их интерпретаций)
+model Amplification {
+  id        String   @id @default(cuid())
+  symbol    String // Символ (например: "змея", "вода", "лес")
+  title     String // Заголовок амплификации
+  content   String // Содержимое амплификации (интерпретация, мифы, архетипы)
+  category  String? // Категория (архетип, миф, символ, животное и т.д.)
+  tags      Json // Теги для поиска
+  authorId  String? // ID автора (если создана пользователем)
+  isPublic  Boolean  @default(true) // Публичная или личная
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Связь со снами
+  dreams DreamAmplification[]
+}
+
+// Связь между снами и амплификациями
+model DreamAmplification {
+  id              String        @id @default(cuid())
+  dreamId         String
+  dream           Dream         @relation(fields: [dreamId], references: [id], onDelete: Cascade)
+  amplificationId String
+  amplification   Amplification @relation(fields: [amplificationId], references: [id], onDelete: Cascade)
+  addedBy         String // ID психолога, который добавил связь
+  note            String? // Заметка психолога о связи
+  createdAt       DateTime      @default(now())
+
+  @@unique([dreamId, amplificationId])
+}
+
+// Запросы на верификацию психологов
+model VerificationRequest {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentPath String  // Путь к загруженному документу
+  fileName     String  // Имя файла
+  status       String  @default("pending") // pending, approved, rejected
+  reviewedBy   String? // ID админа, который рассмотрел
+  reviewedAt   DateTime?
+  comment      String? // Комментарий админа
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Запросы в техподдержку
+model SupportRequest {
+  id                    String   @id @default(cuid())
+  psychologistId        String   // ID психолога, создавшего запрос
+  title                 String   // Заголовок запроса
+  description           String   // Описание проблемы
+  allowWorkAreaAccess   Boolean  @default(false) // Разрешить доступ к рабочей области
+  clientId              String?  // ID клиента, если нужен доступ к его рабочей области
+  client                Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  status                String   @default("open") // open, in_progress, resolved, closed
+  adminResponse         String?  // Ответ администратора
+  respondedBy           String?  // ID админа, который ответил
+  respondedAt           DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}

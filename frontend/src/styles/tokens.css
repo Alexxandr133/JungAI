@@ -1,0 +1,120 @@
+:root {
+  --bg: #1a1d24;
+  --surface: #242730;
+  --surface-2: #2d3240;
+  --text: #e6e7eb;
+  --text-muted: #a9acb8;
+  --primary: #7c5cff; /* фиолетовый как архетипический/мистический акцент */
+  --primary-600: #6a49f0;
+  --accent: #19e0ff; /* сине-циан для науки/исследований */
+  --success: #3ddc97;
+  --warning: #ffcc66;
+  --danger: #ff6b6b;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
+  --shadow-md: 0 6px 24px rgba(0,0,0,0.35);
+  --shadow-lg: 0 16px 48px rgba(0,0,0,0.45);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+}
+
+html, body, #root { 
+  height: 100%; 
+  min-height: 100%;
+}
+
+#root {
+  background: transparent;
+}
+
+html {
+  background: radial-gradient(1200px 800px at 80% -10%, rgba(124,92,255,0.12), transparent),
+              radial-gradient(1000px 600px at -10% 20%, rgba(25,224,255,0.10), transparent),
+              var(--bg);
+  background-attachment: fixed;
+}
+
+body {
+  margin: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+}
+
+.container { width: min(1440px, 96%); margin: 0 auto; }
+
+.button {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 12px 18px; border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #0b0d12; font-weight: 600; border: none; cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.button:active { transform: translateY(1px); }
+.button.secondary {
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+  padding: 12px; /* ensure inner spacing on small screens */
+  min-height: 64px; /* prevent collapsing */
+  overflow-wrap: anywhere; /* wrap long words */
+}
+
+.kicker { color: var(--accent); letter-spacing: .12em; text-transform: uppercase; font-weight: 700; font-size: 12px; }
+.h1 { font-size: clamp(40px, 5vw, 64px); line-height: 1.05; font-weight: 800; }
+.h2 { font-size: clamp(28px, 3vw, 40px); line-height: 1.15; font-weight: 800; }
+.p { font-size: 16px; color: var(--text-muted); }
+.small { font-size: 13px; color: var(--text-muted); }
+
+.card-hover-shimmer {
+  position: relative;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.card-hover-shimmer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(124, 92, 255, 0.2),
+    rgba(25, 224, 255, 0.2),
+    transparent
+  );
+  transition: left 0.5s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.card-hover-shimmer:hover::before {
+  left: 100%;
+}
+
+.card-hover-shimmer:hover {
+  border-color: rgba(124, 92, 255, 0.4);
+  box-shadow: 0 4px 16px rgba(124, 92, 255, 0.2), 0 0 24px rgba(25, 224, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.card-hover-shimmer > * {
+  position: relative;
+  z-index: 2;
+}

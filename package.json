@@ -1,0 +1,24 @@
+{
+  "name": "jungai-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "JungAI: Платформа аналитической психологии и паранормальных исследований (монорепо)",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "shared"
+  ],
+  "scripts": {
+    "dev:backend": "npm -w backend run dev",
+    "build:backend": "npm -w backend run build",
+    "start:backend": "npm -w backend run start",
+    "dev:frontend": "npm -w frontend run dev",
+    "build:frontend": "npm -w frontend run build",
+    "preview:frontend": "npm -w frontend run preview",
+    "format": "prettier -w .",
+    "lint": "eslint ."
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "jungai-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "seed": "npm run build && node dist/seed.js",
+    "reset-db": "ts-node src/reset-db.ts",
+    "cleanup-clients": "ts-node src/cleanup-clients.ts",
+    "cleanup:wrong-demo": "ts-node src/delete-wrong-demo-accounts.ts"
+  },
+  "dependencies": {
+    "@huggingface/inference": "^4.13.9",
+    "@prisma/client": "^6.16.3",
+    "@types/compression": "^1.8.1",
+    "@types/multer": "^2.0.0",
+    "agora-access-token": "^2.0.4",
+    "agora-react-uikit": "^1.2.0",
+    "agora-token": "^2.0.5",
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "openai": "^6.8.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.5",
+    "prisma": "^6.16.3",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}

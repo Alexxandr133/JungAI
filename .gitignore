@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# builds
+/dist/
+/build/
+/.turbo/
+backend/dist/
+frontend/dist/
+
+# env
+.env
+.env.*
+backend/.env
+
+# database
+backend/prisma/dev.db
+backend/prisma/prod.db
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# uploads (опционально, если не хочешь коммитить файлы)
+backend/uploads/
+
+# editor
+.idea/
+.vscode/
+.DS_Store
+
+# lockfiles (managed per workspace)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml

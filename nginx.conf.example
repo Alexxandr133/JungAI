@@ -1,0 +1,128 @@
+# Пример конфигурации Nginx для JingAI
+# Разместите этот файл в /etc/nginx/sites-available/jingai
+# Затем создайте символическую ссылку: sudo ln -s /etc/nginx/sites-available/jingai /etc/nginx/sites-enabled/
+# Проверьте конфигурацию: sudo nginx -t
+# Перезагрузите Nginx: sudo systemctl reload nginx
+
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com;
+
+    # Редирект на HTTPS (раскомментируйте после настройки SSL)
+    # return 301 https://$server_name$request_uri;
+
+    # Лимиты для загрузки файлов
+    client_max_body_size 50M;
+
+    # Frontend (статичные файлы)
+    location / {
+        root /var/www/jingai/frontend/dist;
+        try_files $uri $uri/ /index.html;
+        
+        # Кеширование статичных файлов
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+
+    # Backend API
+    location /api {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+
+    # WebSocket для Socket.IO
+    location /socket.io {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+    }
+
+    # Загрузка файлов
+    location /api/files {
+        proxy_pass http://localhost:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 50M;
+    }
+}
+
+# HTTPS конфигурация (после настройки SSL через certbot)
+# server {
+#     listen 443 ssl http2;
+#     server_name yourdomain.com www.yourdomain.com;
+# 
+#     ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#     ssl_ciphers HIGH:!aNULL:!MD5;
+#     ssl_prefer_server_ciphers on;
+# 
+#     client_max_body_size 50M;
+# 
+#     location / {
+#         root /var/www/jingai/frontend/dist;
+#         try_files $uri $uri/ /index.html;
+#         
+#         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+#             expires 1y;
+#             add_header Cache-Control "public, immutable";
+#         }
+#     }
+# 
+#     location /api {
+#         proxy_pass http://localhost:4000;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection 'upgrade';
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_cache_bypass $http_upgrade;
+#         proxy_read_timeout 300s;
+#         proxy_connect_timeout 75s;
+#     }
+# 
+#     location /socket.io {
+#         proxy_pass http://localhost:4000;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection "upgrade";
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_read_timeout 86400s;
+#     }
+# 
+#     location /api/files {
+#         proxy_pass http://localhost:4000;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         client_max_body_size 50M;
+#     }
+# }
+
