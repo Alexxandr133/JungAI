@@ -1,9 +1,16 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { existsSync } from 'fs';
 
-// Загружаем .env из директории backend (где запускается сервер)
-// process.cwd() возвращает директорию, откуда запущен процесс
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+// Загружаем .env из директории backend
+// Если запускается из корня монорепо (через PM2), ищем backend/.env
+// Если запускается из backend/, ищем .env
+const envPath = path.resolve(process.cwd(), 'backend', '.env');
+const fallbackPath = path.resolve(process.cwd(), '.env');
+const finalEnvPath = existsSync(envPath) ? envPath : fallbackPath;
+console.log(`[Config] Loading .env from: ${finalEnvPath}`);
+console.log(`[Config] process.cwd(): ${process.cwd()}`);
+dotenv.config({ path: finalEnvPath });
 
 export const config = {
   port: Number(process.env.PORT || 4000),
@@ -24,3 +31,10 @@ export const config = {
     : (process.env.CORS_ORIGIN || '*'),
   corsCredentials: String(process.env.CORS_CREDENTIALS || '').toLowerCase() === 'true'
 };
+
+// Логирование для отладки (только первые символы токена для безопасности)
+if (config.hfToken) {
+  console.log(`[Config] HF_TOKEN loaded: ${config.hfToken.substring(0, 10)}... (length: ${config.hfToken.length})`);
+} else {
+  console.warn('[Config] ⚠️  HF_TOKEN is empty or not set!');
+}
