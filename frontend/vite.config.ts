@@ -6,13 +6,10 @@ import path from 'node:path'
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    // Критично: заставляем Vite всегда использовать ОДНУ копию React/ReactDOM/Router
-    // из корневого node_modules монорепы, чтобы не было "Invalid hook call".
+    // Гарантируем одну копию React (через корневой node_modules) и дедупликацию,
+    // но не ломаем под-импорты вроде "react-dom/client".
     alias: {
       react: path.resolve(__dirname, '../node_modules/react'),
-      'react-dom': path.resolve(__dirname, '../node_modules/react-dom'),
-      'react-router': path.resolve(__dirname, '../node_modules/react-router'),
-      'react-router-dom': path.resolve(__dirname, '../node_modules/react-router-dom'),
     },
     dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
   },
