@@ -67,7 +67,6 @@ function debugValidateComponent(name: string, value: unknown) {
   const isElementLike =
     typeof value === 'object' &&
     value !== null &&
-    // @ts-expect-error: runtime check
     typeof (value as any).$$typeof !== 'undefined'
 
   if (!isFn && !isElementLike) {
