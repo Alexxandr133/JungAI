@@ -1,8 +1,8 @@
 import './App.css'
-import HomePage from './pages/Home'
+import GuestWorkspace from './pages/guest/GuestWorkspace'
 
 function App() {
-  return <HomePage />
+  return <GuestWorkspace />
 }
 
 export default App

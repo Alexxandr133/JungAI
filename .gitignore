@@ -22,6 +22,7 @@ backend/.env
 # database
 backend/prisma/dev.db
 backend/prisma/prod.db
+backend/prisma/prisma/dev.db
 backend/prisma/*.db
 backend/prisma/*.db-journal
 
