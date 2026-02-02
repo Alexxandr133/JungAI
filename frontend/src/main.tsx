@@ -60,6 +60,77 @@ import GuestDreams from './pages/guest/GuestDreams'
 import PsychologistsList from './pages/guest/PsychologistsList'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
+// ВРЕМЕННАЯ ОТЛАДКА: проверяем, что все импортированные компоненты реально являются React-компонентами,
+// а не объектами/undefined. Это поможет найти источник ошибки React #130 на проде.
+function debugValidateComponent(name: string, value: unknown) {
+  const isFn = typeof value === 'function'
+  const isElementLike =
+    typeof value === 'object' &&
+    value !== null &&
+    // @ts-expect-error: runtime check
+    typeof (value as any).$$typeof !== 'undefined'
+
+  if (!isFn && !isElementLike) {
+    // ВАЖНО: этот лог надо будет удалить после фикса
+    console.error('[ROUTER DEBUG] Invalid component import for', name, '=>', value)
+  }
+}
+
+debugValidateComponent('App', App)
+debugValidateComponent('Login', Login)
+debugValidateComponent('Dashboard', Dashboard)
+debugValidateComponent('DreamsList', DreamsList)
+debugValidateComponent('DreamCreate', DreamCreate)
+debugValidateComponent('DreamFeedbackPage', DreamFeedbackPage)
+debugValidateComponent('DreamDetail', DreamDetail)
+debugValidateComponent('ClientsList', ClientsList)
+debugValidateComponent('ClientDetail', ClientDetail)
+debugValidateComponent('ClientProfileView', ClientProfileView)
+debugValidateComponent('MaterialsList', MaterialsList)
+debugValidateComponent('MaterialDetail', MaterialDetail)
+debugValidateComponent('ProfilePage', ProfilePage)
+debugValidateComponent('EventsPage', EventsPage)
+debugValidateComponent('AmplificationsPage', AmplificationsPage)
+debugValidateComponent('AIRecommendationsPage', AIRecommendationsPage)
+debugValidateComponent('TasksPage', TasksPage)
+debugValidateComponent('ChatPage', ChatPage)
+debugValidateComponent('PsychologistWorkspace', PsychologistWorkspace)
+debugValidateComponent('PsychologistDashboard', PsychologistDashboard)
+debugValidateComponent('WorkArea', WorkArea)
+debugValidateComponent('ClientWorkspace', ClientWorkspace)
+debugValidateComponent('ClientProfile', ClientProfile)
+debugValidateComponent('ClientJournal', ClientJournal)
+debugValidateComponent('ClientTasks', ClientTasks)
+debugValidateComponent('ClientRank', ClientRank)
+debugValidateComponent('ClientTests', ClientTests)
+debugValidateComponent('ClientCommunity', ClientCommunity)
+debugValidateComponent('ClientSessions', ClientSessions)
+debugValidateComponent('ClientPsychologistsList', ClientPsychologistsList)
+debugValidateComponent('VoiceRoom', VoiceRoom)
+debugValidateComponent('ResearcherDashboard', ResearcherDashboard)
+debugValidateComponent('ResearcherProfile', ResearcherProfile)
+debugValidateComponent('ResearcherPeople', ResearcherPeople)
+debugValidateComponent('ResearcherDreams', ResearcherDreams)
+debugValidateComponent('ResearcherSupport', ResearcherSupport)
+debugValidateComponent('ResearcherAIChat', ResearcherAIChat)
+debugValidateComponent('PublicationsPage', PublicationsPage)
+debugValidateComponent('PsychologistProfile', PsychologistProfile)
+debugValidateComponent('PsychologistSupport', PsychologistSupport)
+debugValidateComponent('PsychologistAIChat', PsychologistAIChat)
+debugValidateComponent('AdminDashboard', AdminDashboard)
+debugValidateComponent('AdminVerification', AdminVerification)
+debugValidateComponent('AdminSupport', AdminSupport)
+debugValidateComponent('AdminOpenAccess', AdminOpenAccess)
+debugValidateComponent('RegisterClient', RegisterClient)
+debugValidateComponent('Register', Register)
+debugValidateComponent('GuestPage', GuestPage)
+debugValidateComponent('GuestTests', GuestTests)
+debugValidateComponent('GuestCommunity', GuestCommunity)
+debugValidateComponent('GuestPublications', GuestPublications)
+debugValidateComponent('GuestDreams', GuestDreams)
+debugValidateComponent('PsychologistsList', PsychologistsList)
+debugValidateComponent('ProtectedRoute', ProtectedRoute)
+
 const router = createBrowserRouter([
   { path: '/', element: <App /> },
   { path: '/login', element: <Login /> },
