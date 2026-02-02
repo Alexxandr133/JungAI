@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { config } from '../config';
 
 const router = Router();
 
@@ -398,7 +399,7 @@ router.post('/clients', requireAuth, requireRole(['psychologist', 'admin']), req
   res.status(201).json({
     ...c,
     username: username || null,
-    registrationLink: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/register-client?token=${registrationToken}`
+    registrationLink: `${config.frontendUrl}/register-client?token=${registrationToken}`
   });
 });
 

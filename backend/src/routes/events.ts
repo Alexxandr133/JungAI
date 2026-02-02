@@ -21,8 +21,7 @@ function generateRoomId(): string {
 
 // Функция для генерации URL комнаты
 function generateRoomUrl(roomId: string): string {
-  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  return `${baseUrl}/room/${roomId}`;
+  return `${config.frontendUrl}/room/${roomId}`;
 }
 
 router.get('/events', requireAuth, async (_req, res) => {

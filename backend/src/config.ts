@@ -22,6 +22,8 @@ export const config = {
   agoraAppCertificate: process.env.AGORA_APP_CERTIFICATE || '',
   // Временный токен из консоли Agora (для тестирования, если App Certificate не настроен)
   agoraTempToken: process.env.AGORA_TEMP_TOKEN || '007eJxTYGgX6WJftaN9balw/5OuWapn61yv7646W8USprtAS7Xm5A8FBmMzUyMTAxPjpETDZBMjS/OkZLM0S1ODNNM0C8PkZANLL43AzIZARgbuqd6MjAwQCOIzMhgzMAAArc0cMQ==',
+  // Frontend URL для генерации ссылок регистрации
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   // Allow comma-separated origins, fallback to '*'
   corsOrigin: (process.env.CORS_ORIGIN || '*').includes(',')
     ? (process.env.CORS_ORIGIN || '*')

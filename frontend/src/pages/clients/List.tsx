@@ -463,9 +463,29 @@ export default function ClientsList() {
                   />
                   <button
                     className="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(createdClientLink);
-                      alert('Ссылка скопирована!');
+                    onClick={async () => {
+                      try {
+                        // Пробуем использовать современный Clipboard API
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                          await navigator.clipboard.writeText(createdClientLink);
+                          alert('Ссылка скопирована!');
+                        } else {
+                          // Fallback для старых браузеров
+                          const input = document.createElement('input');
+                          input.value = createdClientLink;
+                          input.style.position = 'fixed';
+                          input.style.opacity = '0';
+                          document.body.appendChild(input);
+                          input.select();
+                          input.setSelectionRange(0, 99999);
+                          document.execCommand('copy');
+                          document.body.removeChild(input);
+                          alert('Ссылка скопирована!');
+                        }
+                      } catch (err) {
+                        console.error('Failed to copy:', err);
+                        alert('Не удалось скопировать ссылку. Скопируйте её вручную из поля выше.');
+                      }
                     }}
                     style={{ padding: '12px 20px', fontSize: 13, whiteSpace: 'nowrap' }}
                   >
