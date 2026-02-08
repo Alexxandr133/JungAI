@@ -44,11 +44,15 @@ const uploadAvatar = multer({
 // Получить психолога клиента
 router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
+    console.log('[my-psychologist] Request from user:', req.user!.email, 'role:', req.user!.role);
+    
     // Ищем Client сущность по email пользователя
     let client = await prisma.client.findFirst({
       where: { email: req.user!.email },
       select: { id: true, psychologistId: true, name: true }
     });
+    
+    console.log('[my-psychologist] Client found:', client ? { id: client.id, psychologistId: client.psychologistId } : 'not found');
     
     // Если не найдено по точному совпадению, пробуем найти по части email
     if (!client && req.user!.email.includes('@demo.jung')) {
@@ -264,14 +268,17 @@ router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), as
     }
     
     // Всегда возвращаем успешный ответ с данными психолога
-    res.json({
+    const response = {
       id: psychologist.id,
       email: psychologist.email,
       name: psychologist.profile?.name || psychologist.email.split('@')[0],
       avatarUrl: psychologist.profile?.avatarUrl || null,
       bio: psychologist.profile?.bio || null,
       specialization: psychologist.profile?.specialization || null
-    });
+    };
+    
+    console.log('[my-psychologist] Returning psychologist:', { id: response.id, name: response.name });
+    res.json(response);
   } catch (error: any) {
     // В случае ошибки все равно пытаемся вернуть демо-психолога
     console.error('Error in /my-psychologist:', error);
