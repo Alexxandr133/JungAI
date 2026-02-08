@@ -160,7 +160,7 @@ export default function DreamsList() {
       title: formTitle.trim() || 'Без названия',
       content: formContent.trim(),
       symbols: [], // Убрали поле символов
-      userId: isClient ? user?.id : (formClientId || undefined)
+      ...(isClient ? {} : { clientId: formClientId || undefined })
     } as any;
     // Optimistic add
     const tempId = `tmp-${Date.now()}`;

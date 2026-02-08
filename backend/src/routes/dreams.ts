@@ -11,7 +11,17 @@ router.get('/dreams', requireAuth, requireVerification, async (req: AuthedReques
     
     const where: any = {};
     if (clientId && (req.user!.role === 'psychologist' || req.user!.role === 'admin')) {
-      where.clientId = clientId;
+      // Психолог запрашивает сны конкретного клиента - проверяем, что клиент принадлежит психологу
+      const client = await (prisma as any).client.findUnique({
+        where: { id: clientId },
+        select: { psychologistId: true }
+      });
+      if (client && (req.user!.role === 'admin' || client.psychologistId === req.user!.id)) {
+        where.clientId = clientId;
+      } else {
+        // Клиент не найден или не принадлежит психологу
+        return res.json({ items: [], total: 0 });
+      }
     } else if (req.user!.role === 'client') {
       // Клиент видит только свои сны
       const client = await (prisma as any).client.findFirst({
@@ -23,7 +33,22 @@ router.get('/dreams', requireAuth, requireVerification, async (req: AuthedReques
         // Fallback на userId если клиент еще не создан
         where.userId = req.user!.id;
       }
+    } else if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
+      // Психолог видит все сны своих клиентов
+      // Получаем ID всех клиентов психолога
+      const clients = await (prisma as any).client.findMany({
+        where: { psychologistId: req.user!.id },
+        select: { id: true }
+      });
+      const clientIds = clients.map((c: any) => c.id);
+      if (clientIds.length > 0) {
+        where.clientId = { in: clientIds };
+      } else {
+        // У психолога нет клиентов - возвращаем пустой список
+        return res.json({ items: [], total: 0 });
+      }
     } else {
+      // Для других ролей (например, researcher) фильтруем по userId
       where.userId = req.user!.id;
     }
     
@@ -62,6 +87,9 @@ router.post('/dreams', requireAuth, requireRole(['client', 'psychologist', 'admi
       });
       if (client) {
         finalClientId = client.id;
+      } else {
+        // Логируем предупреждение, если Client запись не найдена
+        console.warn(`Client record not found for user email: ${req.user!.email}. Dream will be created without clientId.`);
       }
     }
     
