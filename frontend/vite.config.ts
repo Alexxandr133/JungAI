@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import path from 'path'
 
 // Максимально простой и безопасный конфиг Vite
 export default defineConfig({
