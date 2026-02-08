@@ -221,7 +221,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     // Получаем сны клиентов по clientId (правильный способ)
     // Также получаем сны, записанные психологом напрямую (если есть)
-    const clientIds = clients.map(c => c.id);
+    // clientIds уже объявлен выше на строке 165
     
     // Проверяем, указан ли конкретный клиент в запросе
     const requestedClientId = req.body?.clientId as string | undefined;
