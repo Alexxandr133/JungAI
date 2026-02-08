@@ -55,9 +55,13 @@ export default function ClientPsychologistsList() {
           hasAttached = true;
           setHasAttachedPsychologist(true);
         }
-      } catch (e) {
+      } catch (e: any) {
         // Если не удалось получить прикрепленного психолога, загружаем всех
-        console.log('No attached psychologist, loading all psychologists');
+        console.error('Failed to load attached psychologist:', e);
+        // Если это 403, возможно проблема с правами доступа, но все равно показываем всех психологов
+        if (e.status === 403) {
+          console.warn('Access denied to /my-psychologist endpoint. User may not be properly authenticated or may not have client role.');
+        }
         hasAttached = false;
         setHasAttachedPsychologist(false);
       }

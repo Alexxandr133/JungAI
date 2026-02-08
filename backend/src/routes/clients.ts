@@ -61,22 +61,52 @@ router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), as
     }
     
     // Принудительно создаем/обновляем демо-психолога
-    const demoPsychologist = await prisma.user.upsert({
-      where: { id: 'u1' },
-      update: {
-        email: 'psy@example.com',
-        role: 'psychologist',
-        isVerified: true
-      },
-      create: {
-        id: 'u1',
-        email: 'psy@example.com',
-        password: 'demo',
-        role: 'psychologist',
-        isVerified: true
-      },
+    // Сначала ищем по email, чтобы избежать конфликта уникальности
+    let demoPsychologist = await prisma.user.findUnique({
+      where: { email: 'psy@example.com' },
       select: { id: true }
     });
+    
+    if (!demoPsychologist) {
+      // Если не найден по email, ищем по ID
+      demoPsychologist = await prisma.user.findUnique({
+        where: { id: 'u1' },
+        select: { id: true }
+      });
+      
+      if (!demoPsychologist) {
+        // Создаем нового только если не найден ни по email, ни по ID
+        demoPsychologist = await prisma.user.create({
+          data: {
+            id: 'u1',
+            email: 'psy@example.com',
+            password: 'demo',
+            role: 'psychologist',
+            isVerified: true
+          },
+          select: { id: true }
+        });
+      } else {
+        // Если найден по ID, обновляем email и роль
+        await prisma.user.update({
+          where: { id: 'u1' },
+          data: {
+            email: 'psy@example.com',
+            role: 'psychologist',
+            isVerified: true
+          }
+        });
+      }
+    } else {
+      // Если найден по email, обновляем роль и верификацию
+      await prisma.user.update({
+        where: { email: 'psy@example.com' },
+        data: {
+          role: 'psychologist',
+          isVerified: true
+        }
+      });
+    }
     
     // Если клиент не найден, пытаемся найти психолога по email клиента
     if (!client) {
@@ -129,9 +159,9 @@ router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), as
     // Проверяем, является ли это демо-клиентом
     const isDemoClient = req.user!.id === 'u2' || req.user!.email === 'client@example.com';
     
-    // Если у клиента нет психолога или это демо-клиент, назначаем демо-психолога
-    // Но только если это действительно демо-клиент или psychologistId пустой/временный
-    if (isDemoClient || !client.psychologistId || client.psychologistId.startsWith('temp-')) {
+    // Если у клиента нет психолога или это временный ID, назначаем демо-психолога
+    // НО НЕ перезаписываем реального психолога, даже для демо-клиентов
+    if (!client.psychologistId || client.psychologistId.startsWith('temp-')) {
       await prisma.client.update({
         where: { id: client.id },
         data: { psychologistId: demoPsychologist.id }
@@ -170,17 +200,9 @@ router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), as
     });
     
     if (!psychologist) {
-      // Если психолог не найден, создаем демо-психолога
-      const demoPsych = await prisma.user.upsert({
-        where: { id: 'u1' },
-        update: {},
-        create: {
-          id: 'u1',
-          email: 'psy@example.com',
-          password: 'demo',
-          role: 'psychologist',
-          isVerified: true
-        },
+      // Если психолог не найден, используем уже созданного демо-психолога
+      const demoPsych = await prisma.user.findUnique({
+        where: { id: demoPsychologist.id },
         include: { 
           profile: {
             select: {
@@ -192,6 +214,11 @@ router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), as
           }
         }
       });
+      
+      if (!demoPsych) {
+        // Если демо-психолог не найден, возвращаем ошибку
+        return res.status(404).json({ error: 'Psychologist not found' });
+      }
       
       // Обновляем клиента
       await prisma.client.update({
