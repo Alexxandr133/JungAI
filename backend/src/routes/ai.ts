@@ -219,30 +219,37 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         })
       : [];
 
-    // Получаем userId клиентов через email (если клиент зарегистрирован как User)
-    const clientEmails = clients.filter(c => c.email).map(c => c.email!);
-    const clientUsers = clientEmails.length > 0 
-      ? await prisma.user.findMany({
-          where: { email: { in: clientEmails } },
-          select: { id: true }
-        })
-      : [];
-    const clientUserIds = clientUsers.map(u => u.id);
-
-    // Получаем сны: записанные психологом или его клиентами
-    const whereConditions: any[] = [
-      { userId: req.user!.id } // Сны, записанные психологом
-    ];
-    if (clientUserIds.length > 0) {
-      whereConditions.push({ userId: { in: clientUserIds } }); // Сны клиентов
+    // Получаем сны клиентов по clientId (правильный способ)
+    // Также получаем сны, записанные психологом напрямую (если есть)
+    const clientIds = clients.map(c => c.id);
+    
+    // Проверяем, указан ли конкретный клиент в запросе
+    const requestedClientId = req.body?.clientId as string | undefined;
+    const targetClientIds = requestedClientId && clientIds.includes(requestedClientId) 
+      ? [requestedClientId] // Если указан конкретный клиент и он принадлежит психологу
+      : clientIds; // Иначе все клиенты психолога
+    
+    const whereConditions: any[] = [];
+    
+    // Сны клиентов по clientId
+    if (targetClientIds.length > 0) {
+      whereConditions.push({ clientId: { in: targetClientIds } });
     }
+    
+    // Сны, записанные психологом напрямую (если психолог сам записывал сны)
+    whereConditions.push({ userId: req.user!.id });
     
     const allDreams = await prisma.dream.findMany({
       where: {
-        OR: whereConditions
+        OR: whereConditions.length > 0 ? whereConditions : [{ userId: req.user!.id }]
       },
       orderBy: { createdAt: 'desc' },
-      take: 100 // Последние 100 снов
+      take: 100, // Последние 100 снов
+      include: {
+        client: {
+          select: { id: true, name: true, email: true }
+        }
+      }
     });
 
     // Формируем контекст о снах для промпта
@@ -263,8 +270,10 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       if (todayDreams.length > 0) {
         dreamsContext += `Сны за сегодня:\n`;
         todayDreams.forEach((dream, idx) => {
-          dreamsContext += `${idx + 1}. "${dream.title}" (${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
-          dreamsContext += `   Содержание: ${dream.content.substring(0, 200)}${dream.content.length > 200 ? '...' : ''}\n`;
+          const clientName = dream.client?.name || 'Неизвестный клиент';
+          dreamsContext += `${idx + 1}. "${dream.title}" (Клиент: ${clientName}, ${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
+          // Показываем полный контент сна, без обрезания
+          dreamsContext += `   Содержание: ${dream.content}\n`;
           if (Array.isArray(dream.symbols) && dream.symbols.length > 0) {
             dreamsContext += `   Символы: ${(dream.symbols as string[]).join(', ')}\n`;
           }
@@ -282,7 +291,14 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       if (recentDreams.length > 0) {
         dreamsContext += `Последние сны (не сегодня):\n`;
         recentDreams.forEach((dream, idx) => {
-          dreamsContext += `${idx + 1}. "${dream.title}" (${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
+          const clientName = dream.client?.name || 'Неизвестный клиент';
+          dreamsContext += `${idx + 1}. "${dream.title}" (Клиент: ${clientName}, ${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
+          // Показываем полный контент сна для последних снов тоже
+          dreamsContext += `   Содержание: ${dream.content}\n`;
+          if (Array.isArray(dream.symbols) && dream.symbols.length > 0) {
+            dreamsContext += `   Символы: ${(dream.symbols as string[]).join(', ')}\n`;
+          }
+          dreamsContext += '\n';
         });
       }
     } else {
