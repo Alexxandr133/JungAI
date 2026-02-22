@@ -16,12 +16,7 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
             select: {
               id: true,
               name: true,
-              email: true,
-              profile: {
-                select: {
-                  avatarUrl: true
-                }
-              }
+              email: true
             }
           },
           messages: {
@@ -58,12 +53,7 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
             select: {
               id: true,
               name: true,
-              email: true,
-              profile: {
-                select: {
-                  avatarUrl: true
-                }
-              }
+              email: true
             }
           },
           messages: {
@@ -126,12 +116,7 @@ router.get('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psyc
           select: {
             client: {
               select: {
-                name: true,
-                profile: {
-                  select: {
-                    avatarUrl: true
-                  }
-                }
+                name: true
               }
             }
           }
