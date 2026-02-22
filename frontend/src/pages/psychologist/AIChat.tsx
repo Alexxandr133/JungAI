@@ -295,9 +295,9 @@ export default function PsychologistAIChat() {
   const rootChats = chats.filter(c => !c.folderId);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <PsychologistNavbar />
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: 'calc(100vh - 64px)' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         {/* Sidebar */}
         <div
           style={{
@@ -750,10 +750,12 @@ export default function PsychologistAIChat() {
                   minHeight: 0,
                   scrollBehavior: 'smooth',
                   scrollbarWidth: 'thin',
-                  scrollbarColor: 'rgba(255,255,255,0.1) transparent'
+                  scrollbarColor: 'rgba(255,255,255,0.1) transparent',
+                  display: 'flex',
+                  flexDirection: 'column'
                 }}
               >
-                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
                   {messages.length === 0 && !loading ? (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
                       <div style={{ textAlign: 'center', maxWidth: 500 }}>
