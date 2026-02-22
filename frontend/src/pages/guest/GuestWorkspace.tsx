@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../lib/api';
 import { GuestNavbar } from '../../components/GuestNavbar';
 import '../../styles/tokens.css';
 
@@ -10,19 +11,36 @@ export default function GuestWorkspace() {
 
   const [stats, setStats] = useState({
     psychologists: 0,
-    tests: 5,
-    publications: 0,
-    communityPosts: 0
+    clients: 0,
+    dreams: 0,
+    topSymbolsToday: [] as Array<{ symbol: string; count: number }>,
+    topSymbolsAll: [] as Array<{ symbol: string; count: number }>
   });
 
   useEffect(() => {
-    // Загружаем статистику (можно добавить API)
-    setStats({
-      psychologists: 12,
-      tests: 5,
-      publications: 42,
-      communityPosts: 156
-    });
+    // Загружаем статистику с API
+    (async () => {
+      try {
+        const data = await api<{
+          psychologists: number;
+          clients: number;
+          dreams: number;
+          topSymbolsToday: Array<{ symbol: string; count: number }>;
+          topSymbolsAll: Array<{ symbol: string; count: number }>;
+        }>('/api/psychologists/public/stats');
+        setStats(data);
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+        // Fallback значения
+        setStats({
+          psychologists: 0,
+          clients: 0,
+          dreams: 0,
+          topSymbolsToday: [],
+          topSymbolsAll: []
+        });
+      }
+    })();
   }, []);
 
   const features = [
@@ -100,8 +118,7 @@ export default function GuestWorkspace() {
             color: 'var(--text-muted)',
             marginBottom: 40
           }}>
-            Исследуйте глубины аналитической психологии, проходите тесты, общайтесь с сообществом, 
-            находите психологов и ведите дневник сновидений — всё в единой экосистеме.
+            Jung-Ai — психологическая платформа и ваш интеллектуальный партнер в практических исследованиях и психологической практике. Данная платформа объединяющая психологов и клиентов позволяет практиковать и общаться, вести учет и анализировать терапевтическую динамику, хранить дневник сновидений, исследовать сны и синхронии. Публикуйте свои работы, находите единомышленников и растите профессионально.
           </p>
           {!user && (
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -127,23 +144,45 @@ export default function GuestWorkspace() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 64 }}>
           <div className="card" style={{ padding: 24, textAlign: 'center' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>👨‍⚕️</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.psychologists}+</div>
+            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.psychologists}</div>
             <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Психологов</div>
           </div>
           <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.tests}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Тестов</div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.clients}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Клиентов</div>
           </div>
           <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📚</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.publications}+</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Публикаций</div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>💭</div>
+            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.dreams}</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Снов</div>
           </div>
           <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>💬</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.communityPosts}+</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Постов в форуме</div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🔮</div>
+            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, minHeight: 28 }}>
+              {stats.topSymbolsToday.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>Топ символов сегодня:</div>
+                  {stats.topSymbolsToday.map((item, idx) => (
+                    <div key={idx} style={{ fontSize: 13, color: 'var(--text)' }}>
+                      {item.symbol} ({item.count})
+                    </div>
+                  ))}
+                </div>
+              ) : stats.topSymbolsAll.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>Частые символы:</div>
+                  {stats.topSymbolsAll.slice(0, 3).map((item, idx) => (
+                    <div key={idx} style={{ fontSize: 13, color: 'var(--text)' }}>
+                      {item.symbol} ({item.count})
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Нет данных</div>
+              )}
+            </div>
+            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Символы</div>
           </div>
         </div>
 

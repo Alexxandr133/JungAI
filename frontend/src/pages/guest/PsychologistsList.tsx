@@ -23,6 +23,7 @@ export default function PsychologistsList() {
   const navigate = useNavigate();
   const [psychologists, setPsychologists] = useState<Psychologist[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedBios, setExpandedBios] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
   const [selectedPsychologist, setSelectedPsychologist] = useState<Psychologist | null>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -231,7 +232,11 @@ export default function PsychologistsList() {
                   }}>
                     {psych.avatarUrl ? (
                       <img 
-                        src={psych.avatarUrl.startsWith('http') ? psych.avatarUrl : `http://localhost:4000${psych.avatarUrl}`} 
+                        src={psych.avatarUrl.startsWith('http') 
+                          ? psych.avatarUrl 
+                          : (psych.avatarUrl.startsWith('/') 
+                              ? `${window.location.origin}${psych.avatarUrl}`
+                              : `${window.location.origin}/${psych.avatarUrl}`)} 
                         alt={psych.name} 
                         style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
                         onError={(e) => {
@@ -273,9 +278,46 @@ export default function PsychologistsList() {
                 </div>
 
                 {psych.bio && (
-                  <p style={{ color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16, fontSize: 14 }}>
-                    {psych.bio}
-                  </p>
+                  <div style={{ marginBottom: 16 }}>
+                    <p style={{ 
+                      color: 'var(--text-muted)', 
+                      lineHeight: 1.6, 
+                      fontSize: 14,
+                      margin: 0,
+                      display: '-webkit-box',
+                      WebkitLineClamp: expandedBios.has(psych.id) ? 'unset' : 3,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}>
+                      {psych.bio}
+                    </p>
+                    {psych.bio.length > 200 && (
+                      <button
+                        onClick={() => {
+                          const newExpanded = new Set(expandedBios);
+                          if (newExpanded.has(psych.id)) {
+                            newExpanded.delete(psych.id);
+                          } else {
+                            newExpanded.add(psych.id);
+                          }
+                          setExpandedBios(newExpanded);
+                        }}
+                        style={{
+                          marginTop: 8,
+                          padding: '4px 8px',
+                          fontSize: 12,
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--primary)',
+                          cursor: 'pointer',
+                          fontWeight: 500
+                        }}
+                      >
+                        {expandedBios.has(psych.id) ? 'Свернуть' : 'Читать далее...'}
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {psych.specialization && psych.specialization.length > 0 && (
