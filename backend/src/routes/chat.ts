@@ -8,8 +8,6 @@ const router = Router();
 // Для психологов верификация все еще требуется через requireRole
 router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    console.log(`[GET /chat/rooms] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
-    
     let items: any[] = [];
     
     if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
@@ -20,7 +18,6 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
       });
       
       const clientNames = clients.map(c => c.name);
-      console.log(`[GET /chat/rooms] Psychologist has ${clientNames.length} clients:`, clientNames);
       
       if (clientNames.length > 0) {
         items = await prisma.chatRoom.findMany({
@@ -30,8 +27,6 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
           orderBy: { createdAt: 'desc' }
         });
       }
-      
-      console.log(`[GET /chat/rooms] Returning ${items.length} rooms for psychologist`);
     } else if (req.user!.role === 'client') {
       // Для клиента: только комнаты, где клиент отправил хотя бы одно сообщение
       const clientRooms = await prisma.chatMessage.findMany({
@@ -41,7 +36,6 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
       });
       
       const roomIds = clientRooms.map(m => m.roomId);
-      console.log(`[GET /chat/rooms] Client has messages in ${roomIds.length} rooms`);
       
       if (roomIds.length > 0) {
         items = await prisma.chatRoom.findMany({
@@ -51,18 +45,10 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
           orderBy: { createdAt: 'desc' }
         });
       }
-      
-      console.log(`[GET /chat/rooms] Returning ${items.length} rooms for client`);
-    }
-    
-    // Логируем первые 10 комнат для диагностики
-    if (items.length > 0) {
-      console.log(`[GET /chat/rooms] Sample rooms (first 10):`, items.slice(0, 10).map(r => ({ id: r.id, name: r.name })));
     }
     
     res.json({ items });
   } catch (error: any) {
-    console.error(`[GET /chat/rooms] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to get rooms' });
   }
 });
@@ -70,12 +56,9 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
 router.post('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     const { name } = req.body ?? {};
-    console.log(`[POST /chat/rooms] Creating room "${name}" for user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
     const r = await prisma.chatRoom.create({ data: { name } });
-    console.log(`[POST /chat/rooms] Room created: ${r.id} (${r.name})`);
     res.status(201).json(r);
   } catch (error: any) {
-    console.error(`[POST /chat/rooms] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to create room' });
   }
 });
@@ -83,12 +66,9 @@ router.post('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', '
 router.get('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     const { id } = req.params;
-    console.log(`[GET /chat/rooms/${id}/messages] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
     const items = await prisma.chatMessage.findMany({ where: { roomId: id }, orderBy: { createdAt: 'asc' } });
-    console.log(`[GET /chat/rooms/${id}/messages] Returning ${items.length} messages`);
     res.json({ items });
   } catch (error: any) {
-    console.error(`[GET /chat/rooms/${req.params.id}/messages] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to get messages' });
   }
 });
@@ -97,7 +77,6 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
   try {
     const { id } = req.params;
     const { content } = req.body ?? {};
-    console.log(`[POST /chat/rooms/${id}/messages] Sending message from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}, content length: ${content?.length || 0}`);
     
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       return res.status(400).json({ error: 'Message content is required' });
@@ -110,10 +89,8 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
         content: content.trim() 
       } 
     });
-    console.log(`[POST /chat/rooms/${id}/messages] Message created: ${m.id}`);
     res.status(201).json(m);
   } catch (error: any) {
-    console.error(`[POST /chat/rooms/${req.params.id}/messages] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to send message' });
   }
 });
