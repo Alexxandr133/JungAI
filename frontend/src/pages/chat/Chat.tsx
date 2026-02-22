@@ -78,14 +78,21 @@ export default function ChatPage() {
 
   // Загрузить комнаты
   async function loadRooms() {
-    if (!token) return;
+    if (!token) {
+      console.log('[Chat] loadRooms: No token');
+      return;
+    }
     try {
+      console.log('[Chat] loadRooms: Fetching rooms...');
       const res = await api<{ items: ChatRoom[] }>('/api/chat/rooms', { token });
       // Backend уже фильтрует комнаты правильно, поэтому просто используем то, что пришло
-      setRooms(res.items || []);
-      return res.items || [];
+      const roomsList = res.items || [];
+      console.log('[Chat] loadRooms: Received rooms from API:', roomsList);
+      console.log('[Chat] loadRooms: Setting rooms state with', roomsList.length, 'rooms');
+      setRooms(roomsList);
+      return roomsList;
     } catch (e: any) {
-      console.error('Failed to load rooms:', e);
+      console.error('[Chat] loadRooms: Failed to load rooms:', e);
       return [];
     }
   }
@@ -308,6 +315,12 @@ export default function ChatPage() {
     const name = getChatName(room).toLowerCase();
     return name.includes(searchQuery.toLowerCase());
   });
+  
+  // Отладочное логирование
+  console.log('[Chat] Rooms state:', rooms);
+  console.log('[Chat] Filtered rooms:', filteredRooms);
+  console.log('[Chat] Clients:', clients);
+  console.log('[Chat] Current room ID:', currentRoomId);
 
   // Показать требование верификации
   if (isPsychologist && isVerified === false && token) {
@@ -443,7 +456,7 @@ export default function ChatPage() {
               )
             ) : (
               // Для психолога - список клиентов
-              filteredRooms.length > 0 ? (
+              rooms.length > 0 ? (
                 filteredRooms.map(room => {
                   const client = clients.find(c => c.name === room.name);
                   const avatar = client?.avatarUrl ? getAvatarUrl(client.avatarUrl, client.id) : null;
@@ -516,7 +529,7 @@ export default function ChatPage() {
                 })
               ) : (
                 <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-                  {searchQuery ? 'Ничего не найдено' : 'Нет чатов'}
+                  {searchQuery ? 'Ничего не найдено' : 'Загрузка чатов...'}
                 </div>
               )
             )}
