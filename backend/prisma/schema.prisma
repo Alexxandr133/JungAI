@@ -82,6 +82,7 @@ model Client {
   documentVersions DocumentVersion[]
   supportRequests  SupportRequest[]
   tabs             ClientTabs?
+  chatRoom         ChatRoom?
 }
 
 model TherapySession {
@@ -213,14 +214,21 @@ model Task {
 }
 
 model ChatRoom {
-  id        String   @id @default(cuid())
-  name      String?
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  psychologistId String
+  clientId       String   @unique
+  name           String?  // Имя клиента для отображения
+  createdAt      DateTime @default(now())
+  
+  // Связи
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages       ChatMessage[]
 }
 
 model ChatMessage {
   id        String   @id @default(cuid())
   roomId    String
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
   authorId  String
   content   String
   createdAt DateTime @default(now())

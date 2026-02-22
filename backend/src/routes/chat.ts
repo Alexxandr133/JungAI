@@ -1,78 +1,151 @@
 import { Router } from 'express';
-import { requireAuth, requireVerification, requireRole, AuthedRequest } from '../middleware/auth';
+import { requireAuth, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 
 const router = Router();
 
-// КРИТИЧНО: Убрали requireVerification для клиентов - они должны иметь доступ к чату
-// Для психологов верификация все еще требуется через requireRole
+// Получить комнаты чата
 router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    let items: any[] = [];
-    
     if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
-      // Для психолога: только комнаты с прикрепленными клиентами
-      const clients = await prisma.client.findMany({
+      // Для психолога: все комнаты с его клиентами
+      const rooms = await prisma.chatRoom.findMany({
         where: { psychologistId: req.user!.id },
-        select: { name: true }
+        include: {
+          client: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              profile: {
+                select: {
+                  avatarUrl: true
+                }
+              }
+            }
+          },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              content: true,
+              createdAt: true,
+              authorId: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
       });
       
-      const clientNames = clients.map(c => c.name);
-      
-      if (clientNames.length > 0) {
-        items = await prisma.chatRoom.findMany({
-          where: {
-            name: { in: clientNames }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
-      }
+      res.json({ items: rooms });
     } else if (req.user!.role === 'client') {
-      // Для клиента: только комнаты, где клиент отправил хотя бы одно сообщение
-      const clientRooms = await prisma.chatMessage.findMany({
-        where: { authorId: req.user!.id },
-        select: { roomId: true },
-        distinct: ['roomId']
+      // Для клиента: комната с его психологом
+      const client = await prisma.client.findFirst({
+        where: { 
+          email: req.user!.email 
+        },
+        select: { id: true }
       });
       
-      const roomIds = clientRooms.map(m => m.roomId);
-      
-      if (roomIds.length > 0) {
-        items = await prisma.chatRoom.findMany({
-          where: {
-            id: { in: roomIds }
-          },
-          orderBy: { createdAt: 'desc' }
-        });
+      if (!client) {
+        return res.json({ items: [] });
       }
+      
+      const room = await prisma.chatRoom.findUnique({
+        where: { clientId: client.id },
+        include: {
+          client: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              profile: {
+                select: {
+                  avatarUrl: true
+                }
+              }
+            }
+          },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              content: true,
+              createdAt: true,
+              authorId: true
+            }
+          }
+        }
+      });
+      
+      res.json({ items: room ? [room] : [] });
+    } else {
+      res.json({ items: [] });
     }
-    
-    res.json({ items });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to get rooms' });
   }
 });
 
-router.post('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
-  try {
-    const { name } = req.body ?? {};
-    const r = await prisma.chatRoom.create({ data: { name } });
-    res.status(201).json(r);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Failed to create room' });
-  }
-});
-
+// Получить сообщения комнаты
 router.get('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     const { id } = req.params;
-    const items = await prisma.chatMessage.findMany({ where: { roomId: id }, orderBy: { createdAt: 'asc' } });
-    res.json({ items });
+    
+    // Проверяем доступ к комнате
+    const room = await prisma.chatRoom.findUnique({
+      where: { id },
+      select: { psychologistId: true, clientId: true }
+    });
+    
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    // Проверяем, что пользователь имеет доступ к этой комнате
+    if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
+      if (room.psychologistId !== req.user!.id) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.user!.role === 'client') {
+      const client = await prisma.client.findFirst({
+        where: { email: req.user!.email },
+        select: { id: true }
+      });
+      
+      if (!client || room.clientId !== client.id) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    const messages = await prisma.chatMessage.findMany({
+      where: { roomId: id },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        room: {
+          select: {
+            client: {
+              select: {
+                name: true,
+                profile: {
+                  select: {
+                    avatarUrl: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    res.json({ items: messages });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to get messages' });
   }
 });
 
+// Отправить сообщение
 router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     const { id } = req.params;
@@ -82,14 +155,41 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
       return res.status(400).json({ error: 'Message content is required' });
     }
     
-    const m = await prisma.chatMessage.create({ 
-      data: { 
-        roomId: id, 
-        authorId: req.user!.id, 
-        content: content.trim() 
-      } 
+    // Проверяем доступ к комнате
+    const room = await prisma.chatRoom.findUnique({
+      where: { id },
+      select: { psychologistId: true, clientId: true }
     });
-    res.status(201).json(m);
+    
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    
+    // Проверяем, что пользователь имеет доступ к этой комнате
+    if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
+      if (room.psychologistId !== req.user!.id) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.user!.role === 'client') {
+      const client = await prisma.client.findFirst({
+        where: { email: req.user!.email },
+        select: { id: true }
+      });
+      
+      if (!client || room.clientId !== client.id) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    const message = await prisma.chatMessage.create({
+      data: {
+        roomId: id,
+        authorId: req.user!.id,
+        content: content.trim()
+      }
+    });
+    
+    res.status(201).json(message);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to send message' });
   }
@@ -98,8 +198,6 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
 // Отметить комнату как просмотренную
 router.post('/chat/rooms/:id/read', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    // Сохраняем время последнего просмотра в localStorage на клиенте
-    // На бэкенде просто возвращаем успех
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to mark as read' });
@@ -107,17 +205,14 @@ router.post('/chat/rooms/:id/read', requireAuth, requireRole(['client', 'psychol
 });
 
 // Получить количество непрочитанных сообщений
-// Для клиентов не требуется верификация, только для психологов
 router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) => {
   try {
-    // Получаем время последнего просмотра комнат из запроса (JSON объект roomId -> timestamp)
     const { roomViews } = req.query;
     let roomViewsMap: Record<string, Date> = {};
     
     if (roomViews && typeof roomViews === 'string') {
       try {
         const parsed = JSON.parse(roomViews);
-        // Преобразуем строки в Date объекты
         for (const key in parsed) {
           if (parsed[key]) {
             const date = new Date(parsed[key]);
@@ -131,17 +226,34 @@ router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) =>
       }
     }
     
-    // Получаем все комнаты
-    const rooms = await prisma.chatRoom.findMany();
+    let rooms: any[] = [];
+    
+    if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
+      rooms = await prisma.chatRoom.findMany({
+        where: { psychologistId: req.user!.id }
+      });
+    } else if (req.user!.role === 'client') {
+      const client = await prisma.client.findFirst({
+        where: { email: req.user!.email },
+        select: { id: true }
+      });
+      
+      if (client) {
+        const room = await prisma.chatRoom.findUnique({
+          where: { clientId: client.id }
+        });
+        
+        if (room) {
+          rooms = [room];
+        }
+      }
+    }
     
     let unreadCount = 0;
     for (const room of rooms) {
-      // Получаем время последнего просмотра этой комнаты
       const lastViewedTime = roomViewsMap[room.id];
       
       if (lastViewedTime) {
-        // Считаем только сообщения, созданные после последнего просмотра
-        // Используем строгое сравнение "больше" - сообщения, созданные после времени просмотра
         const unreadInRoom = await prisma.chatMessage.count({
           where: {
             roomId: room.id,
@@ -151,15 +263,12 @@ router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) =>
         });
         unreadCount += unreadInRoom;
       } else {
-        // Если нет времени просмотра, проверяем, есть ли вообще сообщения в комнате
         const totalMessages = await prisma.chatMessage.count({
           where: { roomId: room.id }
         });
         
-        // Если в комнате нет сообщений, пропускаем
         if (totalMessages === 0) continue;
         
-        // Если есть сообщения, но нет времени просмотра, используем логику - считаем после последнего сообщения пользователя
         const lastUserMessage = await prisma.chatMessage.findFirst({
           where: {
             roomId: room.id,
@@ -169,7 +278,6 @@ router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) =>
         });
         
         if (lastUserMessage) {
-          // Пользователь писал в комнате - считаем только сообщения после его последнего сообщения
           const unreadInRoom = await prisma.chatMessage.count({
             where: {
               roomId: room.id,
@@ -179,8 +287,6 @@ router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) =>
           });
           unreadCount += unreadInRoom;
         }
-        // Если пользователь не писал в комнате и нет времени просмотра, НЕ считаем сообщения непрочитанными
-        // (пользователь должен сначала открыть комнату, чтобы сообщения считались прочитанными)
       }
     }
 
