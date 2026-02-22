@@ -420,10 +420,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         email: true,
         phone: true,
         psychologistId: true, // КРИТИЧНО: включаем psychologistId в результат
-        createdAt: true,
-        age: true,
-        city: true,
-        tags: true
+        createdAt: true
       },
       orderBy: { createdAt: 'desc' } 
     });
