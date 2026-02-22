@@ -39,7 +39,7 @@ router.get('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psyc
     console.log(`[GET /chat/rooms/${id}/messages] Returning ${items.length} messages`);
     res.json({ items });
   } catch (error: any) {
-    console.error(`[GET /chat/rooms/${id}/messages] Error:`, error);
+    console.error(`[GET /chat/rooms/${req.params.id}/messages] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to get messages' });
   }
 });
@@ -64,7 +64,7 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
     console.log(`[POST /chat/rooms/${id}/messages] Message created: ${m.id}`);
     res.status(201).json(m);
   } catch (error: any) {
-    console.error(`[POST /chat/rooms/${id}/messages] Error:`, error);
+    console.error(`[POST /chat/rooms/${req.params.id}/messages] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to send message' });
   }
 });
