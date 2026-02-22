@@ -287,22 +287,44 @@ export default function ChatPage() {
 
   async function ensureRoomForClient(client: any) {
     if (!client) return;
-    const byName = rooms.find(r => (r.name || '').toLowerCase() === String(client.name || '').toLowerCase());
+    const clientName = client.name || client.id;
+    console.log('[Chat] ensureRoomForClient: Looking for room with client name:', clientName);
+    console.log('[Chat] ensureRoomForClient: Available rooms:', rooms.map(r => ({ id: r.id, name: r.name })));
+    
+    // Ищем комнату по точному совпадению имени (регистронезависимый)
+    const byName = rooms.find(r => {
+      const roomName = (r.name || '').trim().toLowerCase();
+      const clientNameLower = String(clientName || '').trim().toLowerCase();
+      const exactMatch = roomName === clientNameLower;
+      if (exactMatch) {
+        console.log('[Chat] ensureRoomForClient: Found exact match:', r.id, r.name);
+      }
+      return exactMatch;
+    });
+    
     if (byName) { 
+      console.log('[Chat] ensureRoomForClient: Opening existing room:', byName.id, byName.name);
       setCurrent(byName.id); 
       setShowClientsModal(false);
       await loadMessages(byName.id);
       return; 
     }
+    
+    // Если комнаты нет, создаем ее
     try {
-      const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: client.name || client.id } });
+      console.log('[Chat] ensureRoomForClient: Room not found, creating with name:', clientName);
+      const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: clientName } });
+      console.log('[Chat] ensureRoomForClient: Room created:', created?.id, created?.name);
       await loadRooms();
       setCurrent(created?.id || null);
       if (created?.id) {
         await loadMessages(created.id);
       }
       setShowClientsModal(false);
-    } catch (e: any) { setError(e.message || 'Failed to open chat'); }
+    } catch (e: any) { 
+      console.error('[Chat] ensureRoomForClient: Failed to create room:', e);
+      setError(e.message || 'Failed to open chat'); 
+    }
   }
 
   async function ensureRoomForPsychologist() {

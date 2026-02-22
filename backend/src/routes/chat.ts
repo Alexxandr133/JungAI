@@ -11,6 +11,10 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
     console.log(`[GET /chat/rooms] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
     const items = await prisma.chatRoom.findMany({ orderBy: { createdAt: 'desc' } });
     console.log(`[GET /chat/rooms] Returning ${items.length} rooms`);
+    // Логируем первые 10 комнат для диагностики
+    if (items.length > 0) {
+      console.log(`[GET /chat/rooms] Sample rooms (first 10):`, items.slice(0, 10).map(r => ({ id: r.id, name: r.name })));
+    }
     res.json({ items });
   } catch (error: any) {
     console.error(`[GET /chat/rooms] Error:`, error);

@@ -571,13 +571,17 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
 // Получить профиль клиента (для самого клиента)
 router.get('/client/profile', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
+    console.log(`[GET /client/profile] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
     const client = await prisma.client.findFirst({
       where: { email: req.user!.email }
     });
     
     if (!client) {
+      console.log(`[GET /client/profile] Client not found for email: ${req.user!.email}`);
       return res.status(404).json({ error: 'Client not found' });
     }
+    
+    console.log(`[GET /client/profile] Client found: id=${client.id}, name="${client.name}"`);
     
     const user = await prisma.user.findUnique({
       where: { email: req.user!.email },
@@ -586,11 +590,15 @@ router.get('/client/profile', requireAuth, requireRole(['client', 'admin']), asy
       }
     });
     
+    console.log(`[GET /client/profile] User profile: name="${user?.profile?.name || 'null'}"`);
+    console.log(`[GET /client/profile] Returning: client.name="${client.name}", profile.name="${user?.profile?.name || 'null'}"`);
+    
     res.json({
       client,
       profile: user?.profile || null
     });
   } catch (error: any) {
+    console.error(`[GET /client/profile] Error:`, error);
     res.status(500).json({ error: error.message || 'Failed to get profile' });
   }
 });
