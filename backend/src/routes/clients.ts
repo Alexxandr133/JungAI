@@ -386,13 +386,13 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
 
     if (req.user.role === 'psychologist') {
       // СТРОГАЯ ФИЛЬТРАЦИЯ: только клиенты этого психолога
-      // КРИТИЧНО: Используем AND для строгой фильтрации
+      // КРИТИЧНО: Используем правильный синтаксис Prisma
       whereClause = {
         AND: [
           { psychologistId: req.user.id }, // ТОЛЬКО клиенты этого психолога
           { psychologistId: { not: null } }, // Исключаем null
           { psychologistId: { not: '' } }, // Исключаем пустые строки
-          { NOT: { psychologistId: { startsWith: 'temp-' } } } // Исключаем временные
+          { psychologistId: { not: { startsWith: 'temp-' } } } // Исключаем временные (правильный синтаксис)
         ]
       };
       console.log(`[GET /clients] Filtering for psychologist ${req.user.id} with whereClause:`, JSON.stringify(whereClause));
@@ -402,7 +402,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         AND: [
           { psychologistId: { not: null } },
           { psychologistId: { not: '' } },
-          { NOT: { psychologistId: { startsWith: 'temp-' } } }
+          { psychologistId: { not: { startsWith: 'temp-' } } } // Правильный синтаксис
         ]
       };
       console.log(`[GET /clients] Admin access - showing all clients (excluding null/temp)`);

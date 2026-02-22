@@ -140,12 +140,10 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       }
 
       // Обычный режим - загружаем всех клиентов
-      const demo: Client[] = [
-        { id: 'c1', name: 'Иван Петров', email: 'ivan@example.com' },
-        { id: 'c2', name: 'Анна Смирнова', email: 'anna@example.com' },
-        { id: 'c3', name: 'Мария Коваль', email: 'maria@example.com' }
-      ];
-      if (!token) { setClients(demo); setCurrentClientId(prev => prev || demo[0].id); return; }
+      if (!token) { 
+        setClients([]); 
+        return; 
+      }
       try {
         const res = await api<{ items: any[] }>('/api/clients', { token: token ?? undefined });
         const items = (res.items || []).map(it => ({ 
@@ -155,16 +153,15 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           avatarUrl: it.avatarUrl || it.profile?.avatarUrl || null,
           profile: it.profile || null
         })) as any[];
-        setClients(items.length ? items : demo);
-        setCurrentClientId(prev => prev || (items[0]?.id || demo[0].id));
+        setClients(items); // КРИТИЧНО: показываем только реальных клиентов, без fallback на демо
+        setCurrentClientId(prev => prev || (items[0]?.id || ''));
       } catch (error: any) {
+        console.error('[WorkArea] Failed to load clients:', error);
         if (error.message?.includes('Verification required')) {
           setIsVerified(false);
-          setClients([]);
-        } else {
-          setClients(demo);
-          setCurrentClientId(prev => prev || demo[0].id);
         }
+        setClients([]); // КРИТИЧНО: при ошибке показываем пустой список, а не демо-клиентов
+        setCurrentClientId('');
       }
     })();
   }, [token, restrictedClientId, isVerified]);
