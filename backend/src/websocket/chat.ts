@@ -29,6 +29,10 @@ export function setupChatSocket(io: SocketIOServer) {
           }
 
           // Проверяем, является ли пользователь клиентом этой комнаты
+          if (!room.clientId) {
+            return;
+          }
+
           const client = await prisma.client.findUnique({
             where: { id: room.clientId },
             select: { email: true }
