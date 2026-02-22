@@ -55,12 +55,10 @@ export default function ChatPage() {
     try {
       const res = await api<{ items: any[] }>('/api/chat/rooms', { token: token ?? undefined });
       const roomsList = res.items || [];
-      console.log('[Chat] Loaded rooms:', roomsList.length, roomsList.map(r => ({ id: r.id, name: r.name })));
       setRooms(roomsList);
       return roomsList; // Возвращаем список комнат для использования
       // Не устанавливаем автоматически первую комнату - пользователь должен выбрать чат сам
     } catch (e: any) { 
-      console.error('[Chat] Failed to load rooms:', e);
       setError(e.message || 'Failed to load rooms'); 
       return []; 
     } finally { /* setLoadingRooms(false); */ }
@@ -76,7 +74,6 @@ export default function ChatPage() {
         // Комната будет открыта автоматически в useEffect после загрузки комнат
       } catch (e: any) {
         // Если психолог не найден, показываем сообщение
-        console.log('Psychologist not found:', e.message);
         setPsychologist(null);
       }
       return;
@@ -102,9 +99,7 @@ export default function ChatPage() {
   async function loadMessages(id: string) {
     setLoadingMessages(true);
     try {
-      console.log('[Chat] Loading messages for room:', id);
       const res = await api<{ items: any[] }>(`/api/chat/rooms/${id}/messages`, { token: token ?? undefined });
-      console.log('[Chat] Loaded messages:', res.items?.length || 0);
       setMessages(res.items || []);
       
       // Отмечаем комнату как просмотренную - сохраняем время для конкретной комнаты
@@ -196,17 +191,9 @@ export default function ChatPage() {
       // КРИТИЧНО: Используем имя клиента из client.name (такое же, как создает психолог и бэкенд)
       let clientName = user?.email?.split('@')[0] || 'Клиент';
       
-      console.log('[Chat] Client: Looking for room, initial clientName:', clientName);
-      console.log('[Chat] Client: Available rooms:', rooms.map(r => ({ id: r.id, name: r.name })));
-      
       // Пытаемся получить имя клиента из профиля (КРИТИЧНО: используем client.name, а не profile.name)
       api<any>('/api/client/profile', { token: token ?? undefined })
         .then(clientProfile => {
-          console.log('[Chat] Client: Got profile:', { 
-            clientName: clientProfile?.client?.name, 
-            profileName: clientProfile?.profile?.name 
-          });
-          
           // КРИТИЧНО: Приоритет client.name - это то же имя, что используется на бэкенде
           if (clientProfile?.client?.name) {
             clientName = clientProfile.client.name;
@@ -214,34 +201,24 @@ export default function ChatPage() {
             clientName = clientProfile.profile.name;
           }
           
-          console.log('[Chat] Client: Using clientName for room search:', clientName);
-          
           // Ищем комнату по точному совпадению имени (регистронезависимый)
           const existingRoom = rooms.find(r => {
             const roomName = (r.name || '').trim().toLowerCase();
             const clientNameLower = clientName.trim().toLowerCase();
             const exactMatch = roomName === clientNameLower;
             const partialMatch = roomName.includes(clientNameLower) || clientNameLower.includes(roomName);
-            
-            if (exactMatch || partialMatch) {
-              console.log('[Chat] Client: Found matching room:', r.id, r.name, 'exact:', exactMatch);
-            }
-            
             return exactMatch || partialMatch;
           });
           
           if (existingRoom) {
-            console.log('[Chat] Client: Opening room:', existingRoom.id, existingRoom.name);
             setCurrent(existingRoom.id);
             loadMessages(existingRoom.id);
           } else {
-            console.log('[Chat] Client: Room not found, creating new one');
             // Если комнаты нет, создаем ее
             ensureRoomForPsychologist();
           }
         })
-        .catch((e) => {
-          console.error('[Chat] Client: Failed to get profile:', e);
+        .catch(() => {
           // Если не удалось получить профиль, ищем по email
           const existingRoom = rooms.find(r => {
             const roomName = (r.name || '').trim().toLowerCase();
@@ -252,11 +229,9 @@ export default function ChatPage() {
           });
           
           if (existingRoom) {
-            console.log('[Chat] Client: Found room by email fallback:', existingRoom.id);
             setCurrent(existingRoom.id);
             loadMessages(existingRoom.id);
           } else {
-            console.log('[Chat] Client: Room not found (fallback), creating');
             ensureRoomForPsychologist();
           }
         });
@@ -288,22 +263,15 @@ export default function ChatPage() {
   async function ensureRoomForClient(client: any) {
     if (!client) return;
     const clientName = client.name || client.id;
-    console.log('[Chat] ensureRoomForClient: Looking for room with client name:', clientName);
-    console.log('[Chat] ensureRoomForClient: Available rooms:', rooms.map(r => ({ id: r.id, name: r.name })));
     
     // Ищем комнату по точному совпадению имени (регистронезависимый)
     const byName = rooms.find(r => {
       const roomName = (r.name || '').trim().toLowerCase();
       const clientNameLower = String(clientName || '').trim().toLowerCase();
-      const exactMatch = roomName === clientNameLower;
-      if (exactMatch) {
-        console.log('[Chat] ensureRoomForClient: Found exact match:', r.id, r.name);
-      }
-      return exactMatch;
+      return roomName === clientNameLower;
     });
     
     if (byName) { 
-      console.log('[Chat] ensureRoomForClient: Opening existing room:', byName.id, byName.name);
       setCurrent(byName.id); 
       setShowClientsModal(false);
       await loadMessages(byName.id);
@@ -312,9 +280,7 @@ export default function ChatPage() {
     
     // Если комнаты нет, создаем ее
     try {
-      console.log('[Chat] ensureRoomForClient: Room not found, creating with name:', clientName);
       const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: clientName } });
-      console.log('[Chat] ensureRoomForClient: Room created:', created?.id, created?.name);
       await loadRooms();
       setCurrent(created?.id || null);
       if (created?.id) {
@@ -322,7 +288,6 @@ export default function ChatPage() {
       }
       setShowClientsModal(false);
     } catch (e: any) { 
-      console.error('[Chat] ensureRoomForClient: Failed to create room:', e);
       setError(e.message || 'Failed to open chat'); 
     }
   }
@@ -338,11 +303,6 @@ export default function ChatPage() {
       // Для клиента: получаем client.name из профиля (то же, что используется на бэкенде)
       try {
         const clientProfile = await api<any>('/api/client/profile', { token: token ?? undefined });
-        console.log('[Chat] ensureRoomForPsychologist (client): Got profile:', {
-          clientName: clientProfile?.client?.name,
-          profileName: clientProfile?.profile?.name
-        });
-        
         // КРИТИЧНО: Приоритет client.name - это то же имя, что используется на бэкенде
         if (clientProfile?.client?.name) {
           clientName = clientProfile.client.name;
@@ -350,18 +310,15 @@ export default function ChatPage() {
           clientName = clientProfile.profile.name;
         }
       } catch (e) {
-        console.log('[Chat] ensureRoomForPsychologist (client): Failed to get profile, using email:', e);
         // Если не удалось получить профиль, используем email
       }
     } else if (isPsychologist) {
       // Для психолога: эта функция не должна вызываться напрямую
       // Психолог выбирает клиента через ensureRoomForClient
-      console.log('[Chat] ensureRoomForPsychologist: called for psychologist, this should not happen');
       return;
     }
     
     const roomName = clientName.trim();
-    console.log('[Chat] ensureRoomForPsychologist: looking for room with name:', roomName);
     
     // Перезагружаем комнаты перед поиском, чтобы убедиться, что у нас актуальный список
     const roomsList = await loadRooms();
@@ -370,17 +327,12 @@ export default function ChatPage() {
     const existingRoom = roomsList.find(r => {
       const roomNameLower = (r.name || '').trim().toLowerCase();
       const clientNameLower = clientName.toLowerCase();
-      const matches = roomNameLower === clientNameLower || 
+      return roomNameLower === clientNameLower || 
              roomNameLower.includes(clientNameLower) || 
              clientNameLower.includes(roomNameLower);
-      if (matches) {
-        console.log('[Chat] Found existing room:', r.id, r.name);
-      }
-      return matches;
     });
     
     if (existingRoom) {
-      console.log('[Chat] Opening existing room:', existingRoom.id);
       setCurrent(existingRoom.id);
       await loadMessages(existingRoom.id);
       return;
@@ -388,32 +340,22 @@ export default function ChatPage() {
     
     // Если комнаты нет, создаем ее
     try {
-      console.log('[Chat] Creating new room with name:', roomName);
       const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: roomName } });
-      console.log('[Chat] Room created:', created?.id, created?.name);
       await loadRooms(); // Обновляем список комнат
       setCurrent(created?.id || null);
       if (created?.id) {
         await loadMessages(created.id);
       }
     } catch (e: any) {
-      console.error('[Chat] Failed to create room:', e);
       setError(e.message || 'Не удалось открыть чат');
     }
   }
 
   async function sendMessage(e: React.FormEvent) {
-    e.preventDefault(); if (!current) {
-      console.error('[Chat] Cannot send message: no current room');
-      return;
-    }
-    if (!content || !content.trim()) {
-      console.log('[Chat] Cannot send empty message');
-      return;
-    }
+    e.preventDefault(); if (!current) return;
+    if (!content || !content.trim()) return;
     setError(null);
     try {
-      console.log('[Chat] Sending message to room:', current, 'content length:', content.length);
       const optimistic = { id: `tmp-${Date.now()}`, authorId: user?.id, content, createdAt: new Date().toISOString() };
       setSending(true);
       setMessages(prev => [...prev, optimistic]);
@@ -423,7 +365,6 @@ export default function ChatPage() {
         textareaRef.current.style.height = '44px';
       }
       await api(`/api/chat/rooms/${current}/messages`, { method: 'POST', token: token ?? undefined, body: { content: messageContent } });
-      console.log('[Chat] Message sent successfully');
       
       // Обновляем время просмотра комнаты сразу после отправки сообщения
       // Это гарантирует, что собственное сообщение не будет считаться непрочитанным
