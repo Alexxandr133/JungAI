@@ -368,21 +368,53 @@ router.get('/my-events', requireAuth, requireRole(['client', 'admin']), async (r
 // Клиенты психолога
 router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
-    // Получаем клиентов, исключая временные записи (temp-*)
+    // КРИТИЧНО: Проверяем, что пользователь авторизован
+    if (!req.user || !req.user.id) {
+      console.error('[GET /clients] No user in request');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Для админов - показываем всех клиентов (но можно ограничить, если нужно)
+    // Для психологов - только своих клиентов
+    const whereClause: any = {
+      // Исключаем клиентов с временным psychologistId
+      NOT: {
+        psychologistId: { startsWith: 'temp-' }
+      }
+    };
+
+    // КРИТИЧНО: Для психологов строго фильтруем по их ID
+    if (req.user.role === 'psychologist') {
+      whereClause.psychologistId = req.user.id;
+      console.log(`[GET /clients] Psychologist ${req.user.id} (${req.user.email}) requesting clients`);
+    } else if (req.user.role === 'admin') {
+      // Админы видят всех клиентов (можно закомментировать, если нужно ограничить)
+      console.log(`[GET /clients] Admin ${req.user.id} (${req.user.email}) requesting all clients`);
+    } else {
+      console.error(`[GET /clients] Invalid role: ${req.user.role}`);
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Получаем клиентов с правильной фильтрацией
     const clients = await prisma.client.findMany({ 
-      where: { 
-        psychologistId: req.user!.id,
-        // Исключаем клиентов с временным psychologistId
-        NOT: {
-          psychologistId: { startsWith: 'temp-' }
-        }
-      }, 
+      where: whereClause,
       orderBy: { createdAt: 'desc' } 
     });
+
+    // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА БЕЗОПАСНОСТИ: Для психологов еще раз фильтруем на всякий случай
+    let filteredClients = clients;
+    if (req.user.role === 'psychologist') {
+      filteredClients = clients.filter(client => client.psychologistId === req.user!.id);
+      if (filteredClients.length !== clients.length) {
+        console.error(`[GET /clients] SECURITY WARNING: Filtered ${clients.length} to ${filteredClients.length} clients for psychologist ${req.user.id}`);
+      }
+    }
+    
+    console.log(`[GET /clients] Returning ${filteredClients.length} clients for ${req.user.role} ${req.user.id}`);
     
     // Используем Set для удаления дубликатов по email
     const uniqueClients = new Map();
-    for (const client of clients) {
+    for (const client of filteredClients) {
       if (client.email && !uniqueClients.has(client.email)) {
         uniqueClients.set(client.email, client);
       } else if (!client.email && !uniqueClients.has(client.id)) {
@@ -408,6 +440,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     
     res.json({ items });
   } catch (error: any) {
+    console.error('[GET /clients] Error:', error);
     res.status(500).json({ error: error.message || 'Failed to get clients' });
   }
 });
