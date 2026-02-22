@@ -1095,6 +1095,8 @@ export default function PsychologistAIChat() {
                 }}
               >
                 <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
+                  {/* Shortcut buttons - показываем только если режим работы с клиентами включен и выбран клиент */}
+                  {clientModeEnabled && selectedClientId && (
                     <div style={{ 
                       display: 'flex', 
                       gap: 10, 
@@ -1281,7 +1283,6 @@ export default function PsychologistAIChat() {
                       </div>
                     </div>
                   )}
-                </div>
 
                   {/* Input field */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
