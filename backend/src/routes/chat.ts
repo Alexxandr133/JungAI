@@ -1,21 +1,23 @@
 import { Router } from 'express';
-import { requireAuth, requireVerification, AuthedRequest } from '../middleware/auth';
+import { requireAuth, requireVerification, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 
 const router = Router();
 
-router.get('/chat/rooms', requireAuth, requireVerification, async (_req, res) => {
+// КРИТИЧНО: Убрали requireVerification для клиентов - они должны иметь доступ к чату
+// Для психологов верификация все еще требуется через requireRole
+router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (_req, res) => {
   const items = await prisma.chatRoom.findMany({ orderBy: { createdAt: 'desc' } });
   res.json({ items });
 });
 
-router.post('/chat/rooms', requireAuth, requireVerification, async (req, res) => {
+router.post('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req, res) => {
   const { name } = req.body ?? {};
   const r = await prisma.chatRoom.create({ data: { name } });
   res.status(201).json(r);
 });
 
-router.get('/chat/rooms/:id/messages', requireAuth, requireVerification, async (req: AuthedRequest, res) => {
+router.get('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   const items = await prisma.chatMessage.findMany({ where: { roomId: req.params.id }, orderBy: { createdAt: 'asc' } });
   
   // Отмечаем время последнего просмотра комнаты пользователем
@@ -25,14 +27,14 @@ router.get('/chat/rooms/:id/messages', requireAuth, requireVerification, async (
   res.json({ items });
 });
 
-router.post('/chat/rooms/:id/messages', requireAuth, requireVerification, async (req: AuthedRequest, res) => {
+router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   const { content } = req.body ?? {};
   const m = await prisma.chatMessage.create({ data: { roomId: req.params.id, authorId: req.user!.id, content } });
   res.status(201).json(m);
 });
 
 // Отметить комнату как просмотренную
-router.post('/chat/rooms/:id/read', requireAuth, requireVerification, async (req: AuthedRequest, res) => {
+router.post('/chat/rooms/:id/read', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     // Сохраняем время последнего просмотра в localStorage на клиенте
     // На бэкенде просто возвращаем успех
