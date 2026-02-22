@@ -297,7 +297,7 @@ export default function PsychologistAIChat() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', height: 'calc(100vh - 64px)' }}>
         {/* Sidebar */}
         <div
           style={{
@@ -307,11 +307,13 @@ export default function PsychologistAIChat() {
             display: 'flex',
             flexDirection: 'column',
             transition: 'width 0.3s',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            height: '100%',
+            position: 'relative'
           }}
         >
           {sidebarOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
               {/* Header */}
               <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                 <button
@@ -717,7 +719,7 @@ export default function PsychologistAIChat() {
         </button>
 
         {/* Main chat area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%' }}>
           {!currentChatId && messages.length === 0 ? (
             <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 48 }}>
               <div style={{ textAlign: 'center', maxWidth: 600 }}>
@@ -751,40 +753,117 @@ export default function PsychologistAIChat() {
                   scrollbarColor: 'rgba(255,255,255,0.1) transparent'
                 }}
               >
-                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
-                  {messages.map((msg, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        display: 'flex',
-                        justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                        marginBottom: 32,
-                        alignItems: 'flex-start'
-                      }}
-                    >
-                      <div
-                        style={{
-                          maxWidth: '85%',
-                          padding: '16px 20px',
-                          borderRadius: 18,
-                          background: msg.role === 'user'
-                            ? 'linear-gradient(135deg, var(--primary), var(--accent))'
-                            : 'var(--surface-2)',
-                          color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
-                          lineHeight: 1.6,
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                          fontSize: 15,
-                          boxShadow: msg.role === 'user' 
-                            ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
-                            : '0 2px 8px rgba(0, 0, 0, 0.1)'
-                        }}
-                      >
-                        {msg.content}
+                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
+                  {messages.length === 0 && !loading ? (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
+                      <div style={{ textAlign: 'center', maxWidth: 500 }}>
+                        <div style={{ fontSize: 56, marginBottom: 20, opacity: 0.8 }}>💬</div>
+                        <h3 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
+                          Начните диалог с AI ассистентом
+                        </h3>
+                        <p style={{ color: 'var(--text-muted)', fontSize: 15, lineHeight: 1.6, marginBottom: 24 }}>
+                          Задавайте вопросы о клиентах, их снах, заметках и сессиях. Я помогу вам с анализом, 
+                          интерпретацией и подготовкой к работе с пациентами.
+                        </p>
+                        {selectedClientId && (
+                          <div style={{ 
+                            padding: '12px 16px', 
+                            background: 'rgba(91, 124, 250, 0.1)', 
+                            borderRadius: 10, 
+                            marginBottom: 20,
+                            border: '1px solid rgba(91, 124, 250, 0.2)'
+                          }}>
+                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
+                              Выбранный клиент:
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--primary)' }}>
+                              {clients.find(c => c.id === selectedClientId)?.name || 'Неизвестный клиент'}
+                            </div>
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+                            Попробуйте спросить:
+                          </div>
+                          <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            gap: 6, 
+                            width: '100%',
+                            maxWidth: 400
+                          }}>
+                            <div style={{ 
+                              padding: '10px 14px', 
+                              background: 'var(--surface-2)', 
+                              borderRadius: 8, 
+                              fontSize: 13,
+                              color: 'var(--text-muted)',
+                              textAlign: 'left',
+                              border: '1px solid rgba(255,255,255,0.05)'
+                            }}>
+                              "Дай сводку по клиенту..."
+                            </div>
+                            <div style={{ 
+                              padding: '10px 14px', 
+                              background: 'var(--surface-2)', 
+                              borderRadius: 8, 
+                              fontSize: 13,
+                              color: 'var(--text-muted)',
+                              textAlign: 'left',
+                              border: '1px solid rgba(255,255,255,0.05)'
+                            }}>
+                              "Проанализируй последние сны..."
+                            </div>
+                            <div style={{ 
+                              padding: '10px 14px', 
+                              background: 'var(--surface-2)', 
+                              borderRadius: 8, 
+                              fontSize: 13,
+                              color: 'var(--text-muted)',
+                              textAlign: 'left',
+                              border: '1px solid rgba(255,255,255,0.05)'
+                            }}>
+                              "Составь план следующей сессии..."
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                  {loading && (
+                  ) : (
+                    <>
+                      {messages.map((msg, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                            marginBottom: 32,
+                            alignItems: 'flex-start'
+                          }}
+                        >
+                          <div
+                            style={{
+                              maxWidth: '85%',
+                              padding: '16px 20px',
+                              borderRadius: 18,
+                              background: msg.role === 'user'
+                                ? 'linear-gradient(135deg, var(--primary), var(--accent))'
+                                : 'var(--surface-2)',
+                              color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
+                              lineHeight: 1.6,
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                              fontSize: 15,
+                              boxShadow: msg.role === 'user' 
+                                ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
+                                : '0 2px 8px rgba(0, 0, 0, 0.1)'
+                            }}
+                          >
+                            {msg.content}
+                          </div>
+                        </div>
+                      ))}
+                      {loading && (
                     <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 32 }}>
                       <div
                         style={{
@@ -802,8 +881,10 @@ export default function PsychologistAIChat() {
                         <span>Думаю...</span>
                       </div>
                     </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </>
                   )}
-                  <div ref={messagesEndRef} />
                 </div>
               </div>
 
