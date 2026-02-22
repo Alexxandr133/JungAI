@@ -54,9 +54,16 @@ export default function ChatPage() {
     // setLoadingRooms(true);
     try {
       const res = await api<{ items: any[] }>('/api/chat/rooms', { token: token ?? undefined });
-      setRooms(res.items || []);
+      const roomsList = res.items || [];
+      console.log('[Chat] Loaded rooms:', roomsList.length, roomsList.map(r => ({ id: r.id, name: r.name })));
+      setRooms(roomsList);
+      return roomsList; // Возвращаем список комнат для использования
       // Не устанавливаем автоматически первую комнату - пользователь должен выбрать чат сам
-    } catch (e: any) { setError(e.message || 'Failed to load rooms'); } finally { /* setLoadingRooms(false); */ }
+    } catch (e: any) { 
+      console.error('[Chat] Failed to load rooms:', e);
+      setError(e.message || 'Failed to load rooms'); 
+      return []; 
+    } finally { /* setLoadingRooms(false); */ }
   }
 
   async function loadClients() {
@@ -95,8 +102,10 @@ export default function ChatPage() {
   async function loadMessages(id: string) {
     setLoadingMessages(true);
     try {
+      console.log('[Chat] Loading messages for room:', id);
       const res = await api<{ items: any[] }>(`/api/chat/rooms/${id}/messages`, { token: token ?? undefined });
-      setMessages(res.items);
+      console.log('[Chat] Loaded messages:', res.items?.length || 0);
+      setMessages(res.items || []);
       
       // Отмечаем комнату как просмотренную - сохраняем время для конкретной комнаты
       if (id) {
@@ -276,7 +285,10 @@ export default function ChatPage() {
   }
 
   async function ensureRoomForPsychologist() {
-    if (!psychologist) return;
+    if (!psychologist) {
+      console.log('[Chat] ensureRoomForPsychologist: no psychologist');
+      return;
+    }
     // Используем имя клиента для комнаты (клиент и психолог должны видеть одну комнату)
     // Получаем имя клиента из профиля
     let clientName = user?.email?.split('@')[0] || 'Клиент';
@@ -288,23 +300,30 @@ export default function ChatPage() {
         clientName = clientProfile.profile.name;
       }
     } catch (e) {
+      console.log('[Chat] Failed to get client profile, using email:', e);
       // Если не удалось получить профиль, используем email
     }
     const roomName = clientName.trim();
+    console.log('[Chat] ensureRoomForPsychologist: looking for room with name:', roomName);
     
     // Перезагружаем комнаты перед поиском, чтобы убедиться, что у нас актуальный список
-    await loadRooms();
+    const roomsList = await loadRooms();
     
     // Ищем существующую комнату (регистронезависимый поиск)
-    const existingRoom = rooms.find(r => {
+    const existingRoom = roomsList.find(r => {
       const roomNameLower = (r.name || '').trim().toLowerCase();
       const clientNameLower = clientName.toLowerCase();
-      return roomNameLower === clientNameLower || 
+      const matches = roomNameLower === clientNameLower || 
              roomNameLower.includes(clientNameLower) || 
              clientNameLower.includes(roomNameLower);
+      if (matches) {
+        console.log('[Chat] Found existing room:', r.id, r.name);
+      }
+      return matches;
     });
     
     if (existingRoom) {
+      console.log('[Chat] Opening existing room:', existingRoom.id);
       setCurrent(existingRoom.id);
       await loadMessages(existingRoom.id);
       return;
@@ -312,28 +331,42 @@ export default function ChatPage() {
     
     // Если комнаты нет, создаем ее
     try {
+      console.log('[Chat] Creating new room with name:', roomName);
       const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: roomName } });
-      await loadRooms();
+      console.log('[Chat] Room created:', created?.id, created?.name);
+      const updatedRooms = await loadRooms();
       setCurrent(created?.id || null);
       if (created?.id) {
         await loadMessages(created.id);
       }
     } catch (e: any) {
+      console.error('[Chat] Failed to create room:', e);
       setError(e.message || 'Не удалось открыть чат');
     }
   }
 
   async function sendMessage(e: React.FormEvent) {
-    e.preventDefault(); if (!current) return; setError(null);
+    e.preventDefault(); if (!current) {
+      console.error('[Chat] Cannot send message: no current room');
+      return;
+    }
+    if (!content || !content.trim()) {
+      console.log('[Chat] Cannot send empty message');
+      return;
+    }
+    setError(null);
     try {
+      console.log('[Chat] Sending message to room:', current, 'content length:', content.length);
       const optimistic = { id: `tmp-${Date.now()}`, authorId: user?.id, content, createdAt: new Date().toISOString() };
       setSending(true);
       setMessages(prev => [...prev, optimistic]);
+      const messageContent = content;
       setContent('');
       if (textareaRef.current) {
         textareaRef.current.style.height = '44px';
       }
-      await api(`/api/chat/rooms/${current}/messages`, { method: 'POST', token: token ?? undefined, body: { content } });
+      await api(`/api/chat/rooms/${current}/messages`, { method: 'POST', token: token ?? undefined, body: { content: messageContent } });
+      console.log('[Chat] Message sent successfully');
       
       // Обновляем время просмотра комнаты сразу после отправки сообщения
       // Это гарантирует, что собственное сообщение не будет считаться непрочитанным

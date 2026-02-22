@@ -6,31 +6,67 @@ const router = Router();
 
 // КРИТИЧНО: Убрали requireVerification для клиентов - они должны иметь доступ к чату
 // Для психологов верификация все еще требуется через requireRole
-router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (_req, res) => {
-  const items = await prisma.chatRoom.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json({ items });
+router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    console.log(`[GET /chat/rooms] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
+    const items = await prisma.chatRoom.findMany({ orderBy: { createdAt: 'desc' } });
+    console.log(`[GET /chat/rooms] Returning ${items.length} rooms`);
+    res.json({ items });
+  } catch (error: any) {
+    console.error(`[GET /chat/rooms] Error:`, error);
+    res.status(500).json({ error: error.message || 'Failed to get rooms' });
+  }
 });
 
-router.post('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req, res) => {
-  const { name } = req.body ?? {};
-  const r = await prisma.chatRoom.create({ data: { name } });
-  res.status(201).json(r);
+router.post('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const { name } = req.body ?? {};
+    console.log(`[POST /chat/rooms] Creating room "${name}" for user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
+    const r = await prisma.chatRoom.create({ data: { name } });
+    console.log(`[POST /chat/rooms] Room created: ${r.id} (${r.name})`);
+    res.status(201).json(r);
+  } catch (error: any) {
+    console.error(`[POST /chat/rooms] Error:`, error);
+    res.status(500).json({ error: error.message || 'Failed to create room' });
+  }
 });
 
 router.get('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
-  const items = await prisma.chatMessage.findMany({ where: { roomId: req.params.id }, orderBy: { createdAt: 'asc' } });
-  
-  // Отмечаем время последнего просмотра комнаты пользователем
-  // Используем простой подход - храним в таблице ChatRoomView или обновляем через API
-  // Пока что просто возвращаем сообщения, а подсчет непрочитанных будет учитывать время последнего просмотра
-  
-  res.json({ items });
+  try {
+    const { id } = req.params;
+    console.log(`[GET /chat/rooms/${id}/messages] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
+    const items = await prisma.chatMessage.findMany({ where: { roomId: id }, orderBy: { createdAt: 'asc' } });
+    console.log(`[GET /chat/rooms/${id}/messages] Returning ${items.length} messages`);
+    res.json({ items });
+  } catch (error: any) {
+    console.error(`[GET /chat/rooms/${id}/messages] Error:`, error);
+    res.status(500).json({ error: error.message || 'Failed to get messages' });
+  }
 });
 
 router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
-  const { content } = req.body ?? {};
-  const m = await prisma.chatMessage.create({ data: { roomId: req.params.id, authorId: req.user!.id, content } });
-  res.status(201).json(m);
+  try {
+    const { id } = req.params;
+    const { content } = req.body ?? {};
+    console.log(`[POST /chat/rooms/${id}/messages] Sending message from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}, content length: ${content?.length || 0}`);
+    
+    if (!content || typeof content !== 'string' || content.trim().length === 0) {
+      return res.status(400).json({ error: 'Message content is required' });
+    }
+    
+    const m = await prisma.chatMessage.create({ 
+      data: { 
+        roomId: id, 
+        authorId: req.user!.id, 
+        content: content.trim() 
+      } 
+    });
+    console.log(`[POST /chat/rooms/${id}/messages] Message created: ${m.id}`);
+    res.status(201).json(m);
+  } catch (error: any) {
+    console.error(`[POST /chat/rooms/${id}/messages] Error:`, error);
+    res.status(500).json({ error: error.message || 'Failed to send message' });
+  }
 });
 
 // Отметить комнату как просмотренную
