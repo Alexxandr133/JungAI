@@ -6,6 +6,7 @@ import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
+import { io, Socket } from 'socket.io-client';
 
 interface ChatRoom {
   id: string;
@@ -56,6 +57,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   // Проверка верификации для психологов
   useEffect(() => {
@@ -84,6 +86,66 @@ export default function ChatPage() {
       setCurrentRoomId(rooms[0].id);
     }
   }, [isClient, rooms, currentRoomId]);
+
+  // Подключение к Socket.io для real-time обновлений
+  useEffect(() => {
+    if (!token || !user) return;
+
+    const env = (import.meta as any).env || {};
+    const apiUrl = env.VITE_API_ORIGIN || env.VITE_API_URL || window.location.origin;
+    
+    const socket = io(apiUrl, {
+      transports: ['websocket', 'polling'],
+      auth: {
+        token: token
+      }
+    });
+
+    socketRef.current = socket;
+
+    // Слушаем новые сообщения
+    socket.on('new-message', (message: ChatMessage) => {
+      if (message.roomId === currentRoomId) {
+        setMessages(prev => {
+          // Проверяем, нет ли уже такого сообщения (избегаем дубликатов)
+          if (prev.some(m => m.id === message.id)) {
+            return prev;
+          }
+          return [...prev, message];
+        });
+        
+        // Обновляем список комнат для показа последнего сообщения
+        setRooms(prev => prev.map(room => 
+          room.id === message.roomId 
+            ? { ...room, messages: [{ content: message.content, createdAt: message.createdAt, authorId: message.authorId }] }
+            : room
+        ));
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [token, user, currentRoomId]);
+
+  // Присоединение к комнате через Socket.io
+  useEffect(() => {
+    if (socketRef.current && currentRoomId && user) {
+      socketRef.current.emit('join-chat-room', {
+        roomId: currentRoomId,
+        userId: user.id
+      });
+    }
+
+    return () => {
+      if (socketRef.current && currentRoomId) {
+        socketRef.current.emit('leave-chat-room', {
+          roomId: currentRoomId
+        });
+      }
+    };
+  }, [currentRoomId, user]);
 
   // Загрузка сообщений при смене комнаты
   useEffect(() => {
@@ -119,9 +181,6 @@ export default function ChatPage() {
     
     try {
       const res = await api<{ items: ChatRoom[] }>('/api/chat/rooms', { token });
-      console.log('[Chat] Loaded rooms:', res.items);
-      console.log('[Chat] First room:', res.items?.[0]);
-      console.log('[Chat] First room psychologist:', res.items?.[0]?.psychologist);
       setRooms(res.items || []);
       
       // Если комната не выбрана и есть комнаты, выбираем первую
@@ -129,7 +188,7 @@ export default function ChatPage() {
         setCurrentRoomId(res.items[0].id);
       }
     } catch (e: any) {
-      console.error('Failed to load rooms:', e);
+      // Игнорируем ошибки
     }
   }
 
@@ -155,7 +214,7 @@ export default function ChatPage() {
       
       window.dispatchEvent(new CustomEvent('chat-room-opened', { detail: { roomId } }));
     } catch (e: any) {
-      console.error('Failed to load messages:', e);
+      // Игнорируем ошибки
     } finally {
       setLoading(false);
     }
@@ -203,7 +262,6 @@ export default function ChatPage() {
       await loadMessages(currentRoomId);
       await loadRooms();
     } catch (e: any) {
-      console.error('Failed to send message:', e);
       // Удаляем оптимистичное сообщение при ошибке
       setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
     } finally {
@@ -224,22 +282,15 @@ export default function ChatPage() {
 
   function getRoomName(room: ChatRoom): string {
     if (isClient) {
-      // Для клиента показываем имя психолога
-      console.log('[Chat] getRoomName for client, room:', room);
-      console.log('[Chat] psychologist:', room.psychologist);
       return room.psychologist?.name || 'Психолог';
     }
-    // Для психолога показываем имя клиента
     return room.client?.displayName || room.client?.name || room.name || 'Клиент';
   }
 
   function getRoomAvatar(room: ChatRoom): string | null {
     if (isClient) {
-      // Для клиента показываем аватар психолога
-      console.log('[Chat] getRoomAvatar for client, psychologist:', room.psychologist);
       return room.psychologist?.avatarUrl || null;
     }
-    // Для психолога показываем аватар клиента
     return room.client?.avatarUrl || null;
   }
 
@@ -297,10 +348,8 @@ export default function ChatPage() {
             {rooms.map(room => {
               const isActive = room.id === currentRoomId;
               const lastMessage = room.messages?.[0];
-              console.log('[Chat] Rendering room:', room.id, 'isClient:', isClient, 'room.psychologist:', room.psychologist);
               const roomName = getRoomName(room);
               const avatarUrl = getRoomAvatar(room);
-              console.log('[Chat] Computed roomName:', roomName, 'avatarUrl:', avatarUrl);
               
               return (
                 <button

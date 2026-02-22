@@ -9,6 +9,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config';
 import { setupVoiceRoomSocket } from './websocket/voiceRoom';
+import { setupChatSocket } from './websocket/chat';
 import health from './routes/health';
 import auth from './routes/auth';
 import dreams from './routes/dreams';
@@ -155,6 +156,9 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 // Настройка WebSocket для голосовых комнат
 setupVoiceRoomSocket(io);
+
+// Настройка WebSocket для чата
+setupChatSocket(io);
 
 httpServer.listen(config.port, () => {
   // eslint-disable-next-line no-console

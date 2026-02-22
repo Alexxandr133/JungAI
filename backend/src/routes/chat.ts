@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { io } from '../server';
 
 const router = Router();
 
@@ -112,12 +113,6 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
         } : null
       };
       
-      console.log('[GET /chat/rooms] Client room with psychologist:', {
-        roomId: roomWithPsychologist.id,
-        psychologist: roomWithPsychologist.psychologist,
-        psychologistId: client.psychologistId
-      });
-      
       res.json({ items: [roomWithPsychologist] });
     } else {
       res.json({ items: [] });
@@ -223,6 +218,9 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
         content: content.trim()
       }
     });
+    
+    // Отправляем новое сообщение всем участникам комнаты через WebSocket
+    io.to(`chat-room-${id}`).emit('new-message', message);
     
     res.status(201).json(message);
   } catch (error: any) {
