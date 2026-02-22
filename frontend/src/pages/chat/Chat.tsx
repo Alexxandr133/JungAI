@@ -16,9 +16,13 @@ interface ChatRoom {
     id: string;
     name: string;
     email: string | null;
-    profile?: {
-      avatarUrl: string | null;
-    };
+    avatarUrl?: string | null;
+    displayName?: string;
+  };
+  psychologist?: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
   };
   messages?: Array<{
     content: string;
@@ -115,6 +119,9 @@ export default function ChatPage() {
     
     try {
       const res = await api<{ items: ChatRoom[] }>('/api/chat/rooms', { token });
+      console.log('[Chat] Loaded rooms:', res.items);
+      console.log('[Chat] First room:', res.items?.[0]);
+      console.log('[Chat] First room psychologist:', res.items?.[0]?.psychologist);
       setRooms(res.items || []);
       
       // Если комната не выбрана и есть комнаты, выбираем первую
@@ -217,18 +224,23 @@ export default function ChatPage() {
 
   function getRoomName(room: ChatRoom): string {
     if (isClient) {
-      // Для клиента показываем имя психолога (нужно получить из профиля)
-      return 'Психолог';
+      // Для клиента показываем имя психолога
+      console.log('[Chat] getRoomName for client, room:', room);
+      console.log('[Chat] psychologist:', room.psychologist);
+      return room.psychologist?.name || 'Психолог';
     }
-    return room.client?.name || room.name || 'Клиент';
+    // Для психолога показываем имя клиента
+    return room.client?.displayName || room.client?.name || room.name || 'Клиент';
   }
 
   function getRoomAvatar(room: ChatRoom): string | null {
     if (isClient) {
       // Для клиента показываем аватар психолога
-      return null;
+      console.log('[Chat] getRoomAvatar for client, psychologist:', room.psychologist);
+      return room.psychologist?.avatarUrl || null;
     }
-    return room.client?.profile?.avatarUrl || null;
+    // Для психолога показываем аватар клиента
+    return room.client?.avatarUrl || null;
   }
 
   const currentRoom = rooms.find(r => r.id === currentRoomId);
@@ -285,8 +297,10 @@ export default function ChatPage() {
             {rooms.map(room => {
               const isActive = room.id === currentRoomId;
               const lastMessage = room.messages?.[0];
+              console.log('[Chat] Rendering room:', room.id, 'isClient:', isClient, 'room.psychologist:', room.psychologist);
               const roomName = getRoomName(room);
               const avatarUrl = getRoomAvatar(room);
+              console.log('[Chat] Computed roomName:', roomName, 'avatarUrl:', avatarUrl);
               
               return (
                 <button
