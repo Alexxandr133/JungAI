@@ -37,6 +37,34 @@ const STORAGE_KEY = 'psychologist_ai_chats';
 const FOLDERS_STORAGE_KEY = 'psychologist_ai_folders';
 const SHORTCUTS_STORAGE_KEY = 'psychologist_ai_shortcuts';
 
+// Популярные эмодзи для шорткастов (организованы по категориям)
+const EMOJI_CATEGORIES = [
+  {
+    name: 'Действия',
+    emojis: ['📊', '💡', '📋', '📝', '✏️', '📌', '🔍', '📈', '📉', '📑', '📄', '📃']
+  },
+  {
+    name: 'Эмоции и состояния',
+    emojis: ['😊', '😢', '😡', '😰', '😴', '🤔', '😌', '😎', '🙂', '😐', '😟', '😄']
+  },
+  {
+    name: 'Объекты',
+    emojis: ['💎', '🔮', '⭐', '🌟', '✨', '💫', '🔥', '💧', '🌊', '🌙', '☀️', '🌈']
+  },
+  {
+    name: 'Символы',
+    emojis: ['✅', '❌', '⚠️', '❗', '❓', '💬', '🔔', '🔕', '📢', '📣', '🎯', '🎪']
+  },
+  {
+    name: 'Люди',
+    emojis: ['👤', '👥', '👨', '👩', '🧑', '👶', '👴', '👵', '🧓', '👨‍⚕️', '👩‍⚕️', '🧑‍⚕️']
+  },
+  {
+    name: 'Природа',
+    emojis: ['🌳', '🌲', '🌴', '🌱', '🌿', '🍃', '🌾', '🌷', '🌹', '🌺', '🌸', '🌻']
+  }
+];
+
 export default function PsychologistAIChat() {
   const { token } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -64,6 +92,7 @@ export default function PsychologistAIChat() {
   const [newShortcutLabel, setNewShortcutLabel] = useState('');
   const [newShortcutEmoji, setNewShortcutEmoji] = useState('📝');
   const [newShortcutPrompt, setNewShortcutPrompt] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
@@ -116,6 +145,20 @@ export default function PsychologistAIChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Закрываем селектор эмодзи при клике вне его
+  useEffect(() => {
+    if (showEmojiPicker) {
+      const handleClickOutside = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        if (!target.closest('[data-emoji-picker]')) {
+          setShowEmojiPicker(false);
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showEmojiPicker]);
 
   function loadChats() {
     try {
@@ -260,6 +303,7 @@ export default function PsychologistAIChat() {
     setNewShortcutEmoji(shortcut.emoji);
     setNewShortcutPrompt(shortcut.prompt);
     setShowAddShortcutModal(true);
+    setShowEmojiPicker(false);
   }
 
   function cancelEditShortcut() {
@@ -268,6 +312,7 @@ export default function PsychologistAIChat() {
     setNewShortcutEmoji('📝');
     setNewShortcutPrompt('');
     setShowAddShortcutModal(false);
+    setShowEmojiPicker(false);
   }
 
   function handleShortcutClick(shortcut: Shortcut) {
@@ -1643,6 +1688,7 @@ export default function PsychologistAIChat() {
                 setNewShortcutEmoji('📝');
                 setNewShortcutPrompt('');
                 setShowAddShortcutModal(true);
+                setShowEmojiPicker(false);
               }}
               style={{ width: '100%', padding: '12px' }}
             >
@@ -1668,7 +1714,11 @@ export default function PsychologistAIChat() {
             zIndex: 10001,
             padding: 20
           }}
-          onClick={cancelEditShortcut}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              cancelEditShortcut();
+            }
+          }}
         >
           <div
             style={{
@@ -1679,7 +1729,13 @@ export default function PsychologistAIChat() {
               width: '100%',
               border: '1px solid rgba(255,255,255,0.12)'
             }}
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              // Закрываем селектор эмодзи при клике на модалку
+              if (showEmojiPicker) {
+                setShowEmojiPicker(false);
+              }
+            }}
           >
             <h3 style={{ margin: '0 0 20px 0', fontSize: 18, fontWeight: 700 }}>
               {editingShortcutId ? 'Редактировать команду' : 'Добавить команду'}
@@ -1689,24 +1745,122 @@ export default function PsychologistAIChat() {
               <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
                 Эмодзи
               </label>
-              <input
-                type="text"
-                value={newShortcutEmoji}
-                onChange={e => setNewShortcutEmoji(e.target.value)}
-                placeholder="📝"
-                maxLength={2}
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'var(--surface-2)',
-                  color: 'var(--text)',
-                  fontSize: 20,
-                  textAlign: 'center',
-                  marginBottom: 16
-                }}
-              />
+              <div style={{ position: 'relative' }} data-emoji-picker>
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'var(--surface-2)',
+                    color: 'var(--text)',
+                    fontSize: 24,
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--surface-3)';
+                    e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--surface-2)';
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                  }}
+                >
+                  <span>{newShortcutEmoji || '📝'}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>▼</span>
+                </button>
+                
+                {showEmojiPicker && (
+                  <div
+                    data-emoji-picker
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      marginTop: 8,
+                      background: 'var(--surface)',
+                      borderRadius: 12,
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      padding: 16,
+                      maxHeight: 300,
+                      overflowY: 'auto',
+                      zIndex: 10002,
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)'
+                    }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {EMOJI_CATEGORIES.map((category, catIdx) => (
+                      <div key={catIdx} style={{ marginBottom: catIdx < EMOJI_CATEGORIES.length - 1 ? 16 : 0 }}>
+                        <div style={{ 
+                          fontSize: 11, 
+                          fontWeight: 600, 
+                          color: 'var(--text-muted)', 
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          marginBottom: 8,
+                          paddingBottom: 4,
+                          borderBottom: '1px solid rgba(255,255,255,0.05)'
+                        }}>
+                          {category.name}
+                        </div>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(6, 1fr)', 
+                          gap: 8 
+                        }}>
+                          {category.emojis.map((emoji, emojiIdx) => (
+                            <button
+                              key={emojiIdx}
+                              type="button"
+                              onClick={() => {
+                                setNewShortcutEmoji(emoji);
+                                setShowEmojiPicker(false);
+                              }}
+                              style={{
+                                padding: '8px',
+                                fontSize: 20,
+                                background: newShortcutEmoji === emoji ? 'rgba(91, 124, 250, 0.2)' : 'transparent',
+                                border: newShortcutEmoji === emoji 
+                                  ? '1px solid rgba(91, 124, 250, 0.4)' 
+                                  : '1px solid rgba(255,255,255,0.05)',
+                                borderRadius: 8,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (newShortcutEmoji !== emoji) {
+                                  e.currentTarget.style.background = 'var(--surface-2)';
+                                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (newShortcutEmoji !== emoji) {
+                                  e.currentTarget.style.background = 'transparent';
+                                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)';
+                                }
+                              }}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div style={{ marginBottom: 16 }}>
