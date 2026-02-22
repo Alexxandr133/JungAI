@@ -215,13 +215,13 @@ model Task {
 
 model ChatRoom {
   id             String   @id @default(cuid())
-  psychologistId String?  // Временно опциональное для миграции
-  clientId       String?  @unique // Временно опциональное для миграции
+  psychologistId String
+  clientId       String   @unique
   name           String?  // Имя клиента для отображения
   createdAt      DateTime @default(now())
   
   // Связи
-  client         Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   messages       ChatMessage[]
 }
 
