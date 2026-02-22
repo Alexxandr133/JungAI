@@ -48,6 +48,8 @@ export default function WidgetRenderer({
 }: WidgetRendererProps) {
   const [showControls, setShowControls] = useState(false);
   const widgetRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartTimeRef = useRef<number | null>(null);
 
   const renderWidget = () => {
     const commonProps = { data, size: widget.size, config: widget.config };
@@ -113,17 +115,16 @@ export default function WidgetRenderer({
   // Определяем, кликабелен ли виджет
   const isClickable = onClick && ['totalClients', 'activeSessions', 'newDreams', 'newJournalEntries', 'topClients', 'topSymbols', 'requiresAttention', 'sessionsCalendar', 'dreamsStats'].includes(widget.type);
 
+
   return (
     <div
       ref={widgetRef}
       className="card"
       draggable={!!onDragStart}
       onDragStart={(e) => {
-        // Предотвращаем перетаскивание при клике на виджет
-        if (isClickable) {
-          e.preventDefault();
-          return;
-        }
+        // Помечаем, что начался drag
+        isDraggingRef.current = true;
+        dragStartTimeRef.current = Date.now();
         onDragStart?.(widget.id);
       }}
       onDragOver={(e) => {
@@ -135,10 +136,22 @@ export default function WidgetRenderer({
         e.preventDefault();
         onDrop?.(e, position);
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={(e) => {
+        // Сбрасываем состояние после drag с небольшой задержкой
+        // чтобы onClick не сработал сразу после drag
+        setTimeout(() => {
+          isDraggingRef.current = false;
+          dragStartTimeRef.current = null;
+        }, 100);
+        onDragEnd?.();
+      }}
       onClick={(e) => {
-        // Кликаем только если не кликнули на элементы управления
-        if (isClickable && !(e.target as HTMLElement).closest('[data-widget-control]')) {
+        // Кликаем только если:
+        // 1. Виджет кликабелен
+        // 2. Не был drag (проверяем флаг и время)
+        // 3. Не кликнули на элементы управления
+        const timeSinceDrag = dragStartTimeRef.current ? Date.now() - dragStartTimeRef.current : Infinity;
+        if (isClickable && !isDraggingRef.current && timeSinceDrag > 200 && !(e.target as HTMLElement).closest('[data-widget-control]')) {
           onClick?.(widget.type);
         }
       }}

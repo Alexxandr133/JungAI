@@ -738,255 +738,341 @@ export default function PsychologistAIChat() {
             </div>
           ) : (
             <>
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 48px', maxWidth: 900, margin: '0 auto', width: '100%' }}>
-                {messages.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: 'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                      marginBottom: 24
-                    }}
-                  >
+              {/* Messages area - scrollable */}
+              <div 
+                style={{ 
+                  flex: 1, 
+                  overflowY: 'auto', 
+                  overflowX: 'hidden',
+                  padding: '32px 0',
+                  minHeight: 0,
+                  scrollBehavior: 'smooth',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: 'rgba(255,255,255,0.1) transparent'
+                }}
+              >
+                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
+                  {messages.map((msg, idx) => (
                     <div
+                      key={idx}
                       style={{
-                        maxWidth: '80%',
-                        padding: '16px 20px',
-                        borderRadius: 16,
-                        background: msg.role === 'user'
-                          ? 'linear-gradient(135deg, var(--primary), var(--accent))'
-                          : 'var(--surface-2)',
-                        color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
-                        lineHeight: 1.7,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        fontSize: 15
+                        display: 'flex',
+                        justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                        marginBottom: 32,
+                        alignItems: 'flex-start'
                       }}
                     >
-                      {msg.content}
-                    </div>
-                  </div>
-                ))}
-                {loading && (
-                  <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 24 }}>
-                    <div
-                      style={{
-                        padding: '16px 20px',
-                        borderRadius: 16,
-                        background: 'var(--surface-2)',
-                        color: 'var(--text-muted)',
-                        fontSize: 15
-                      }}
-                    >
-                      Думаю...
-                    </div>
-                  </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Client selector and shortcuts */}
-              <div style={{ padding: '16px 48px 0', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface)' }}>
-                <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {/* Client selector */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <label style={{ fontSize: 14, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Клиент:</label>
-                    <select
-                      value={selectedClientId || ''}
-                      onChange={(e) => setSelectedClientId(e.target.value || null)}
-                      disabled={loadingClients}
-                      style={{
-                        flex: 1,
-                        padding: '10px 14px',
-                        borderRadius: 10,
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        background: 'var(--surface-2)',
-                        color: 'var(--text)',
-                        fontSize: 14,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                        maxWidth: 300
-                      }}
-                    >
-                      <option value="">Все клиенты</option>
-                      {clients.map(client => (
-                        <option key={client.id} value={client.id}>
-                          {client.name} {client.email ? `(${client.email})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedClientId && (
-                      <button
-                        onClick={() => setSelectedClientId(null)}
+                      <div
                         style={{
-                          padding: '8px 12px',
-                          fontSize: 12,
-                          background: 'transparent',
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          borderRadius: 8,
+                          maxWidth: '85%',
+                          padding: '16px 20px',
+                          borderRadius: 18,
+                          background: msg.role === 'user'
+                            ? 'linear-gradient(135deg, var(--primary), var(--accent))'
+                            : 'var(--surface-2)',
+                          color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
+                          lineHeight: 1.6,
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          fontSize: 15,
+                          boxShadow: msg.role === 'user' 
+                            ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
+                            : '0 2px 8px rgba(0, 0, 0, 0.1)'
+                        }}
+                      >
+                        {msg.content}
+                      </div>
+                    </div>
+                  ))}
+                  {loading && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 32 }}>
+                      <div
+                        style={{
+                          padding: '16px 20px',
+                          borderRadius: 18,
+                          background: 'var(--surface-2)',
                           color: 'var(--text-muted)',
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap'
+                          fontSize: 15,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8
                         }}
                       >
-                        Сбросить
-                      </button>
-                    )}
-                  </div>
-                  
-                  {/* Shortcut buttons */}
-                  {selectedClientId && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button
-                        onClick={async () => {
-                          const selectedClient = clients.find(c => c.id === selectedClientId);
-                          const prompt = `Дай сводку по клиенту ${selectedClient?.name || 'выбранному клиенту'}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.`;
-                          setInput(prompt);
-                          inputRef.current?.focus();
-                        }}
-                        disabled={loading}
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: 13,
-                          background: 'rgba(91, 124, 250, 0.15)',
-                          border: '1px solid rgba(91, 124, 250, 0.3)',
-                          borderRadius: 8,
-                          color: 'var(--primary)',
-                          cursor: loading ? 'not-allowed' : 'pointer',
-                          fontWeight: 500,
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!loading) {
-                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.25)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
-                        }}
-                      >
-                        📊 Сводка по клиенту
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const selectedClient = clients.find(c => c.id === selectedClientId);
-                          const prompt = `Сформулируй гипотезы по клиенту ${selectedClient?.name || 'выбранному клиенту'} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.`;
-                          setInput(prompt);
-                          inputRef.current?.focus();
-                        }}
-                        disabled={loading}
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: 13,
-                          background: 'rgba(91, 124, 250, 0.15)',
-                          border: '1px solid rgba(91, 124, 250, 0.3)',
-                          borderRadius: 8,
-                          color: 'var(--primary)',
-                          cursor: loading ? 'not-allowed' : 'pointer',
-                          fontWeight: 500,
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!loading) {
-                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.25)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
-                        }}
-                      >
-                        💡 Гипотезы
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const selectedClient = clients.find(c => c.id === selectedClientId);
-                          const prompt = `Составь план следующей сессии для клиента ${selectedClient?.name || 'выбранного клиента'}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.`;
-                          setInput(prompt);
-                          inputRef.current?.focus();
-                        }}
-                        disabled={loading}
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: 13,
-                          background: 'rgba(91, 124, 250, 0.15)',
-                          border: '1px solid rgba(91, 124, 250, 0.3)',
-                          borderRadius: 8,
-                          color: 'var(--primary)',
-                          cursor: loading ? 'not-allowed' : 'pointer',
-                          fontWeight: 500,
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!loading) {
-                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.25)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
-                        }}
-                      >
-                        📋 План следующей сессии
-                      </button>
+                        <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>●</span>
+                        <span>Думаю...</span>
+                      </div>
                     </div>
                   )}
+                  <div ref={messagesEndRef} />
                 </div>
               </div>
 
-              {/* Input */}
-              <div style={{ padding: '24px 48px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface)' }}>
-                <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-                  <textarea
-                    ref={inputRef}
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendMessage();
-                      }
-                    }}
-                    placeholder="Напишите сообщение..."
-                    disabled={loading}
-                    style={{
-                      flex: 1,
-                      padding: '14px 18px',
-                      borderRadius: 12,
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      background: 'var(--surface-2)',
-                      color: 'var(--text)',
-                      fontSize: 15,
-                      fontFamily: 'inherit',
-                      resize: 'none',
-                      minHeight: 52,
-                      maxHeight: 200,
-                      lineHeight: 1.5
-                    }}
-                    rows={1}
-                    onInput={(e) => {
-                      const target = e.target as HTMLTextAreaElement;
-                      target.style.height = 'auto';
-                      target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
-                    }}
-                  />
-                  <button
-                    className="button"
-                    onClick={sendMessage}
-                    disabled={!input.trim() || loading}
-                    style={{
-                      padding: '14px 24px',
-                      fontSize: 15,
-                      fontWeight: 600,
-                      whiteSpace: 'nowrap',
-                      opacity: (!input.trim() || loading) ? 0.5 : 1,
-                      cursor: (!input.trim() || loading) ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    {loading ? '...' : 'Отправить'}
-                  </button>
+              {/* Input area - fixed at bottom */}
+              <div 
+                style={{ 
+                  borderTop: '1px solid rgba(255,255,255,0.08)', 
+                  background: 'var(--surface)',
+                  padding: '16px 0'
+                }}
+              >
+                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
+                  {/* Client selector and shortcuts */}
+                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* Client selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <label style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                        Клиент:
+                      </label>
+                      <select
+                        value={selectedClientId || ''}
+                        onChange={(e) => setSelectedClientId(e.target.value || null)}
+                        disabled={loadingClients}
+                        style={{
+                          flex: 1,
+                          minWidth: 200,
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          background: 'var(--surface-2)',
+                          color: 'var(--text)',
+                          fontSize: 13,
+                          fontFamily: 'inherit',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                        }}
+                      >
+                        <option value="">Все клиенты</option>
+                        {clients.map(client => (
+                          <option key={client.id} value={client.id}>
+                            {client.name} {client.email ? `(${client.email})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedClientId && (
+                        <button
+                          onClick={() => setSelectedClientId(null)}
+                          style={{
+                            padding: '8px 12px',
+                            fontSize: 12,
+                            background: 'transparent',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 8,
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                          }}
+                        >
+                          ✕ Сбросить
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Shortcut buttons */}
+                    {selectedClientId && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={async () => {
+                            const selectedClient = clients.find(c => c.id === selectedClientId);
+                            const prompt = `Дай сводку по клиенту ${selectedClient?.name || 'выбранному клиенту'}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.`;
+                            setInput(prompt);
+                            setTimeout(() => {
+                              inputRef.current?.focus();
+                              if (inputRef.current) {
+                                inputRef.current.style.height = 'auto';
+                                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+                              }
+                            }, 0);
+                          }}
+                          disabled={loading}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            background: 'rgba(91, 124, 250, 0.1)',
+                            border: '1px solid rgba(91, 124, 250, 0.2)',
+                            borderRadius: 6,
+                            color: 'var(--primary)',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            fontWeight: 500,
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.2s',
+                            opacity: loading ? 0.5 : 1
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!loading) {
+                              e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
+                          }}
+                        >
+                          📊 Сводка
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const selectedClient = clients.find(c => c.id === selectedClientId);
+                            const prompt = `Сформулируй гипотезы по клиенту ${selectedClient?.name || 'выбранному клиенту'} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.`;
+                            setInput(prompt);
+                            setTimeout(() => {
+                              inputRef.current?.focus();
+                              if (inputRef.current) {
+                                inputRef.current.style.height = 'auto';
+                                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+                              }
+                            }, 0);
+                          }}
+                          disabled={loading}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            background: 'rgba(91, 124, 250, 0.1)',
+                            border: '1px solid rgba(91, 124, 250, 0.2)',
+                            borderRadius: 6,
+                            color: 'var(--primary)',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            fontWeight: 500,
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.2s',
+                            opacity: loading ? 0.5 : 1
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!loading) {
+                              e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
+                          }}
+                        >
+                          💡 Гипотезы
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const selectedClient = clients.find(c => c.id === selectedClientId);
+                            const prompt = `Составь план следующей сессии для клиента ${selectedClient?.name || 'выбранного клиента'}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.`;
+                            setInput(prompt);
+                            setTimeout(() => {
+                              inputRef.current?.focus();
+                              if (inputRef.current) {
+                                inputRef.current.style.height = 'auto';
+                                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+                              }
+                            }, 0);
+                          }}
+                          disabled={loading}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            background: 'rgba(91, 124, 250, 0.1)',
+                            border: '1px solid rgba(91, 124, 250, 0.2)',
+                            borderRadius: 6,
+                            color: 'var(--primary)',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            fontWeight: 500,
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.2s',
+                            opacity: loading ? 0.5 : 1
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!loading) {
+                              e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
+                          }}
+                        >
+                          📋 План сессии
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input field */}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <textarea
+                        ref={inputRef}
+                        value={input}
+                        onChange={e => {
+                          setInput(e.target.value);
+                          const target = e.target as HTMLTextAreaElement;
+                          target.style.height = 'auto';
+                          target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            sendMessage();
+                          }
+                        }}
+                        placeholder="Напишите сообщение..."
+                        disabled={loading}
+                        style={{
+                          width: '100%',
+                          padding: '12px 16px',
+                          paddingRight: 48,
+                          borderRadius: 12,
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          background: 'var(--surface-2)',
+                          color: 'var(--text)',
+                          fontSize: 15,
+                          fontFamily: 'inherit',
+                          resize: 'none',
+                          minHeight: 24,
+                          maxHeight: 200,
+                          lineHeight: 1.5,
+                          overflow: 'hidden',
+                          transition: 'border-color 0.2s'
+                        }}
+                        rows={1}
+                        onFocus={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                        }}
+                      />
+                    </div>
+                    <button
+                      className="button"
+                      onClick={sendMessage}
+                      disabled={!input.trim() || loading}
+                      style={{
+                        padding: '12px 20px',
+                        fontSize: 15,
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        opacity: (!input.trim() || loading) ? 0.5 : 1,
+                        cursor: (!input.trim() || loading) ? 'not-allowed' : 'pointer',
+                        minWidth: 100,
+                        height: 48
+                      }}
+                    >
+                      {loading ? '...' : 'Отправить'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </>
@@ -1065,6 +1151,17 @@ export default function PsychologistAIChat() {
           </div>
         </div>
       )}
+      
+      <style>{`
+        @keyframes pulse {
+          0%, 100% {
+            opacity: 1;
+          }
+          50% {
+            opacity: 0.3;
+          }
+        }
+      `}</style>
     </div>
   );
 }
