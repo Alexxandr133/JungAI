@@ -25,8 +25,17 @@ type Folder = {
   createdAt: string;
 };
 
+type Shortcut = {
+  id: string;
+  label: string;
+  emoji: string;
+  prompt: string;
+  createdAt: string;
+};
+
 const STORAGE_KEY = 'psychologist_ai_chats';
 const FOLDERS_STORAGE_KEY = 'psychologist_ai_folders';
+const SHORTCUTS_STORAGE_KEY = 'psychologist_ai_shortcuts';
 
 export default function PsychologistAIChat() {
   const { token } = useAuth();
@@ -48,6 +57,13 @@ export default function PsychologistAIChat() {
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientModeEnabled, setClientModeEnabled] = useState(true); // Тумблер для работы с клиентами
   const [isSending, setIsSending] = useState(false); // Дополнительная блокировка отправки
+  const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showAddShortcutModal, setShowAddShortcutModal] = useState(false);
+  const [editingShortcutId, setEditingShortcutId] = useState<string | null>(null);
+  const [newShortcutLabel, setNewShortcutLabel] = useState('');
+  const [newShortcutEmoji, setNewShortcutEmoji] = useState('📝');
+  const [newShortcutPrompt, setNewShortcutPrompt] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
@@ -55,6 +71,7 @@ export default function PsychologistAIChat() {
   useEffect(() => {
     loadChats();
     loadFolders();
+    loadShortcuts();
     // Загружаем клиентов только если режим работы с клиентами включен
     if (clientModeEnabled) {
       loadClients();
@@ -146,6 +163,124 @@ export default function PsychologistAIChat() {
     } catch (e) {
       console.error('Failed to save folders:', e);
     }
+  }
+
+  function loadShortcuts() {
+    try {
+      const saved = localStorage.getItem(SHORTCUTS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setShortcuts(Array.isArray(parsed) ? parsed : []);
+      } else {
+        // Инициализируем дефолтные шорткасты
+        const defaultShortcuts: Shortcut[] = [
+          {
+            id: 'shortcut-1',
+            label: 'Сводка',
+            emoji: '📊',
+            prompt: 'Дай сводку по клиенту {clientName}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.',
+            createdAt: new Date().toISOString()
+          },
+          {
+            id: 'shortcut-2',
+            label: 'Гипотезы',
+            emoji: '💡',
+            prompt: 'Сформулируй гипотезы по клиенту {clientName} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.',
+            createdAt: new Date().toISOString()
+          },
+          {
+            id: 'shortcut-3',
+            label: 'План сессии',
+            emoji: '📋',
+            prompt: 'Составь план следующей сессии для клиента {clientName}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.',
+            createdAt: new Date().toISOString()
+          }
+        ];
+        setShortcuts(defaultShortcuts);
+        saveShortcuts(defaultShortcuts);
+      }
+    } catch (e) {
+      console.error('Failed to load shortcuts:', e);
+      setShortcuts([]);
+    }
+  }
+
+  function saveShortcuts(newShortcuts: Shortcut[]) {
+    try {
+      localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(newShortcuts));
+      setShortcuts(newShortcuts);
+    } catch (e) {
+      console.error('Failed to save shortcuts:', e);
+    }
+  }
+
+  function addShortcut() {
+    if (!newShortcutLabel.trim() || !newShortcutPrompt.trim()) {
+      alert('Заполните название и промпт');
+      return;
+    }
+    const newShortcut: Shortcut = {
+      id: `shortcut-${Date.now()}-${Math.random()}`,
+      label: newShortcutLabel.trim(),
+      emoji: newShortcutEmoji || '📝',
+      prompt: newShortcutPrompt.trim(),
+      createdAt: new Date().toISOString()
+    };
+    saveShortcuts([...shortcuts, newShortcut]);
+    cancelEditShortcut();
+  }
+
+  function updateShortcut(shortcutId: string) {
+    if (!newShortcutLabel.trim() || !newShortcutPrompt.trim()) {
+      alert('Заполните название и промпт');
+      return;
+    }
+    const updatedShortcuts = shortcuts.map(s =>
+      s.id === shortcutId
+        ? {
+            ...s,
+            label: newShortcutLabel.trim(),
+            emoji: newShortcutEmoji || '📝',
+            prompt: newShortcutPrompt.trim()
+          }
+        : s
+    );
+    saveShortcuts(updatedShortcuts);
+    cancelEditShortcut();
+  }
+
+  function deleteShortcut(shortcutId: string) {
+    if (!window.confirm('Удалить этот шорткаст?')) return;
+    saveShortcuts(shortcuts.filter(s => s.id !== shortcutId));
+  }
+
+  function startEditShortcut(shortcut: Shortcut) {
+    setEditingShortcutId(shortcut.id);
+    setNewShortcutLabel(shortcut.label);
+    setNewShortcutEmoji(shortcut.emoji);
+    setNewShortcutPrompt(shortcut.prompt);
+    setShowAddShortcutModal(true);
+  }
+
+  function cancelEditShortcut() {
+    setEditingShortcutId(null);
+    setNewShortcutLabel('');
+    setNewShortcutEmoji('📝');
+    setNewShortcutPrompt('');
+    setShowAddShortcutModal(false);
+  }
+
+  function handleShortcutClick(shortcut: Shortcut) {
+    const selectedClient = clients.find(c => c.id === selectedClientId);
+    const prompt = shortcut.prompt.replace(/{clientName}/g, selectedClient?.name || 'выбранному клиенту');
+    setInput(prompt);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      if (inputRef.current) {
+        inputRef.current.style.height = 'auto';
+        inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+      }
+    }, 0);
   }
 
   function createNewChat(folderId: string | null = null) {
@@ -1101,7 +1236,7 @@ export default function PsychologistAIChat() {
               >
                 <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
                   {/* Shortcut buttons - показываем только если режим работы с клиентами включен и выбран клиент */}
-                  {clientModeEnabled && selectedClientId && (
+                  {clientModeEnabled && selectedClientId && shortcuts.length > 0 && (
                     <div style={{ 
                       display: 'flex', 
                       gap: 10, 
@@ -1115,162 +1250,86 @@ export default function PsychologistAIChat() {
                     }}>
                       <div style={{ 
                         width: '100%', 
-                        fontSize: 11, 
-                        color: 'var(--text-muted)', 
-                        fontWeight: 600, 
-                        textTransform: 'uppercase', 
-                        letterSpacing: '0.5px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
                         marginBottom: 8
                       }}>
-                        Быстрые действия
+                        <div style={{ 
+                          fontSize: 11, 
+                          color: 'var(--text-muted)', 
+                          fontWeight: 600, 
+                          textTransform: 'uppercase', 
+                          letterSpacing: '0.5px'
+                        }}>
+                          Быстрые действия
+                        </div>
+                        <button
+                          onClick={() => setShowShortcutsModal(true)}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 11,
+                            background: 'rgba(91, 124, 250, 0.1)',
+                            border: '1px solid rgba(91, 124, 250, 0.2)',
+                            borderRadius: 6,
+                            color: 'var(--primary)',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
+                          }}
+                        >
+                          ⚙️ Настроить
+                        </button>
                       </div>
-                      <button
-                        onClick={async () => {
-                          const selectedClient = clients.find(c => c.id === selectedClientId);
-                          const prompt = `Дай сводку по клиенту ${selectedClient?.name || 'выбранному клиенту'}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.`;
-                          setInput(prompt);
-                          setTimeout(() => {
-                            inputRef.current?.focus();
-                            if (inputRef.current) {
-                              inputRef.current.style.height = 'auto';
-                              inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
-                            }
-                          }, 0);
-                        }}
-                        disabled={loading || isSending}
-                        style={{
-                          padding: '10px 16px',
-                          fontSize: 13,
-                          background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
-                          border: '1px solid rgba(91, 124, 250, 0.3)',
-                          borderRadius: 8,
-                          color: 'var(--primary)',
-                          cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s',
-                          opacity: (loading || isSending) ? 0.5 : 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!loading && !isSending) {
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
-                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
-                        }}
-                      >
-                        <span>📊</span>
-                        <span>Сводка</span>
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const selectedClient = clients.find(c => c.id === selectedClientId);
-                          const prompt = `Сформулируй гипотезы по клиенту ${selectedClient?.name || 'выбранному клиенту'} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.`;
-                          setInput(prompt);
-                          setTimeout(() => {
-                            inputRef.current?.focus();
-                            if (inputRef.current) {
-                              inputRef.current.style.height = 'auto';
-                              inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
-                            }
-                          }, 0);
-                        }}
-                        disabled={loading || isSending}
-                        style={{
-                          padding: '10px 16px',
-                          fontSize: 13,
-                          background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
-                          border: '1px solid rgba(91, 124, 250, 0.3)',
-                          borderRadius: 8,
-                          color: 'var(--primary)',
-                          cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s',
-                          opacity: (loading || isSending) ? 0.5 : 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!loading && !isSending) {
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
-                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
-                        }}
-                      >
-                        <span>💡</span>
-                        <span>Гипотезы</span>
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const selectedClient = clients.find(c => c.id === selectedClientId);
-                          const prompt = `Составь план следующей сессии для клиента ${selectedClient?.name || 'выбранного клиента'}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.`;
-                          setInput(prompt);
-                          setTimeout(() => {
-                            inputRef.current?.focus();
-                            if (inputRef.current) {
-                              inputRef.current.style.height = 'auto';
-                              inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
-                            }
-                          }, 0);
-                        }}
-                        disabled={loading || isSending}
-                        style={{
-                          padding: '10px 16px',
-                          fontSize: 13,
-                          background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
-                          border: '1px solid rgba(91, 124, 250, 0.3)',
-                          borderRadius: 8,
-                          color: 'var(--primary)',
-                          cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s',
-                          opacity: (loading || isSending) ? 0.5 : 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!loading && !isSending) {
-                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
-                            e.currentTarget.style.transform = 'translateY(-1px)';
-                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
-                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
-                        }}
-                      >
-                        <span>📋</span>
-                        <span>План сессии</span>
-                      </button>
+                      {shortcuts.map(shortcut => (
+                          <button
+                            key={shortcut.id}
+                            onClick={() => handleShortcutClick(shortcut)}
+                            disabled={loading || isSending}
+                            style={{
+                              padding: '10px 16px',
+                              fontSize: 13,
+                              background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
+                              border: '1px solid rgba(91, 124, 250, 0.3)',
+                              borderRadius: 8,
+                              color: 'var(--primary)',
+                              cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.2s',
+                              opacity: (loading || isSending) ? 0.5 : 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!loading && !isSending) {
+                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
+                                e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
+                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                              e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
+                            }}
+                          >
+                            <span>{shortcut.emoji}</span>
+                            <span>{shortcut.label}</span>
+                          </button>
+                      ))}
                     </div>
                   )}
 
@@ -1428,6 +1487,288 @@ export default function PsychologistAIChat() {
                 style={{ padding: '10px 20px' }}
               >
                 Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shortcuts management modal */}
+      {showShortcutsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: 20
+          }}
+          onClick={() => {
+            setShowShortcutsModal(false);
+            if (showAddShortcutModal) {
+              cancelEditShortcut();
+            }
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--surface)',
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: 600,
+              width: '100%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              border: '1px solid rgba(255,255,255,0.12)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Настройка команд</h3>
+              <button
+                onClick={() => {
+                  setShowShortcutsModal(false);
+                  if (showAddShortcutModal) {
+                    cancelEditShortcut();
+                  }
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-muted)',
+                  fontSize: 24,
+                  cursor: 'pointer',
+                  padding: 0,
+                  width: 32,
+                  height: 32,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 6
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = 'var(--text)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = 'var(--text-muted)';
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              {shortcuts.length === 0 ? (
+                <div style={{ 
+                  padding: 24, 
+                  textAlign: 'center', 
+                  color: 'var(--text-muted)',
+                  fontSize: 14
+                }}>
+                  Нет созданных команд. Добавьте первую команду!
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {shortcuts.map(shortcut => (
+                    <div
+                      key={shortcut.id}
+                      style={{
+                        padding: 12,
+                        background: 'var(--surface-2)',
+                        borderRadius: 10,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12
+                      }}
+                    >
+                      <div style={{ fontSize: 24 }}>{shortcut.emoji}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{shortcut.label}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-word' }}>
+                          {shortcut.prompt.length > 60 ? shortcut.prompt.substring(0, 60) + '...' : shortcut.prompt}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          onClick={() => startEditShortcut(shortcut)}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            background: 'rgba(91, 124, 250, 0.1)',
+                            border: '1px solid rgba(91, 124, 250, 0.2)',
+                            borderRadius: 6,
+                            color: 'var(--primary)',
+                            cursor: 'pointer',
+                            fontWeight: 500
+                          }}
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => deleteShortcut(shortcut.id)}
+                          style={{
+                            padding: '6px 12px',
+                            fontSize: 12,
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            borderRadius: 6,
+                            color: '#ef4444',
+                            cursor: 'pointer',
+                            fontWeight: 500
+                          }}
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              className="button"
+              onClick={() => {
+                setEditingShortcutId(null);
+                setNewShortcutLabel('');
+                setNewShortcutEmoji('📝');
+                setNewShortcutPrompt('');
+                setShowAddShortcutModal(true);
+              }}
+              style={{ width: '100%', padding: '12px' }}
+            >
+              + Добавить команду
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit shortcut modal */}
+      {showAddShortcutModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10001,
+            padding: 20
+          }}
+          onClick={cancelEditShortcut}
+        >
+          <div
+            style={{
+              background: 'var(--surface)',
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: 500,
+              width: '100%',
+              border: '1px solid rgba(255,255,255,0.12)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 20px 0', fontSize: 18, fontWeight: 700 }}>
+              {editingShortcutId ? 'Редактировать команду' : 'Добавить команду'}
+            </h3>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
+                Эмодзи
+              </label>
+              <input
+                type="text"
+                value={newShortcutEmoji}
+                onChange={e => setNewShortcutEmoji(e.target.value)}
+                placeholder="📝"
+                maxLength={2}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  fontSize: 20,
+                  textAlign: 'center',
+                  marginBottom: 16
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
+                Название
+              </label>
+              <input
+                type="text"
+                value={newShortcutLabel}
+                onChange={e => setNewShortcutLabel(e.target.value)}
+                placeholder="Название команды"
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  fontSize: 14,
+                  marginBottom: 16
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
+                Промпт (используйте {`{clientName}`} для подстановки имени клиента)
+              </label>
+              <textarea
+                value={newShortcutPrompt}
+                onChange={e => setNewShortcutPrompt(e.target.value)}
+                placeholder="Введите промпт для команды..."
+                rows={4}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                  resize: 'vertical'
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                className="button secondary"
+                onClick={cancelEditShortcut}
+                style={{ padding: '10px 20px' }}
+              >
+                Отмена
+              </button>
+              <button
+                className="button"
+                onClick={editingShortcutId ? () => updateShortcut(editingShortcutId) : addShortcut}
+                disabled={!newShortcutLabel.trim() || !newShortcutPrompt.trim()}
+                style={{ padding: '10px 20px' }}
+              >
+                {editingShortcutId ? 'Сохранить' : 'Добавить'}
               </button>
             </div>
           </div>
