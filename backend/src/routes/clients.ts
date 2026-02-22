@@ -393,11 +393,12 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
       console.log(`[GET /clients] Filtering for psychologist ${req.user.id} with whereClause:`, JSON.stringify(whereClause));
     } else if (req.user.role === 'admin') {
       // Админы видят всех клиентов (но исключаем временные записи и null)
+      // Упрощенный синтаксис - используем not вместо NOT в AND
       whereClause = {
         AND: [
           { psychologistId: { not: null } },
           { psychologistId: { not: '' } },
-          { NOT: { psychologistId: { startsWith: 'temp-' } } }
+          { psychologistId: { not: { startsWith: 'temp-' } } } // Правильный синтаксис
         ]
       };
       console.log(`[GET /clients] Admin access - showing all clients (excluding null/temp)`);
