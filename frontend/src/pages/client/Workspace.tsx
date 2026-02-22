@@ -16,7 +16,7 @@ export default function ClientWorkspace() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [rank] = useState({ level: 1, title: 'Начинающий Герой', progress: 45 });
-  const [dailyStreak] = useState(7);
+  const [dailyStreak, setDailyStreak] = useState(0);
   const [hasPsychologist, setHasPsychologist] = useState<boolean | null>(null);
   const [, setPsychologist] = useState<any>(null);
 
@@ -72,11 +72,106 @@ export default function ClientWorkspace() {
           { id: 't1', title: 'Запишите сегодняшний сон', completed: false, type: 'dream' },
           { id: 't2', title: 'Подумайте о тени', completed: false, type: 'reflection' }
         ]);
+        setDailyStreak(0);
         return;
       }
       try { 
         const d = await api<{ items: any[]; total: number }>('/api/dreams', { token }); 
-        setDreams(d.items.slice(0, 5)); 
+        setDreams(d.items.slice(0, 5));
+        
+        // Подсчет серии дней на основе активности
+        // Получаем все сны и записи дневника
+        const [dreamsRes, journalRes] = await Promise.all([
+          api<{ items: any[] }>('/api/dreams', { token }).catch(() => ({ items: [] })),
+          api<{ items: any[] }>('/api/journal/entries', { token }).catch(() => ({ items: [] }))
+        ]);
+        
+        // Объединяем все активности (сны и записи дневника)
+        const allActivities: Date[] = [];
+        
+        // Добавляем даты снов
+        if (dreamsRes.items) {
+          dreamsRes.items.forEach((dream: any) => {
+            if (dream.createdAt) {
+              allActivities.push(new Date(dream.createdAt));
+            }
+          });
+        }
+        
+        // Добавляем даты записей дневника
+        if (journalRes.items) {
+          journalRes.items.forEach((entry: any) => {
+            if (entry.createdAt) {
+              allActivities.push(new Date(entry.createdAt));
+            }
+          });
+        }
+        
+        // Подсчитываем серию дней
+        if (allActivities.length === 0) {
+          setDailyStreak(0);
+        } else {
+          // Сортируем по дате (от новых к старым)
+          allActivities.sort((a, b) => b.getTime() - a.getTime());
+          
+          // Нормализуем даты (убираем время, оставляем только день)
+          const normalizedDates = allActivities.map(date => {
+            const normalized = new Date(date);
+            normalized.setHours(0, 0, 0, 0);
+            return normalized.getTime();
+          });
+          
+          // Убираем дубликаты (несколько активностей в один день)
+          const uniqueDates = Array.from(new Set(normalizedDates)).sort((a, b) => b - a);
+          
+          // Подсчитываем последовательные дни
+          let streak = 0;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayTime = today.getTime();
+          
+          // Проверяем, была ли активность сегодня
+          if (uniqueDates[0] === todayTime) {
+            streak = 1;
+            // Проверяем предыдущие дни
+            for (let i = 1; i < uniqueDates.length; i++) {
+              const expectedDate = new Date(today);
+              expectedDate.setDate(expectedDate.getDate() - i);
+              expectedDate.setHours(0, 0, 0, 0);
+              const expectedTime = expectedDate.getTime();
+              
+              if (uniqueDates[i] === expectedTime) {
+                streak++;
+              } else {
+                break;
+              }
+            }
+          } else if (uniqueDates.length > 0) {
+            // Если сегодня активности не было, проверяем вчерашний день
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayTime = yesterday.getTime();
+            
+            if (uniqueDates[0] === yesterdayTime) {
+              streak = 1;
+              // Проверяем предыдущие дни
+              for (let i = 1; i < uniqueDates.length; i++) {
+                const expectedDate = new Date(yesterday);
+                expectedDate.setDate(expectedDate.getDate() - i);
+                expectedDate.setHours(0, 0, 0, 0);
+                const expectedTime = expectedDate.getTime();
+                
+                if (uniqueDates[i] === expectedTime) {
+                  streak++;
+                } else {
+                  break;
+                }
+              }
+            }
+          }
+          
+          setDailyStreak(streak);
+        }
       } catch {}
       // TODO: загрузка задач от ИИ
       setTasks([

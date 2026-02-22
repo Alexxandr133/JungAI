@@ -49,7 +49,7 @@ export function ClientNavbar() {
       ]
     },
     {
-      label: 'Психологи',
+      label: 'Мой психолог',
       path: '/client/psychologists',
       icon: '👨‍⚕️'
     }

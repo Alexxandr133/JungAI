@@ -694,4 +694,198 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
   }
 });
 
+// Чат ассистента клиента (с ограничениями - только мягкая рефлексия)
+router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    if (!hfClient) {
+      return res.status(500).json({ error: 'HuggingFace API не настроен. Установите HF_TOKEN в переменных окружения.' });
+    }
+
+    const { message, conversationHistory = [] } = req.body ?? {};
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Сообщение обязательно' });
+    }
+
+    // Находим клиента по email
+    const client = await prisma.client.findFirst({
+      where: { email: req.user!.email },
+      select: { id: true, name: true }
+    });
+
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Получаем сны клиента
+    const clientDreams = await prisma.dream.findMany({
+      where: { clientId: client.id },
+      orderBy: { createdAt: 'desc' },
+      take: 20, // Последние 20 снов
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        symbols: true,
+        createdAt: true
+      }
+    });
+
+    // Получаем записи дневника клиента
+    const journalEntries = await prisma.journalEntry.findMany({
+      where: { clientId: client.id },
+      orderBy: { createdAt: 'desc' },
+      take: 10, // Последние 10 записей
+      select: {
+        id: true,
+        content: true,
+        createdAt: true
+      }
+    });
+
+    // Формируем контекст о снах
+    let dreamsContext = '';
+    if (clientDreams.length > 0) {
+      dreamsContext = `\n\nВаши последние сны (${clientDreams.length}):\n`;
+      clientDreams.slice(0, 5).forEach((dream, idx) => {
+        dreamsContext += `${idx + 1}. "${dream.title || 'Без названия'}" (${new Date(dream.createdAt).toLocaleDateString('ru-RU')})\n`;
+        if (dream.content) {
+          dreamsContext += `   ${dream.content.substring(0, 200)}${dream.content.length > 200 ? '...' : ''}\n`;
+        }
+        if (Array.isArray(dream.symbols) && dream.symbols.length > 0) {
+          dreamsContext += `   Символы: ${dream.symbols.join(', ')}\n`;
+        }
+        dreamsContext += '\n';
+      });
+    } else {
+      dreamsContext = '\n\nУ вас пока нет записанных снов.';
+    }
+
+    // Формируем контекст о записях дневника
+    let journalContext = '';
+    if (journalEntries.length > 0) {
+      journalContext = `\n\nВаши последние записи в дневнике (${journalEntries.length}):\n`;
+      journalEntries.slice(0, 3).forEach((entry, idx) => {
+        journalContext += `${idx + 1}. ${new Date(entry.createdAt).toLocaleDateString('ru-RU')}:\n`;
+        journalContext += `   ${entry.content.substring(0, 150)}${entry.content.length > 150 ? '...' : ''}\n\n`;
+      });
+    } else {
+      journalContext = '\n\nУ вас пока нет записей в дневнике.';
+    }
+
+    // Формируем system prompt с ограничениями для клиента
+    const systemPrompt = `Ты — помощник для клиента, работающего с психологом. Твоя задача — поддерживать мягкую рефлексию, помогать с формулировкой вопросов и запросов, но НЕ давать интерпретации, диагнозы или глубокий анализ.
+
+ВАЖНЫЕ ОГРАНИЧЕНИЯ:
+- НЕ интерпретируй сны и не давай "значения" символам
+- НЕ стави диагнозы и не давай медицинские/психологические заключения
+- НЕ анализируй глубоко психологические паттерны
+- Можешь помогать с формулировкой вопросов к психологу
+- Можешь поддерживать рефлексию через открытые вопросы
+- Можешь предлагать записать мысли в дневник
+- Можешь помогать структурировать запросы к психологу
+
+Ты имеешь доступ к:
+1. Снам клиента (только для контекста, не для интерпретации)
+2. Записям дневника клиента (только для контекста)
+
+Отвечай на русском языке, дружелюбно, поддерживающе, но помни об ограничениях. Направляй клиента к его психологу для глубокой работы.`;
+
+    const userPrompt = `${dreamsContext}${journalContext}
+
+Вопрос клиента: ${message}`;
+
+    // Формируем историю сообщений
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory.map((msg: any) => ({
+        role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
+        content: msg.content
+      })),
+      { role: 'user', content: userPrompt }
+    ];
+
+    console.log('Sending request to HuggingFace Router API for client...', { 
+      model: 'deepseek-ai/DeepSeek-V3:novita',
+      messagesCount: messages.length,
+      hasHfToken: !!config.hfToken,
+      clientId: client.id
+    });
+
+    let assistantMessage = 'Извините, не удалось получить ответ.';
+
+    try {
+      // Используем HuggingFace Router API (OpenAI-совместимый)
+      console.log('Using HuggingFace Router API for client...');
+      const chatCompletion = await hfClient.chat.completions.create({
+        model: 'deepseek-ai/DeepSeek-V3:novita',
+        messages: messages as any,
+        temperature: 0.7,
+        max_tokens: 2048,
+      }, {
+        timeout: 120000, // 2 минуты таймаут
+      });
+
+      assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      
+      console.log('HuggingFace Router API response received successfully for client');
+    } catch (error: any) {
+      console.error('HuggingFace Router API error for client:', error);
+      console.error('Error details:', {
+        message: error.message,
+        status: error.status,
+        code: error.code,
+        response: error.response?.data || error.response
+      });
+      
+      let errorMessage = 'Ошибка при обращении к ИИ';
+      if (error.message?.includes('timeout')) {
+        errorMessage = 'Превышено время ожидания ответа от ИИ. Попробуйте еще раз.';
+      } else if (error.status === 503) {
+        errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
+      } else if (error.status === 401) {
+        errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+      } else if (error.message) {
+        errorMessage = `Ошибка: ${error.message}`;
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    res.json({
+      message: assistantMessage,
+      conversationHistory: [
+        ...conversationHistory,
+        { role: 'user', content: message },
+        { role: 'assistant', content: assistantMessage }
+      ]
+    });
+  } catch (error: any) {
+    console.error('AI chat error for client:', error);
+    console.error('Error details:', {
+      message: error.message,
+      status: error.status,
+      response: error.response?.data || error.response,
+      stack: error.stack
+    });
+    
+    // Более детальная обработка ошибок
+    let errorMessage = 'Ошибка при обращении к ИИ';
+    if (error.message?.includes('timeout')) {
+      errorMessage = 'Превышено время ожидания ответа от ИИ. Попробуйте еще раз.';
+    } else if (error.status === 503) {
+      errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
+    } else if (error.status === 401) {
+      errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+    } else if (error.message) {
+      errorMessage = `Ошибка: ${error.message}`;
+    }
+    
+    res.status(error.status || 500).json({ 
+      error: errorMessage, 
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 export default router;

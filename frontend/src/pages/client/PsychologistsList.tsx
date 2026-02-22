@@ -195,20 +195,38 @@ export default function ClientPsychologistsList() {
             {filtered.map(psych => (
               <div key={psych.id} className="card card-hover-shimmer" style={{ padding: 24 }}>
                 <div style={{ display: 'flex', alignItems: 'start', gap: 16, marginBottom: 16 }}>
-                  <div style={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: '50%',
-                    background: 'var(--surface-2)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontSize: 24,
-                    fontWeight: 600,
-                    color: 'var(--text)',
-                    flexShrink: 0,
-                    overflow: 'hidden',
-                    border: '2px solid rgba(255,255,255,0.1)'
-                  }}>
+                  <div 
+                    onClick={hasAttachedPsychologist ? () => handleViewProfile(psych) : undefined}
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: '50%',
+                      background: 'var(--surface-2)',
+                      display: 'grid',
+                      placeItems: 'center',
+                      fontSize: 24,
+                      fontWeight: 600,
+                      color: 'var(--text)',
+                      flexShrink: 0,
+                      overflow: 'hidden',
+                      border: '2px solid rgba(255,255,255,0.1)',
+                      cursor: hasAttachedPsychologist ? 'pointer' : 'default',
+                      transition: hasAttachedPsychologist ? 'transform 0.2s, box-shadow 0.2s' : 'none'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (hasAttachedPsychologist) {
+                        e.currentTarget.style.transform = 'scale(1.05)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(91, 124, 250, 0.3)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (hasAttachedPsychologist) {
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }
+                    }}
+                    title={hasAttachedPsychologist ? 'Посмотреть профиль' : undefined}
+                  >
                     {psych.avatarUrl ? (
                       <img 
                         src={psych.avatarUrl.startsWith('http') 
@@ -296,43 +314,24 @@ export default function ClientPsychologistsList() {
                   </div>
                 )}
                 
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {hasAttachedPsychologist ? (
-                    <>
-                      <button
-                        onClick={() => handleViewProfile(psych)}
-                        className="button"
-                        style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
-                      >
-                        👤 Профиль
-                      </button>
-                      <button
-                        onClick={() => handleRequestChat(psych)}
-                        className="button secondary"
-                        style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
-                      >
-                        💬 Написать
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => handleRequestChat(psych)}
-                        className="button secondary"
-                        style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
-                      >
-                        💬 Написать
-                      </button>
-                      <button
-                        onClick={() => handleRequestSession(psych)}
-                        className="button"
-                        style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
-                      >
-                        📅 Записаться
-                      </button>
-                    </>
-                  )}
-                </div>
+                {!hasAttachedPsychologist && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => handleRequestChat(psych)}
+                      className="button secondary"
+                      style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
+                    >
+                      💬 Написать
+                    </button>
+                    <button
+                      onClick={() => handleRequestSession(psych)}
+                      className="button"
+                      style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
+                    >
+                      📅 Записаться
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
