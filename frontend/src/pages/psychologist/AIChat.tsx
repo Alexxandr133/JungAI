@@ -365,6 +365,141 @@ export default function PsychologistAIChat() {
                 </button>
               </div>
 
+              {/* Client Mode Toggle and Client Selector */}
+              <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface-2)' }}>
+                {/* Toggle for client mode */}
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: 12, 
+                  padding: '12px', 
+                  background: 'var(--surface)', 
+                  borderRadius: 10, 
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  marginBottom: 12
+                }}>
+                  <label style={{ 
+                    fontSize: 13, 
+                    color: 'var(--text)', 
+                    fontWeight: 600, 
+                    cursor: 'pointer', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 10 
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={clientModeEnabled}
+                      onChange={(e) => {
+                        setClientModeEnabled(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedClientId(null);
+                        }
+                      }}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        cursor: 'pointer',
+                        accentColor: 'var(--primary)'
+                      }}
+                    />
+                    <span>Режим работы с клиентами</span>
+                  </label>
+                  <div style={{ 
+                    fontSize: 11, 
+                    color: 'var(--text-muted)', 
+                    paddingLeft: 30,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <span style={{ 
+                      display: 'inline-block',
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: clientModeEnabled ? '#10b981' : '#6b7280',
+                      marginRight: 4
+                    }}></span>
+                    {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
+                  </div>
+                </div>
+
+                {/* Client selector - показываем только если режим работы с клиентами включен */}
+                {clientModeEnabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <label style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Выбор клиента
+                    </label>
+                    <select
+                      value={selectedClientId || ''}
+                      onChange={(e) => setSelectedClientId(e.target.value || null)}
+                      disabled={loadingClients}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: 'var(--surface)',
+                        color: 'var(--text)',
+                        fontSize: 13,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                        e.currentTarget.style.background = 'var(--surface-2)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                        e.currentTarget.style.background = 'var(--surface)';
+                      }}
+                    >
+                      <option value="">Все клиенты</option>
+                      {clients.map(client => (
+                        <option key={client.id} value={client.id}>
+                          {client.name} {client.email ? `(${client.email})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedClientId && (
+                      <button
+                        onClick={() => setSelectedClientId(null)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: 12,
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: 8,
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                          e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                          e.currentTarget.style.color = '#ef4444';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                          e.currentTarget.style.color = 'var(--text-muted)';
+                        }}
+                      >
+                        <span>✕</span>
+                        <span>Сбросить выбор</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Chats list */}
               <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
                 {/* Root chats */}
@@ -804,22 +939,6 @@ export default function PsychologistAIChat() {
                             : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я работаю как обобщенный ассистент без доступа к данным конкретных клиентов.'
                           }
                         </p>
-                        {clientModeEnabled && selectedClientId && (
-                          <div style={{ 
-                            padding: '12px 16px', 
-                            background: 'rgba(91, 124, 250, 0.1)', 
-                            borderRadius: 10, 
-                            marginBottom: 20,
-                            border: '1px solid rgba(91, 124, 250, 0.2)'
-                          }}>
-                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
-                              Выбранный клиент:
-                            </div>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--primary)' }}>
-                              {clients.find(c => c.id === selectedClientId)?.name || 'Неизвестный клиент'}
-                            </div>
-                          </div>
-                        )}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
                           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
                             Попробуйте спросить:
@@ -976,226 +1095,193 @@ export default function PsychologistAIChat() {
                 }}
               >
                 <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
-                  {/* Toggle and Client selector */}
-                  <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {/* Toggle for client mode */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
-                      <label style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={clientModeEnabled}
-                          onChange={(e) => {
-                            setClientModeEnabled(e.target.checked);
-                            if (!e.target.checked) {
-                              setSelectedClientId(null);
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: 10, 
+                      flexWrap: 'wrap',
+                      marginBottom: 16,
+                      padding: '14px 16px',
+                      background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.08), rgba(139, 92, 246, 0.08))',
+                      borderRadius: 12,
+                      border: '1px solid rgba(91, 124, 250, 0.15)',
+                      boxShadow: '0 2px 8px rgba(91, 124, 250, 0.05)'
+                    }}>
+                      <div style={{ 
+                        width: '100%', 
+                        fontSize: 11, 
+                        color: 'var(--text-muted)', 
+                        fontWeight: 600, 
+                        textTransform: 'uppercase', 
+                        letterSpacing: '0.5px',
+                        marginBottom: 8
+                      }}>
+                        Быстрые действия
+                      </div>
+                      <button
+                        onClick={async () => {
+                          const selectedClient = clients.find(c => c.id === selectedClientId);
+                          const prompt = `Дай сводку по клиенту ${selectedClient?.name || 'выбранному клиенту'}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.`;
+                          setInput(prompt);
+                          setTimeout(() => {
+                            inputRef.current?.focus();
+                            if (inputRef.current) {
+                              inputRef.current.style.height = 'auto';
+                              inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
                             }
-                          }}
-                          style={{
-                            width: 18,
-                            height: 18,
-                            cursor: 'pointer',
-                            accentColor: 'var(--primary)'
-                          }}
-                        />
-                        <span>Режим работы с клиентами</span>
-                      </label>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                        {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
-                      </span>
+                          }, 0);
+                        }}
+                        disabled={loading || isSending}
+                        style={{
+                          padding: '10px 16px',
+                          fontSize: 13,
+                          background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
+                          border: '1px solid rgba(91, 124, 250, 0.3)',
+                          borderRadius: 8,
+                          color: 'var(--primary)',
+                          cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s',
+                          opacity: (loading || isSending) ? 0.5 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading && !isSending) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
+                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
+                        }}
+                      >
+                        <span>📊</span>
+                        <span>Сводка</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const selectedClient = clients.find(c => c.id === selectedClientId);
+                          const prompt = `Сформулируй гипотезы по клиенту ${selectedClient?.name || 'выбранному клиенту'} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.`;
+                          setInput(prompt);
+                          setTimeout(() => {
+                            inputRef.current?.focus();
+                            if (inputRef.current) {
+                              inputRef.current.style.height = 'auto';
+                              inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+                            }
+                          }, 0);
+                        }}
+                        disabled={loading || isSending}
+                        style={{
+                          padding: '10px 16px',
+                          fontSize: 13,
+                          background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
+                          border: '1px solid rgba(91, 124, 250, 0.3)',
+                          borderRadius: 8,
+                          color: 'var(--primary)',
+                          cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s',
+                          opacity: (loading || isSending) ? 0.5 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading && !isSending) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
+                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
+                        }}
+                      >
+                        <span>💡</span>
+                        <span>Гипотезы</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const selectedClient = clients.find(c => c.id === selectedClientId);
+                          const prompt = `Составь план следующей сессии для клиента ${selectedClient?.name || 'выбранного клиента'}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.`;
+                          setInput(prompt);
+                          setTimeout(() => {
+                            inputRef.current?.focus();
+                            if (inputRef.current) {
+                              inputRef.current.style.height = 'auto';
+                              inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
+                            }
+                          }, 0);
+                        }}
+                        disabled={loading || isSending}
+                        style={{
+                          padding: '10px 16px',
+                          fontSize: 13,
+                          background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
+                          border: '1px solid rgba(91, 124, 250, 0.3)',
+                          borderRadius: 8,
+                          color: 'var(--primary)',
+                          cursor: (loading || isSending) ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s',
+                          opacity: (loading || isSending) ? 0.5 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          boxShadow: '0 2px 4px rgba(91, 124, 250, 0.1)'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading && !isSending) {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
+                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
+                        }}
+                      >
+                        <span>📋</span>
+                        <span>План сессии</span>
+                      </button>
                     </div>
+                  )}
 
-                    {/* Client selector - показываем только если режим работы с клиентами включен */}
-                    {clientModeEnabled && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <label style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontWeight: 500 }}>
-                          Клиент:
-                        </label>
-                        <select
-                          value={selectedClientId || ''}
-                          onChange={(e) => setSelectedClientId(e.target.value || null)}
-                          disabled={loadingClients}
-                          style={{
-                            flex: 1,
-                            minWidth: 200,
-                            padding: '8px 12px',
-                            borderRadius: 8,
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            background: 'var(--surface-2)',
-                            color: 'var(--text)',
-                            fontSize: 13,
-                            fontFamily: 'inherit',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                          }}
-                        >
-                          <option value="">Все клиенты</option>
-                          {clients.map(client => (
-                            <option key={client.id} value={client.id}>
-                              {client.name} {client.email ? `(${client.email})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        {selectedClientId && (
-                          <button
-                            onClick={() => setSelectedClientId(null)}
-                            style={{
-                              padding: '8px 12px',
-                              fontSize: 12,
-                              background: 'transparent',
-                              border: '1px solid rgba(255,255,255,0.12)',
-                              borderRadius: 8,
-                              color: 'var(--text-muted)',
-                              cursor: 'pointer',
-                              whiteSpace: 'nowrap',
-                              transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'transparent';
-                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                            }}
-                          >
-                            ✕ Сбросить
-                          </button>
-                        )}
+                  {!clientModeEnabled && (
+                    <div style={{ 
+                      marginBottom: 12,
+                      padding: '12px',
+                      background: 'var(--surface-2)',
+                      borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,0.05)',
+                      textAlign: 'center'
+                    }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        Включите режим работы с клиентами для быстрых действий
                       </div>
-                    )}
-                    
-                    {/* Shortcut buttons - показываем только если режим работы с клиентами включен и выбран клиент */}
-                    {clientModeEnabled && selectedClientId && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button
-                          onClick={async () => {
-                            const selectedClient = clients.find(c => c.id === selectedClientId);
-                            const prompt = `Дай сводку по клиенту ${selectedClient?.name || 'выбранному клиенту'}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.`;
-                            setInput(prompt);
-                            setTimeout(() => {
-                              inputRef.current?.focus();
-                              if (inputRef.current) {
-                                inputRef.current.style.height = 'auto';
-                                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
-                              }
-                            }, 0);
-                          }}
-                          disabled={loading}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: 12,
-                            background: 'rgba(91, 124, 250, 0.1)',
-                            border: '1px solid rgba(91, 124, 250, 0.2)',
-                            borderRadius: 6,
-                            color: 'var(--primary)',
-                            cursor: loading ? 'not-allowed' : 'pointer',
-                            fontWeight: 500,
-                            whiteSpace: 'nowrap',
-                            transition: 'all 0.2s',
-                            opacity: loading ? 0.5 : 1
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!loading) {
-                              e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
-                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
-                          }}
-                        >
-                          📊 Сводка
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const selectedClient = clients.find(c => c.id === selectedClientId);
-                            const prompt = `Сформулируй гипотезы по клиенту ${selectedClient?.name || 'выбранному клиенту'} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.`;
-                            setInput(prompt);
-                            setTimeout(() => {
-                              inputRef.current?.focus();
-                              if (inputRef.current) {
-                                inputRef.current.style.height = 'auto';
-                                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
-                              }
-                            }, 0);
-                          }}
-                          disabled={loading}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: 12,
-                            background: 'rgba(91, 124, 250, 0.1)',
-                            border: '1px solid rgba(91, 124, 250, 0.2)',
-                            borderRadius: 6,
-                            color: 'var(--primary)',
-                            cursor: loading ? 'not-allowed' : 'pointer',
-                            fontWeight: 500,
-                            whiteSpace: 'nowrap',
-                            transition: 'all 0.2s',
-                            opacity: loading ? 0.5 : 1
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!loading) {
-                              e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
-                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
-                          }}
-                        >
-                          💡 Гипотезы
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const selectedClient = clients.find(c => c.id === selectedClientId);
-                            const prompt = `Составь план следующей сессии для клиента ${selectedClient?.name || 'выбранного клиента'}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.`;
-                            setInput(prompt);
-                            setTimeout(() => {
-                              inputRef.current?.focus();
-                              if (inputRef.current) {
-                                inputRef.current.style.height = 'auto';
-                                inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 200)}px`;
-                              }
-                            }, 0);
-                          }}
-                          disabled={loading}
-                          style={{
-                            padding: '6px 12px',
-                            fontSize: 12,
-                            background: 'rgba(91, 124, 250, 0.1)',
-                            border: '1px solid rgba(91, 124, 250, 0.2)',
-                            borderRadius: 6,
-                            color: 'var(--primary)',
-                            cursor: loading ? 'not-allowed' : 'pointer',
-                            fontWeight: 500,
-                            whiteSpace: 'nowrap',
-                            transition: 'all 0.2s',
-                            opacity: loading ? 0.5 : 1
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!loading) {
-                              e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
-                              e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
-                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.2)';
-                          }}
-                        >
-                          📋 План сессии
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                </div>
 
                   {/* Input field */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
