@@ -121,7 +121,7 @@ export default function WidgetRenderer({
       ref={widgetRef}
       className="card"
       draggable={!!onDragStart}
-      onDragStart={(e) => {
+      onDragStart={() => {
         // Помечаем, что начался drag
         isDraggingRef.current = true;
         dragStartTimeRef.current = Date.now();
@@ -136,7 +136,7 @@ export default function WidgetRenderer({
         e.preventDefault();
         onDrop?.(e, position);
       }}
-      onDragEnd={(e) => {
+      onDragEnd={() => {
         // Сбрасываем состояние после drag с небольшой задержкой
         // чтобы onClick не сработал сразу после drag
         setTimeout(() => {
