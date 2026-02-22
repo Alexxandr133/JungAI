@@ -81,20 +81,9 @@ export default function ChatPage() {
     if (!token) return;
     try {
       const res = await api<{ items: ChatRoom[] }>('/api/chat/rooms', { token });
-      let roomsList = res.items || [];
-      
-      // Дополнительная фильтрация на frontend для надежности
-      if (isPsychologist) {
-        // Для психолога: только комнаты с именами клиентов
-        const clientNames = clients.map(c => c.name);
-        roomsList = roomsList.filter(room => clientNames.includes(room.name));
-      } else if (isClient) {
-        // Для клиента: только комнаты, где клиент отправил сообщение (проверка на frontend не нужна, т.к. backend уже фильтрует)
-        // Но можно добавить проверку, что клиент имеет доступ к этой комнате
-      }
-      
-      setRooms(roomsList);
-      return roomsList;
+      // Backend уже фильтрует комнаты правильно, поэтому просто используем то, что пришло
+      setRooms(res.items || []);
+      return res.items || [];
     } catch (e: any) {
       console.error('Failed to load rooms:', e);
       return [];
