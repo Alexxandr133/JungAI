@@ -28,6 +28,7 @@ interface WidgetRendererProps {
   isDragged?: boolean;
   isDragOver?: boolean;
   position?: number;
+  onClick?: (widgetType: string) => void;
 }
 
 export default function WidgetRenderer({ 
@@ -42,7 +43,8 @@ export default function WidgetRenderer({
   onDragEnd,
   isDragged = false,
   isDragOver = false,
-  position = 0
+  position = 0,
+  onClick
 }: WidgetRendererProps) {
   const [showControls, setShowControls] = useState(false);
   const widgetRef = useRef<HTMLDivElement>(null);
@@ -108,12 +110,22 @@ export default function WidgetRenderer({
     onResize(widget.id, sizes[nextIndex]);
   };
 
+  // Определяем, кликабелен ли виджет
+  const isClickable = onClick && ['totalClients', 'activeSessions', 'newDreams', 'newJournalEntries', 'topClients', 'topSymbols', 'requiresAttention', 'sessionsCalendar', 'dreamsStats'].includes(widget.type);
+
   return (
     <div
       ref={widgetRef}
       className="card"
       draggable={!!onDragStart}
-      onDragStart={() => onDragStart?.(widget.id)}
+      onDragStart={(e) => {
+        // Предотвращаем перетаскивание при клике на виджет
+        if (isClickable) {
+          e.preventDefault();
+          return;
+        }
+        onDragStart?.(widget.id);
+      }}
       onDragOver={(e) => {
         e.preventDefault();
         onDragOver?.(e, position);
@@ -124,21 +136,38 @@ export default function WidgetRenderer({
         onDrop?.(e, position);
       }}
       onDragEnd={onDragEnd}
+      onClick={(e) => {
+        // Кликаем только если не кликнули на элементы управления
+        if (isClickable && !(e.target as HTMLElement).closest('[data-widget-control]')) {
+          onClick?.(widget.type);
+        }
+      }}
       style={{
         padding: 20,
         position: 'relative',
-        cursor: isDragged ? 'grabbing' : 'grab',
+        cursor: isClickable ? 'pointer' : (isDragged ? 'grabbing' : 'grab'),
         opacity: isDragged ? 0.5 : 1,
         transform: isDragOver ? 'scale(1.02)' : 'none',
-        transition: isDragged ? 'none' : 'transform 0.2s, opacity 0.2s',
+        transition: isDragged ? 'none' : 'transform 0.2s, opacity 0.2s, box-shadow 0.2s',
         border: isDragOver ? '2px solid var(--primary)' : 'none',
         ...getGridStyle()
       }}
-      onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => setShowControls(false)}
+      onMouseEnter={() => {
+        setShowControls(true);
+        if (isClickable && widgetRef.current) {
+          widgetRef.current.style.boxShadow = '0 4px 12px rgba(91, 124, 250, 0.2)';
+        }
+      }}
+      onMouseLeave={() => {
+        setShowControls(false);
+        if (widgetRef.current) {
+          widgetRef.current.style.boxShadow = 'none';
+        }
+      }}
     >
       {/* Drag handle */}
       <div
+        data-widget-control
         style={{
           position: 'absolute',
           top: 8,
@@ -177,6 +206,7 @@ export default function WidgetRenderer({
       >
         {onRemove && (
           <button
+            data-widget-control
             onClick={(e) => {
               e.stopPropagation();
               if (confirm('Удалить этот виджет?')) {
@@ -203,6 +233,7 @@ export default function WidgetRenderer({
       {/* Resize handle (bottom-right corner) */}
       {onResize && (
         <div
+          data-widget-control
           onClick={handleResizeClick}
           style={{
             position: 'absolute',

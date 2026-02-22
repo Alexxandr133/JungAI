@@ -42,13 +42,31 @@ export default function PsychologistAIChat() {
   const [editingChatTitle, setEditingChatTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string }>>([]);
+  const [loadingClients, setLoadingClients] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadChats();
     loadFolders();
+    loadClients();
   }, []);
+
+  async function loadClients() {
+    if (!token) return;
+    setLoadingClients(true);
+    try {
+      const res = await api<{ items: Array<{ id: string; name: string; email?: string }> }>('/api/clients', { token });
+      setClients(res.items || []);
+    } catch (e) {
+      console.error('Failed to load clients:', e);
+      setClients([]);
+    } finally {
+      setLoadingClients(false);
+    }
+  }
 
   useEffect(() => {
     if (currentChatId) {
@@ -228,7 +246,8 @@ export default function PsychologistAIChat() {
           token,
           body: {
             message: userMessage,
-            conversationHistory: messages
+            conversationHistory: messages,
+            clientId: selectedClientId || undefined
           }
         }
       );
@@ -765,6 +784,156 @@ export default function PsychologistAIChat() {
                   </div>
                 )}
                 <div ref={messagesEndRef} />
+              </div>
+
+              {/* Client selector and shortcuts */}
+              <div style={{ padding: '16px 48px 0', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface)' }}>
+                <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Client selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <label style={{ fontSize: 14, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Клиент:</label>
+                    <select
+                      value={selectedClientId || ''}
+                      onChange={(e) => setSelectedClientId(e.target.value || null)}
+                      disabled={loadingClients}
+                      style={{
+                        flex: 1,
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: 'var(--surface-2)',
+                        color: 'var(--text)',
+                        fontSize: 14,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                        maxWidth: 300
+                      }}
+                    >
+                      <option value="">Все клиенты</option>
+                      {clients.map(client => (
+                        <option key={client.id} value={client.id}>
+                          {client.name} {client.email ? `(${client.email})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedClientId && (
+                      <button
+                        onClick={() => setSelectedClientId(null)}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: 12,
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: 8,
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        Сбросить
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Shortcut buttons */}
+                  {selectedClientId && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={async () => {
+                          const selectedClient = clients.find(c => c.id === selectedClientId);
+                          const prompt = `Дай сводку по клиенту ${selectedClient?.name || 'выбранному клиенту'}. Включи информацию о снах, записях в дневнике, сессиях, заметках и рабочей области.`;
+                          setInput(prompt);
+                          inputRef.current?.focus();
+                        }}
+                        disabled={loading}
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: 13,
+                          background: 'rgba(91, 124, 250, 0.15)',
+                          border: '1px solid rgba(91, 124, 250, 0.3)',
+                          borderRadius: 8,
+                          color: 'var(--primary)',
+                          cursor: loading ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading) {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.25)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                        }}
+                      >
+                        📊 Сводка по клиенту
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const selectedClient = clients.find(c => c.id === selectedClientId);
+                          const prompt = `Сформулируй гипотезы по клиенту ${selectedClient?.name || 'выбранному клиенту'} на основе его снов, записей в дневнике и сессий. Укажи паттерны, архетипы и возможные интерпретации.`;
+                          setInput(prompt);
+                          inputRef.current?.focus();
+                        }}
+                        disabled={loading}
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: 13,
+                          background: 'rgba(91, 124, 250, 0.15)',
+                          border: '1px solid rgba(91, 124, 250, 0.3)',
+                          borderRadius: 8,
+                          color: 'var(--primary)',
+                          cursor: loading ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading) {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.25)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                        }}
+                      >
+                        💡 Гипотезы
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const selectedClient = clients.find(c => c.id === selectedClientId);
+                          const prompt = `Составь план следующей сессии для клиента ${selectedClient?.name || 'выбранного клиента'}. Учти последние сны, записи в дневнике, предыдущие сессии и заметки. Предложи темы для обсуждения и упражнения.`;
+                          setInput(prompt);
+                          inputRef.current?.focus();
+                        }}
+                        disabled={loading}
+                        style={{
+                          padding: '8px 16px',
+                          fontSize: 13,
+                          background: 'rgba(91, 124, 250, 0.15)',
+                          border: '1px solid rgba(91, 124, 250, 0.3)',
+                          borderRadius: 8,
+                          color: 'var(--primary)',
+                          cursor: loading ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading) {
+                            e.currentTarget.style.background = 'rgba(91, 124, 250, 0.25)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
+                        }}
+                      >
+                        📋 План следующей сессии
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Input */}

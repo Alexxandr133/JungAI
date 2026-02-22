@@ -38,7 +38,7 @@ export function PsychologistNavbar() {
           label: 'Основное',
           icon: '📊',
           children: [
-            { label: 'Дашборд', path: '/psychologist', icon: '📊' },
+            { label: 'Рабочий стол', path: '/psychologist', icon: '📊' },
             { label: 'Клиенты', path: '/clients', icon: '👥' },
             { label: 'Сессии', path: '/events', icon: '📅' },
             { label: 'Сообщения', path: '/chat', icon: '💬' },

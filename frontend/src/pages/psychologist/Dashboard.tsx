@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
@@ -33,6 +34,7 @@ type DashboardData = {
 
 export default function PsychologistDashboard() {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -231,7 +233,7 @@ export default function PsychologistDashboard() {
       <PsychologistNavbar />
       <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden', overflowY: 'auto', minHeight: 0 }}>
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>📊 Дашборд</h1>
+          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>📊 Рабочий стол</h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>Обзор вашей практики</div>
         </div>
 
@@ -274,6 +276,41 @@ export default function PsychologistDashboard() {
                     isDragged={draggedWidget === widget.id}
                     isDragOver={dragOverPosition === index}
                     position={index}
+                    onClick={(widgetType) => {
+                      // Навигация в зависимости от типа виджета
+                      switch (widgetType) {
+                        case 'totalClients':
+                          navigate('/clients');
+                          break;
+                        case 'activeSessions':
+                          navigate('/events');
+                          break;
+                        case 'newDreams':
+                          navigate('/dreams');
+                          break;
+                        case 'newJournalEntries':
+                          // Можно перейти на страницу клиентов или рабочую область
+                          navigate('/clients');
+                          break;
+                        case 'topClients':
+                          navigate('/clients');
+                          break;
+                        case 'topSymbols':
+                          navigate('/dreams');
+                          break;
+                        case 'requiresAttention':
+                          navigate('/clients');
+                          break;
+                        case 'sessionsCalendar':
+                          navigate('/events');
+                          break;
+                        case 'dreamsStats':
+                          navigate('/dreams');
+                          break;
+                        default:
+                          break;
+                      }
+                    }}
                   />
                 ))}
               {/* Add widget button */}
