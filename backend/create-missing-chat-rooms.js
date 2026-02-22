@@ -54,7 +54,7 @@ async function createMissingChatRooms() {
           });
           created++;
           console.log(`✓ Created room for client "${client.name}" (${client.id}) with psychologist ${client.psychologistId}`);
-        } catch (error: any) {
+        } catch (error) {
           if (error.code === 'P2002') {
             // Уникальное ограничение нарушено - комната уже существует с другим clientId
             console.log(`⚠ Room already exists for client "${client.name}" (${client.id})`);
