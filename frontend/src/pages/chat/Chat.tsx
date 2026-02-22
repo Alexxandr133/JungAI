@@ -369,7 +369,7 @@ export default function ChatPage() {
       console.log('[Chat] Creating new room with name:', roomName);
       const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: roomName } });
       console.log('[Chat] Room created:', created?.id, created?.name);
-      const updatedRooms = await loadRooms();
+      await loadRooms(); // Обновляем список комнат
       setCurrent(created?.id || null);
       if (created?.id) {
         await loadMessages(created.id);
