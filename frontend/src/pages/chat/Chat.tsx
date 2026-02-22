@@ -193,36 +193,55 @@ export default function ChatPage() {
   // После загрузки комнат и психолога автоматически открываем чат
   useEffect(() => {
     if (isClient && psychologist && rooms.length > 0 && !current) {
-      // Используем имя клиента для поиска комнаты (такое же, как создает психолог)
+      // КРИТИЧНО: Используем имя клиента из client.name (такое же, как создает психолог и бэкенд)
       let clientName = user?.email?.split('@')[0] || 'Клиент';
       
-      // Пытаемся получить имя клиента из профиля
+      console.log('[Chat] Client: Looking for room, initial clientName:', clientName);
+      console.log('[Chat] Client: Available rooms:', rooms.map(r => ({ id: r.id, name: r.name })));
+      
+      // Пытаемся получить имя клиента из профиля (КРИТИЧНО: используем client.name, а не profile.name)
       api<any>('/api/client/profile', { token: token ?? undefined })
         .then(clientProfile => {
+          console.log('[Chat] Client: Got profile:', { 
+            clientName: clientProfile?.client?.name, 
+            profileName: clientProfile?.profile?.name 
+          });
+          
+          // КРИТИЧНО: Приоритет client.name - это то же имя, что используется на бэкенде
           if (clientProfile?.client?.name) {
             clientName = clientProfile.client.name;
           } else if (clientProfile?.profile?.name) {
             clientName = clientProfile.profile.name;
           }
           
-          // Ищем комнату по имени клиента (регистронезависимый поиск)
+          console.log('[Chat] Client: Using clientName for room search:', clientName);
+          
+          // Ищем комнату по точному совпадению имени (регистронезависимый)
           const existingRoom = rooms.find(r => {
             const roomName = (r.name || '').trim().toLowerCase();
             const clientNameLower = clientName.trim().toLowerCase();
-            return roomName === clientNameLower || 
-                   roomName.includes(clientNameLower) || 
-                   clientNameLower.includes(roomName);
+            const exactMatch = roomName === clientNameLower;
+            const partialMatch = roomName.includes(clientNameLower) || clientNameLower.includes(roomName);
+            
+            if (exactMatch || partialMatch) {
+              console.log('[Chat] Client: Found matching room:', r.id, r.name, 'exact:', exactMatch);
+            }
+            
+            return exactMatch || partialMatch;
           });
           
           if (existingRoom) {
+            console.log('[Chat] Client: Opening room:', existingRoom.id, existingRoom.name);
             setCurrent(existingRoom.id);
             loadMessages(existingRoom.id);
           } else {
+            console.log('[Chat] Client: Room not found, creating new one');
             // Если комнаты нет, создаем ее
             ensureRoomForPsychologist();
           }
         })
-        .catch(() => {
+        .catch((e) => {
+          console.error('[Chat] Client: Failed to get profile:', e);
           // Если не удалось получить профиль, ищем по email
           const existingRoom = rooms.find(r => {
             const roomName = (r.name || '').trim().toLowerCase();
@@ -233,9 +252,11 @@ export default function ChatPage() {
           });
           
           if (existingRoom) {
+            console.log('[Chat] Client: Found room by email fallback:', existingRoom.id);
             setCurrent(existingRoom.id);
             loadMessages(existingRoom.id);
           } else {
+            console.log('[Chat] Client: Room not found (fallback), creating');
             ensureRoomForPsychologist();
           }
         });
@@ -285,24 +306,38 @@ export default function ChatPage() {
   }
 
   async function ensureRoomForPsychologist() {
-    if (!psychologist) {
-      console.log('[Chat] ensureRoomForPsychologist: no psychologist');
+    // КРИТИЧНО: Эта функция вызывается и для клиента, и для психолога
+    // Для клиента: получаем client.name из профиля
+    // Для психолога: получаем client.name выбранного клиента
+    
+    let clientName = user?.email?.split('@')[0] || 'Клиент';
+    
+    if (isClient) {
+      // Для клиента: получаем client.name из профиля (то же, что используется на бэкенде)
+      try {
+        const clientProfile = await api<any>('/api/client/profile', { token: token ?? undefined });
+        console.log('[Chat] ensureRoomForPsychologist (client): Got profile:', {
+          clientName: clientProfile?.client?.name,
+          profileName: clientProfile?.profile?.name
+        });
+        
+        // КРИТИЧНО: Приоритет client.name - это то же имя, что используется на бэкенде
+        if (clientProfile?.client?.name) {
+          clientName = clientProfile.client.name;
+        } else if (clientProfile?.profile?.name) {
+          clientName = clientProfile.profile.name;
+        }
+      } catch (e) {
+        console.log('[Chat] ensureRoomForPsychologist (client): Failed to get profile, using email:', e);
+        // Если не удалось получить профиль, используем email
+      }
+    } else if (isPsychologist) {
+      // Для психолога: эта функция не должна вызываться напрямую
+      // Психолог выбирает клиента через ensureRoomForClient
+      console.log('[Chat] ensureRoomForPsychologist: called for psychologist, this should not happen');
       return;
     }
-    // Используем имя клиента для комнаты (клиент и психолог должны видеть одну комнату)
-    // Получаем имя клиента из профиля
-    let clientName = user?.email?.split('@')[0] || 'Клиент';
-    try {
-      const clientProfile = await api<any>('/api/client/profile', { token: token ?? undefined });
-      if (clientProfile?.client?.name) {
-        clientName = clientProfile.client.name;
-      } else if (clientProfile?.profile?.name) {
-        clientName = clientProfile.profile.name;
-      }
-    } catch (e) {
-      console.log('[Chat] Failed to get client profile, using email:', e);
-      // Если не удалось получить профиль, используем email
-    }
+    
     const roomName = clientName.trim();
     console.log('[Chat] ensureRoomForPsychologist: looking for room with name:', roomName);
     

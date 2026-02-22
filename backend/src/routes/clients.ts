@@ -232,14 +232,18 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
       
       // Принудительно создаем комнату чата
       const clientNameForRoom = client.name || req.user!.email.split('@')[0];
+      console.log(`[my-psychologist] Creating/finding chat room for client: "${clientNameForRoom}" (client.id: ${client.id})`);
       const existingRoom = await prisma.chatRoom.findFirst({
         where: { name: clientNameForRoom }
       });
       
-      if (!existingRoom) {
-        await prisma.chatRoom.create({
+      if (existingRoom) {
+        console.log(`[my-psychologist] Found existing room: ${existingRoom.id} (${existingRoom.name})`);
+      } else {
+        const created = await prisma.chatRoom.create({
           data: { name: clientNameForRoom }
         });
+        console.log(`[my-psychologist] Created new room: ${created.id} (${created.name})`);
       }
       
       return res.json({
