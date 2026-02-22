@@ -43,7 +43,8 @@ router.post('/chat/rooms/:id/read', requireAuth, requireVerification, async (req
 });
 
 // Получить количество непрочитанных сообщений
-router.get('/chat/unread-count', requireAuth, requireVerification, async (req: AuthedRequest, res) => {
+// Для клиентов не требуется верификация, только для психологов
+router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) => {
   try {
     // Получаем время последнего просмотра комнат из запроса (JSON объект roomId -> timestamp)
     const { roomViews } = req.query;
@@ -76,6 +77,7 @@ router.get('/chat/unread-count', requireAuth, requireVerification, async (req: A
       
       if (lastViewedTime) {
         // Считаем только сообщения, созданные после последнего просмотра
+        // Используем строгое сравнение "больше" - сообщения, созданные после времени просмотра
         const unreadInRoom = await prisma.chatMessage.count({
           where: {
             roomId: room.id,

@@ -103,21 +103,10 @@ export default function ChatPage() {
         const now = new Date();
         const roomViews = JSON.parse(localStorage.getItem('chat_room_views') || '{}');
         
-        // Если комната еще не была просмотрена, устанавливаем время на момент ДО загрузки сообщений
-        // Это означает, что все существующие сообщения считаются прочитанными
-        // Используем время немного раньше текущего, чтобы все существующие сообщения попали в "прочитанные"
-        if (!roomViews[id] && res.items.length > 0) {
-          // Если есть сообщения, устанавливаем время на момент самого последнего сообщения
-          const lastMessageTime = new Date(res.items[res.items.length - 1].createdAt);
-          roomViews[id] = new Date(lastMessageTime.getTime() + 1000).toISOString(); // +1 секунда чтобы включить последнее сообщение
-        } else if (!roomViews[id]) {
-          // Если сообщений нет, просто устанавливаем текущее время
-          roomViews[id] = now.toISOString();
-        } else {
-          // Если комната уже была просмотрена, обновляем время на текущее
-          // Это означает, что все сообщения до этого момента считаются прочитанными
-          roomViews[id] = now.toISOString();
-        }
+        // Всегда обновляем время просмотра на текущий момент
+        // Это означает, что все сообщения, созданные до этого момента, считаются прочитанными
+        // Новые сообщения, созданные после этого времени, будут считаться непрочитанными
+        roomViews[id] = now.toISOString();
         
         localStorage.setItem('chat_room_views', JSON.stringify(roomViews));
         
@@ -345,6 +334,17 @@ export default function ChatPage() {
         textareaRef.current.style.height = '44px';
       }
       await api(`/api/chat/rooms/${current}/messages`, { method: 'POST', token: token ?? undefined, body: { content } });
+      
+      // Обновляем время просмотра комнаты сразу после отправки сообщения
+      // Это гарантирует, что собственное сообщение не будет считаться непрочитанным
+      const now = new Date();
+      const roomViews = JSON.parse(localStorage.getItem('chat_room_views') || '{}');
+      roomViews[current] = now.toISOString();
+      localStorage.setItem('chat_room_views', JSON.stringify(roomViews));
+      
+      // Обновляем счетчик непрочитанных
+      window.dispatchEvent(new CustomEvent('chat-room-opened', { detail: { roomId: current } }));
+      
       await loadMessages(current);
     } catch (e: any) { setError(e.message || 'Failed to send'); }
     finally { setSending(false); }
