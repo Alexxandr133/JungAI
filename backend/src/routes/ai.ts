@@ -148,13 +148,74 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       return res.status(500).json({ error: 'HuggingFace API не настроен. Установите HF_TOKEN в переменных окружения.' });
     }
 
-    const { message, conversationHistory = [] } = req.body ?? {};
+    const { message, conversationHistory = [], clientModeEnabled = true } = req.body ?? {};
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Сообщение обязательно' });
     }
 
-    // Получаем клиентов психолога с полной информацией
+    // Если режим работы с клиентами выключен, работаем в обобщенном режиме
+    if (!clientModeEnabled) {
+      const systemPrompt = `Ты — ассистент психолога, специализирующийся на юнгианском анализе и работе со сновидениями. Твоя задача — помогать психологу с общими вопросами по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам.
+
+Ты работаешь в обобщенном режиме и не имеешь доступа к данным конкретных клиентов. Отвечай на общие вопросы по:
+- Юнгианской психологии и аналитической психологии
+- Архетипам и символам
+- Интерпретации сновидений
+- Техникам работы с клиентами
+- Амплификациям и работе с символами
+- Общим принципам психотерапии
+
+Отвечай на русском языке, профессионально, но доступно. Используй знания юнгианской психологии, архетипов, символики и работы со сновидениями.`;
+
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt },
+        ...conversationHistory.map((msg: any) => ({
+          role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
+          content: msg.content
+        })),
+        { role: 'user', content: message }
+      ];
+
+      let assistantMessage = 'Извините, не удалось получить ответ.';
+
+      try {
+        const chatCompletion = await hfClient.chat.completions.create({
+          model: 'deepseek-ai/DeepSeek-V3:novita',
+          messages: messages as any,
+          temperature: 0.7,
+          max_tokens: 2048,
+        }, {
+          timeout: 120000,
+        });
+
+        assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      } catch (error: any) {
+        console.error('HuggingFace Router API error:', error);
+        let errorMessage = 'Ошибка при обращении к ИИ';
+        if (error.message?.includes('timeout')) {
+          errorMessage = 'Превышено время ожидания ответа от ИИ. Попробуйте еще раз.';
+        } else if (error.status === 503) {
+          errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
+        } else if (error.status === 401) {
+          errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+        } else if (error.message) {
+          errorMessage = `Ошибка: ${error.message}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      return res.json({
+        message: assistantMessage,
+        conversationHistory: [
+          ...conversationHistory,
+          { role: 'user', content: message },
+          { role: 'assistant', content: assistantMessage }
+        ]
+      });
+    }
+
+    // Получаем клиентов психолога с полной информацией (только если режим работы с клиентами включен)
     const clients = await prisma.client.findMany({
       where: { psychologistId: req.user!.id },
       select: { id: true, name: true, email: true, phone: true, createdAt: true },

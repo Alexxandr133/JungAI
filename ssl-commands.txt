@@ -1,0 +1,41 @@
+# Команды для настройки SSL на сервере
+# Скопируйте и выполните эти команды на сервере по порядку
+
+# 1. Установка Certbot
+sudo apt update
+sudo apt install certbot python3-certbot-nginx -y
+
+# 2. Получение SSL сертификата (интерактивно)
+# Certbot спросит email и предложит перенаправлять HTTP на HTTPS - выберите опцию 2 (Redirect)
+sudo certbot --nginx -d jung-ai.ru -d www.jung-ai.ru
+
+# 3. Проверка сертификата
+sudo certbot certificates
+
+# 4. Проверка конфигурации Nginx
+sudo nginx -t
+
+# 5. Перезагрузка Nginx
+sudo systemctl reload nginx
+
+# 6. Проверка автообновления
+sudo systemctl status certbot.timer
+
+# 7. Если автообновление не включено, включите его:
+sudo systemctl enable certbot.timer
+sudo systemctl start certbot.timer
+
+# 8. Тест продления сертификата
+sudo certbot renew --dry-run
+
+# После успешной настройки SSL обновите .env файл:
+# cd /var/www/jingai/backend
+# nano .env
+# 
+# Измените:
+# CORS_ORIGIN="https://jung-ai.ru,https://www.jung-ai.ru,http://212.193.30.213"
+# FRONTEND_URL="https://jung-ai.ru"
+#
+# Затем перезапустите backend:
+# pm2 restart all
+

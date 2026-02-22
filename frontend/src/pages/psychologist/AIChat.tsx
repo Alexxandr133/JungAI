@@ -365,141 +365,6 @@ export default function PsychologistAIChat() {
                 </button>
               </div>
 
-              {/* Client Mode Toggle and Client Selector */}
-              <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface-2)' }}>
-                {/* Toggle for client mode */}
-                <div style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: 12, 
-                  padding: '12px', 
-                  background: 'var(--surface)', 
-                  borderRadius: 10, 
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  marginBottom: 12
-                }}>
-                  <label style={{ 
-                    fontSize: 13, 
-                    color: 'var(--text)', 
-                    fontWeight: 600, 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 10 
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={clientModeEnabled}
-                      onChange={(e) => {
-                        setClientModeEnabled(e.target.checked);
-                        if (!e.target.checked) {
-                          setSelectedClientId(null);
-                        }
-                      }}
-                      style={{
-                        width: 20,
-                        height: 20,
-                        cursor: 'pointer',
-                        accentColor: 'var(--primary)'
-                      }}
-                    />
-                    <span>Режим работы с клиентами</span>
-                  </label>
-                  <div style={{ 
-                    fontSize: 11, 
-                    color: 'var(--text-muted)', 
-                    paddingLeft: 30,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}>
-                    <span style={{ 
-                      display: 'inline-block',
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: clientModeEnabled ? '#10b981' : '#6b7280',
-                      marginRight: 4
-                    }}></span>
-                    {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
-                  </div>
-                </div>
-
-                {/* Client selector - показываем только если режим работы с клиентами включен */}
-                {clientModeEnabled && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <label style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Выбор клиента
-                    </label>
-                    <select
-                      value={selectedClientId || ''}
-                      onChange={(e) => setSelectedClientId(e.target.value || null)}
-                      disabled={loadingClients}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        borderRadius: 8,
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        background: 'var(--surface)',
-                        color: 'var(--text)',
-                        fontSize: 13,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                        e.currentTarget.style.background = 'var(--surface-2)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                        e.currentTarget.style.background = 'var(--surface)';
-                      }}
-                    >
-                      <option value="">Все клиенты</option>
-                      {clients.map(client => (
-                        <option key={client.id} value={client.id}>
-                          {client.name} {client.email ? `(${client.email})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedClientId && (
-                      <button
-                        onClick={() => setSelectedClientId(null)}
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          fontSize: 12,
-                          background: 'transparent',
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          borderRadius: 8,
-                          color: 'var(--text-muted)',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                          e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                          e.currentTarget.style.color = '#ef4444';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                          e.currentTarget.style.color = 'var(--text-muted)';
-                        }}
-                      >
-                        <span>✕</span>
-                        <span>Сбросить выбор</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
               {/* Chats list */}
               <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
                 {/* Root chats */}
@@ -857,6 +722,146 @@ export default function PsychologistAIChat() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Client Mode Toggle and Client Selector - внизу сайдбара */}
+              <div style={{ 
+                padding: 16, 
+                borderTop: '1px solid rgba(255,255,255,0.08)', 
+                background: 'var(--surface-2)',
+                marginTop: 'auto'
+              }}>
+                {/* Toggle for client mode */}
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: 12, 
+                  padding: '12px', 
+                  background: 'var(--surface)', 
+                  borderRadius: 10, 
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  marginBottom: 12
+                }}>
+                  <label style={{ 
+                    fontSize: 13, 
+                    color: 'var(--text)', 
+                    fontWeight: 600, 
+                    cursor: 'pointer', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 10 
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={clientModeEnabled}
+                      onChange={(e) => {
+                        setClientModeEnabled(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedClientId(null);
+                        }
+                      }}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        cursor: 'pointer',
+                        accentColor: 'var(--primary)'
+                      }}
+                    />
+                    <span>Режим работы с клиентами</span>
+                  </label>
+                  <div style={{ 
+                    fontSize: 11, 
+                    color: 'var(--text-muted)', 
+                    paddingLeft: 30,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <span style={{ 
+                      display: 'inline-block',
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: clientModeEnabled ? '#10b981' : '#6b7280',
+                      marginRight: 4
+                    }}></span>
+                    {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
+                  </div>
+                </div>
+
+                {/* Client selector - показываем только если режим работы с клиентами включен */}
+                {clientModeEnabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <label style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Выбор клиента
+                    </label>
+                    <select
+                      value={selectedClientId || ''}
+                      onChange={(e) => setSelectedClientId(e.target.value || null)}
+                      disabled={loadingClients}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: 'var(--surface)',
+                        color: 'var(--text)',
+                        fontSize: 13,
+                        fontFamily: 'inherit',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                        e.currentTarget.style.background = 'var(--surface-2)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                        e.currentTarget.style.background = 'var(--surface)';
+                      }}
+                    >
+                      <option value="">Все клиенты</option>
+                      {clients.map(client => (
+                        <option key={client.id} value={client.id}>
+                          {client.name} {client.email ? `(${client.email})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedClientId && (
+                      <button
+                        onClick={() => setSelectedClientId(null)}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: 12,
+                          background: 'transparent',
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: 8,
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                          e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                          e.currentTarget.style.color = '#ef4444';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                          e.currentTarget.style.color = 'var(--text-muted)';
+                        }}
+                      >
+                        <span>✕</span>
+                        <span>Сбросить выбор</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
