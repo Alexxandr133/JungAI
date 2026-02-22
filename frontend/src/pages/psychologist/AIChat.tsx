@@ -16,6 +16,7 @@ type Chat = {
   folderId: string | null;
   createdAt: string;
   updatedAt: string;
+  isLoading?: boolean; // Флаг загрузки для сохранения состояния
 };
 
 type Folder = {
@@ -45,14 +46,20 @@ export default function PsychologistAIChat() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string }>>([]);
   const [loadingClients, setLoadingClients] = useState(false);
+  const [clientModeEnabled, setClientModeEnabled] = useState(true); // Тумблер для работы с клиентами
+  const [isSending, setIsSending] = useState(false); // Дополнительная блокировка отправки
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
 
   useEffect(() => {
     loadChats();
     loadFolders();
-    loadClients();
-  }, []);
+    // Загружаем клиентов только если режим работы с клиентами включен
+    if (clientModeEnabled) {
+      loadClients();
+    }
+  }, [clientModeEnabled]);
 
   async function loadClients() {
     if (!token) return;
@@ -73,11 +80,19 @@ export default function PsychologistAIChat() {
       const chat = chats.find(c => c.id === currentChatId);
       if (chat && chat.messages) {
         setMessages(chat.messages);
+        // Восстанавливаем состояние загрузки, если чат в процессе загрузки
+        if (chat.isLoading) {
+          setLoading(true);
+        } else {
+          setLoading(false);
+        }
       } else {
         setMessages([]);
+        setLoading(false);
       }
     } else {
       setMessages([]);
+      setLoading(false);
     }
   }, [currentChatId, chats]);
 
@@ -90,7 +105,13 @@ export default function PsychologistAIChat() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setChats(Array.isArray(parsed) ? parsed : []);
+        const loadedChats = Array.isArray(parsed) ? parsed : [];
+        // Сбрасываем флаги загрузки при загрузке (на случай, если браузер был закрыт во время загрузки)
+        const chatsWithResetLoading = loadedChats.map((chat: Chat) => ({
+          ...chat,
+          isLoading: false
+        }));
+        setChats(chatsWithResetLoading);
       }
     } catch (e) {
       console.error('Failed to load chats:', e);
@@ -200,15 +221,22 @@ export default function PsychologistAIChat() {
   }
 
   async function sendMessage() {
-    if (!input.trim() || loading || !token) return;
+    // Блокируем отправку, если уже идет отправка или загрузка
+    if (!input.trim() || loading || isSending || sendingRef.current || !token) return;
 
     const userMessage = input.trim();
     setInput('');
+    setIsSending(true);
+    sendingRef.current = true;
+    
+    // Используем текущие сообщения для истории (без нового пользовательского сообщения)
+    // так как оно передается отдельно как `message`
+    const conversationHistory = messages;
     const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
     setMessages(newMessages);
     setLoading(true);
 
-    // Обновляем чат
+    // Обновляем чат с новыми сообщениями и флагом загрузки
     if (currentChatId) {
       const chat = chats.find(c => c.id === currentChatId);
       if (chat) {
@@ -218,7 +246,8 @@ export default function PsychologistAIChat() {
           title: chat.title === 'Новый чат' && newMessages.length === 1 
             ? userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : '')
             : chat.title,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          isLoading: true // Сохраняем состояние загрузки
         };
         const newChats = chats.map(c => c.id === currentChatId ? updatedChat : c);
         saveChats(newChats);
@@ -231,8 +260,9 @@ export default function PsychologistAIChat() {
         messages: newMessages,
         folderId: null,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
+        updatedAt: new Date().toISOString(),
+        isLoading: true // Сохраняем состояние загрузки
+      } as Chat;
       const newChats = [newChat, ...chats];
       saveChats(newChats);
       setCurrentChatId(newChat.id);
@@ -246,8 +276,9 @@ export default function PsychologistAIChat() {
           token,
           body: {
             message: userMessage,
-            conversationHistory: messages,
-            clientId: selectedClientId || undefined
+            conversationHistory: conversationHistory, // Используем правильную историю
+            clientId: clientModeEnabled ? (selectedClientId || undefined) : undefined,
+            clientModeEnabled: clientModeEnabled
           }
         }
       );
@@ -255,11 +286,11 @@ export default function PsychologistAIChat() {
       const finalMessages = response.conversationHistory;
       setMessages(finalMessages);
 
-      // Обновляем чат с финальными сообщениями
+      // Обновляем чат с финальными сообщениями и убираем флаг загрузки
       if (currentChatId) {
         const newChats = chats.map(c => 
           c.id === currentChatId 
-            ? { ...c, messages: finalMessages, updatedAt: new Date().toISOString() }
+            ? { ...c, messages: finalMessages, updatedAt: new Date().toISOString(), isLoading: false }
             : c
         );
         saveChats(newChats);
@@ -276,13 +307,15 @@ export default function PsychologistAIChat() {
       if (currentChatId) {
         const newChats = chats.map(c => 
           c.id === currentChatId 
-            ? { ...c, messages: errorMessages, updatedAt: new Date().toISOString() }
+            ? { ...c, messages: errorMessages, updatedAt: new Date().toISOString(), isLoading: false }
             : c
         );
         saveChats(newChats);
       }
     } finally {
       setLoading(false);
+      setIsSending(false);
+      sendingRef.current = false;
       inputRef.current?.focus();
     }
   }
@@ -726,8 +759,10 @@ export default function PsychologistAIChat() {
                 <div style={{ fontSize: 64, marginBottom: 24 }}>🤖</div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент психолога</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: 16, lineHeight: 1.6, marginBottom: 32 }}>
-                  Задавайте вопросы о клиентах, их снах, заметках, сессиях. Я помогу вам с амплификациями, 
-                  анализом символов, выявлением архетипических паттернов и интерпретацией снов пациентов.
+                  {clientModeEnabled 
+                    ? 'Задавайте вопросы о клиентах, их снах, заметках, сессиях. Я помогу вам с амплификациями, анализом символов, выявлением архетипических паттернов и интерпретацией снов пациентов.'
+                    : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я помогу вам как обобщенный ассистент психолога без доступа к данным конкретных клиентов.'
+                  }
                 </p>
                 <button
                   className="button"
@@ -764,10 +799,12 @@ export default function PsychologistAIChat() {
                           Начните диалог с AI ассистентом
                         </h3>
                         <p style={{ color: 'var(--text-muted)', fontSize: 15, lineHeight: 1.6, marginBottom: 24 }}>
-                          Задавайте вопросы о клиентах, их снах, заметках и сессиях. Я помогу вам с анализом, 
-                          интерпретацией и подготовкой к работе с пациентами.
+                          {clientModeEnabled
+                            ? 'Задавайте вопросы о клиентах, их снах, заметках и сессиях. Я помогу вам с анализом, интерпретацией и подготовкой к работе с пациентами.'
+                            : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я работаю как обобщенный ассистент без доступа к данным конкретных клиентов.'
+                          }
                         </p>
-                        {selectedClientId && (
+                        {clientModeEnabled && selectedClientId && (
                           <div style={{ 
                             padding: '12px 16px', 
                             background: 'rgba(91, 124, 250, 0.1)', 
@@ -794,39 +831,79 @@ export default function PsychologistAIChat() {
                             width: '100%',
                             maxWidth: 400
                           }}>
-                            <div style={{ 
-                              padding: '10px 14px', 
-                              background: 'var(--surface-2)', 
-                              borderRadius: 8, 
-                              fontSize: 13,
-                              color: 'var(--text-muted)',
-                              textAlign: 'left',
-                              border: '1px solid rgba(255,255,255,0.05)'
-                            }}>
-                              "Дай сводку по клиенту..."
-                            </div>
-                            <div style={{ 
-                              padding: '10px 14px', 
-                              background: 'var(--surface-2)', 
-                              borderRadius: 8, 
-                              fontSize: 13,
-                              color: 'var(--text-muted)',
-                              textAlign: 'left',
-                              border: '1px solid rgba(255,255,255,0.05)'
-                            }}>
-                              "Проанализируй последние сны..."
-                            </div>
-                            <div style={{ 
-                              padding: '10px 14px', 
-                              background: 'var(--surface-2)', 
-                              borderRadius: 8, 
-                              fontSize: 13,
-                              color: 'var(--text-muted)',
-                              textAlign: 'left',
-                              border: '1px solid rgba(255,255,255,0.05)'
-                            }}>
-                              "Составь план следующей сессии..."
-                            </div>
+                            {clientModeEnabled ? (
+                              <>
+                                <div style={{ 
+                                  padding: '10px 14px', 
+                                  background: 'var(--surface-2)', 
+                                  borderRadius: 8, 
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                  textAlign: 'left',
+                                  border: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                  "Дай сводку по клиенту..."
+                                </div>
+                                <div style={{ 
+                                  padding: '10px 14px', 
+                                  background: 'var(--surface-2)', 
+                                  borderRadius: 8, 
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                  textAlign: 'left',
+                                  border: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                  "Проанализируй последние сны..."
+                                </div>
+                                <div style={{ 
+                                  padding: '10px 14px', 
+                                  background: 'var(--surface-2)', 
+                                  borderRadius: 8, 
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                  textAlign: 'left',
+                                  border: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                  "Составь план следующей сессии..."
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ 
+                                  padding: '10px 14px', 
+                                  background: 'var(--surface-2)', 
+                                  borderRadius: 8, 
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                  textAlign: 'left',
+                                  border: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                  "Объясни концепцию архетипов Юнга..."
+                                </div>
+                                <div style={{ 
+                                  padding: '10px 14px', 
+                                  background: 'var(--surface-2)', 
+                                  borderRadius: 8, 
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                  textAlign: 'left',
+                                  border: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                  "Как работать с символами в сновидениях?"
+                                </div>
+                                <div style={{ 
+                                  padding: '10px 14px', 
+                                  background: 'var(--surface-2)', 
+                                  borderRadius: 8, 
+                                  fontSize: 13,
+                                  color: 'var(--text-muted)',
+                                  textAlign: 'left',
+                                  border: '1px solid rgba(255,255,255,0.05)'
+                                }}>
+                                  "Какие техники амплификации можно использовать?"
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -899,74 +976,102 @@ export default function PsychologistAIChat() {
                 }}
               >
                 <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
-                  {/* Client selector and shortcuts */}
+                  {/* Toggle and Client selector */}
                   <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {/* Client selector */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <label style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontWeight: 500 }}>
-                        Клиент:
-                      </label>
-                      <select
-                        value={selectedClientId || ''}
-                        onChange={(e) => setSelectedClientId(e.target.value || null)}
-                        disabled={loadingClients}
-                        style={{
-                          flex: 1,
-                          minWidth: 200,
-                          padding: '8px 12px',
-                          borderRadius: 8,
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          background: 'var(--surface-2)',
-                          color: 'var(--text)',
-                          fontSize: 13,
-                          fontFamily: 'inherit',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                        }}
-                      >
-                        <option value="">Все клиенты</option>
-                        {clients.map(client => (
-                          <option key={client.id} value={client.id}>
-                            {client.name} {client.email ? `(${client.email})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      {selectedClientId && (
-                        <button
-                          onClick={() => setSelectedClientId(null)}
+                    {/* Toggle for client mode */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <label style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, cursor: 'pointer', flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={clientModeEnabled}
+                          onChange={(e) => {
+                            setClientModeEnabled(e.target.checked);
+                            if (!e.target.checked) {
+                              setSelectedClientId(null);
+                            }
+                          }}
                           style={{
-                            padding: '8px 12px',
-                            fontSize: 12,
-                            background: 'transparent',
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 8,
-                            color: 'var(--text-muted)',
+                            width: 18,
+                            height: 18,
                             cursor: 'pointer',
-                            whiteSpace: 'nowrap',
+                            accentColor: 'var(--primary)'
+                          }}
+                        />
+                        <span>Режим работы с клиентами</span>
+                      </label>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                        {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
+                      </span>
+                    </div>
+
+                    {/* Client selector - показываем только если режим работы с клиентами включен */}
+                    {clientModeEnabled && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                          Клиент:
+                        </label>
+                        <select
+                          value={selectedClientId || ''}
+                          onChange={(e) => setSelectedClientId(e.target.value || null)}
+                          disabled={loadingClients}
+                          style={{
+                            flex: 1,
+                            minWidth: 200,
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            background: 'var(--surface-2)',
+                            color: 'var(--text)',
+                            fontSize: 13,
+                            fontFamily: 'inherit',
+                            cursor: 'pointer',
                             transition: 'all 0.2s'
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                            e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent';
                             e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
                           }}
                         >
-                          ✕ Сбросить
-                        </button>
-                      )}
-                    </div>
+                          <option value="">Все клиенты</option>
+                          {clients.map(client => (
+                            <option key={client.id} value={client.id}>
+                              {client.name} {client.email ? `(${client.email})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedClientId && (
+                          <button
+                            onClick={() => setSelectedClientId(null)}
+                            style={{
+                              padding: '8px 12px',
+                              fontSize: 12,
+                              background: 'transparent',
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              borderRadius: 8,
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'transparent';
+                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                            }}
+                          >
+                            ✕ Сбросить
+                          </button>
+                        )}
+                      </div>
+                    )}
                     
-                    {/* Shortcut buttons */}
-                    {selectedClientId && (
+                    {/* Shortcut buttons - показываем только если режим работы с клиентами включен и выбран клиент */}
+                    {clientModeEnabled && selectedClientId && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <button
                           onClick={async () => {
@@ -1107,11 +1212,13 @@ export default function PsychologistAIChat() {
                         onKeyDown={e => {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
-                            sendMessage();
+                            if (!loading && !isSending) {
+                              sendMessage();
+                            }
                           }
                         }}
                         placeholder="Напишите сообщение..."
-                        disabled={loading}
+                        disabled={loading || isSending}
                         style={{
                           width: '100%',
                           padding: '12px 16px',
@@ -1141,19 +1248,19 @@ export default function PsychologistAIChat() {
                     <button
                       className="button"
                       onClick={sendMessage}
-                      disabled={!input.trim() || loading}
+                      disabled={!input.trim() || loading || isSending}
                       style={{
                         padding: '12px 20px',
                         fontSize: 15,
                         fontWeight: 600,
                         whiteSpace: 'nowrap',
-                        opacity: (!input.trim() || loading) ? 0.5 : 1,
-                        cursor: (!input.trim() || loading) ? 'not-allowed' : 'pointer',
+                        opacity: (!input.trim() || loading || isSending) ? 0.5 : 1,
+                        cursor: (!input.trim() || loading || isSending) ? 'not-allowed' : 'pointer',
                         minWidth: 100,
                         height: 48
                       }}
                     >
-                      {loading ? '...' : 'Отправить'}
+                      {loading || isSending ? '...' : 'Отправить'}
                     </button>
                   </div>
                 </div>
