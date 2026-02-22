@@ -9,12 +9,57 @@ const router = Router();
 router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     console.log(`[GET /chat/rooms] Request from user: ${req.user!.id} (${req.user!.email}), role: ${req.user!.role}`);
-    const items = await prisma.chatRoom.findMany({ orderBy: { createdAt: 'desc' } });
-    console.log(`[GET /chat/rooms] Returning ${items.length} rooms`);
+    
+    let items: any[] = [];
+    
+    if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
+      // Для психолога: только комнаты с прикрепленными клиентами
+      const clients = await prisma.client.findMany({
+        where: { psychologistId: req.user!.id },
+        select: { name: true }
+      });
+      
+      const clientNames = clients.map(c => c.name);
+      console.log(`[GET /chat/rooms] Psychologist has ${clientNames.length} clients:`, clientNames);
+      
+      if (clientNames.length > 0) {
+        items = await prisma.chatRoom.findMany({
+          where: {
+            name: { in: clientNames }
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+      }
+      
+      console.log(`[GET /chat/rooms] Returning ${items.length} rooms for psychologist`);
+    } else if (req.user!.role === 'client') {
+      // Для клиента: только комнаты, где клиент отправил хотя бы одно сообщение
+      const clientRooms = await prisma.chatMessage.findMany({
+        where: { authorId: req.user!.id },
+        select: { roomId: true },
+        distinct: ['roomId']
+      });
+      
+      const roomIds = clientRooms.map(m => m.roomId);
+      console.log(`[GET /chat/rooms] Client has messages in ${roomIds.length} rooms`);
+      
+      if (roomIds.length > 0) {
+        items = await prisma.chatRoom.findMany({
+          where: {
+            id: { in: roomIds }
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+      }
+      
+      console.log(`[GET /chat/rooms] Returning ${items.length} rooms for client`);
+    }
+    
     // Логируем первые 10 комнат для диагностики
     if (items.length > 0) {
       console.log(`[GET /chat/rooms] Sample rooms (first 10):`, items.slice(0, 10).map(r => ({ id: r.id, name: r.name })));
     }
+    
     res.json({ items });
   } catch (error: any) {
     console.error(`[GET /chat/rooms] Error:`, error);

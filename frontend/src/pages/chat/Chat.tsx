@@ -81,8 +81,20 @@ export default function ChatPage() {
     if (!token) return;
     try {
       const res = await api<{ items: ChatRoom[] }>('/api/chat/rooms', { token });
-      setRooms(res.items || []);
-      return res.items || [];
+      let roomsList = res.items || [];
+      
+      // Дополнительная фильтрация на frontend для надежности
+      if (isPsychologist) {
+        // Для психолога: только комнаты с именами клиентов
+        const clientNames = clients.map(c => c.name);
+        roomsList = roomsList.filter(room => clientNames.includes(room.name));
+      } else if (isClient) {
+        // Для клиента: только комнаты, где клиент отправил сообщение (проверка на frontend не нужна, т.к. backend уже фильтрует)
+        // Но можно добавить проверку, что клиент имеет доступ к этой комнате
+      }
+      
+      setRooms(roomsList);
+      return roomsList;
     } catch (e: any) {
       console.error('Failed to load rooms:', e);
       return [];
@@ -91,13 +103,15 @@ export default function ChatPage() {
 
   // Загрузить клиентов (для психолога)
   async function loadClients() {
-    if (!token || !isPsychologist) return;
+    if (!token || !isPsychologist) return [];
     try {
       const res = await api<{ items: Client[] }>('/api/clients', { token });
       setClients(res.items || []);
+      return res.items || [];
     } catch (e: any) {
       console.error('Failed to load clients:', e);
       setClients([]);
+      return [];
     }
   }
 
@@ -184,11 +198,14 @@ export default function ChatPage() {
   useEffect(() => {
     if (isPsychologist && isVerified === false) return;
     
-    loadRooms();
     if (isPsychologist) {
-      loadClients();
+      // Для психолога: сначала загружаем клиентов, потом комнаты (чтобы фильтрация работала)
+      loadClients().then(() => {
+        loadRooms();
+      });
     } else if (isClient) {
       loadPsychologist();
+      loadRooms();
     }
   }, [token, isClient, isPsychologist, isVerified]);
 
