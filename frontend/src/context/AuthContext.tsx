@@ -38,17 +38,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Загружаем профиль в зависимости от роли
       if (user.role === 'psychologist' || user.role === 'admin') {
         const profileData = await api<{ avatarUrl?: string | null; name?: string | null }>('/api/psychologist/profile', { token });
-        console.log('Profile loaded in context:', profileData);
         setProfile({ avatarUrl: profileData.avatarUrl || null, name: profileData.name || null });
       } else if (user.role === 'client') {
         // Для клиентов используем общий эндпоинт профиля
         const profileData = await api<{ avatarUrl?: string | null; name?: string | null }>('/api/me/profile', { token });
-        console.log('Profile loaded in context:', profileData);
         setProfile({ avatarUrl: profileData.avatarUrl || null, name: profileData.name || null });
       }
     } catch (e) {
       // Профиль может не существовать, это нормально
-      console.error('Failed to load profile:', e);
     }
   }
 
