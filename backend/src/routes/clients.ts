@@ -386,14 +386,9 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
 
     if (req.user.role === 'psychologist') {
       // СТРОГАЯ ФИЛЬТРАЦИЯ: только клиенты этого психолога
-      // КРИТИЧНО: Используем правильный синтаксис Prisma
+      // Упрощенный синтаксис - используем только основное условие
       whereClause = {
-        AND: [
-          { psychologistId: req.user.id }, // ТОЛЬКО клиенты этого психолога
-          { psychologistId: { not: null } }, // Исключаем null
-          { psychologistId: { not: '' } }, // Исключаем пустые строки
-          { psychologistId: { not: { startsWith: 'temp-' } } } // Исключаем временные (правильный синтаксис)
-        ]
+        psychologistId: req.user.id // ТОЛЬКО клиенты этого психолога
       };
       console.log(`[GET /clients] Filtering for psychologist ${req.user.id} with whereClause:`, JSON.stringify(whereClause));
     } else if (req.user.role === 'admin') {
@@ -402,7 +397,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         AND: [
           { psychologistId: { not: null } },
           { psychologistId: { not: '' } },
-          { psychologistId: { not: { startsWith: 'temp-' } } } // Правильный синтаксис
+          { NOT: { psychologistId: { startsWith: 'temp-' } } }
         ]
       };
       console.log(`[GET /clients] Admin access - showing all clients (excluding null/temp)`);
@@ -433,15 +428,22 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     }
 
     // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА БЕЗОПАСНОСТИ: Для психологов еще раз фильтруем на всякий случай
+    // Также исключаем временные записи (temp-*) и null/пустые значения
     let filteredClients = clients;
     if (req.user.role === 'psychologist') {
       const beforeCount = filteredClients.length;
       filteredClients = clients.filter(client => {
+        // КРИТИЧНО: Проверяем, что клиент принадлежит этому психологу
         const matches = client.psychologistId === req.user!.id;
+        // Также исключаем временные записи
+        const notTemp = client.psychologistId && !client.psychologistId.startsWith('temp-');
+        const notEmpty = client.psychologistId && client.psychologistId.trim() !== '';
+        
         if (!matches) {
           console.error(`[GET /clients] SECURITY: Client ${client.id} (${client.name}) has psychologistId=${client.psychologistId}, expected ${req.user!.id}`);
         }
-        return matches;
+        
+        return matches && notTemp && notEmpty;
       });
       
       if (filteredClients.length !== beforeCount) {
