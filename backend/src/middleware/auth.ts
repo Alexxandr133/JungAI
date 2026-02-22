@@ -22,8 +22,15 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   try {
     const payload = jwt.verify(token, config.jwtSecret) as JwtUser;
     req.user = payload;
+    
+    // Логируем только для критичных эндпоинтов (чтобы не засорять логи)
+    if (req.path?.includes('/clients') && req.method === 'GET') {
+      console.log(`[requireAuth] Authenticated user: ${payload.id} (${payload.email}), role: ${payload.role}`);
+    }
+    
     next();
-  } catch {
+  } catch (error: any) {
+    console.error(`[requireAuth] Token verification failed: ${error.message}`);
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
