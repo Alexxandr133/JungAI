@@ -42,7 +42,7 @@ const uploadAvatar = multer({
 });
 
 // Получить психолога клиента
-router.get('/my-psychologist', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
+router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
     console.log('[my-psychologist] Request from user:', req.user!.email, 'role:', req.user!.role);
     

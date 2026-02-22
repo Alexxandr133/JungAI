@@ -51,7 +51,7 @@ export default function ClientWorkspace() {
         return;
       }
       try {
-        const psych = await api<any>('/api/my-psychologist', { token });
+        const psych = await api<any>('/api/clients/my-psychologist', { token });
         setPsychologist(psych);
         setHasPsychologist(true);
       } catch {

@@ -64,7 +64,7 @@ export default function ChatPage() {
       // Для клиента загружаем только его психолога
       if (!token) return;
       try {
-        const psych = await api<any>('/api/my-psychologist', { token: token ?? undefined });
+        const psych = await api<any>('/api/clients/my-psychologist', { token: token ?? undefined });
         setPsychologist(psych);
         // Комната будет открыта автоматически в useEffect после загрузки комнат
       } catch (e: any) {
