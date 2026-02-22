@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 // Загружаем переводы
 import ruTranslations from '../locales/ru';
@@ -30,6 +30,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     const browserLang = navigator.language.split('-')[0];
     return browserLang === 'ru' ? 'ru' : 'en';
   });
+
+  // Обновляем атрибут lang в HTML при изменении языка
+  useEffect(() => {
+    document.documentElement.lang = language;
+    // Также обновляем мета-теги
+    const metaLanguage = document.querySelector('meta[name="language"]');
+    if (metaLanguage) {
+      metaLanguage.setAttribute('content', language);
+    }
+    const metaContentLanguage = document.querySelector('meta[http-equiv="Content-Language"]');
+    if (metaContentLanguage) {
+      metaContentLanguage.setAttribute('content', language);
+    }
+  }, [language]);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
