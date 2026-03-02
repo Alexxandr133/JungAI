@@ -82,7 +82,7 @@ model Client {
   documentVersions DocumentVersion[]
   supportRequests  SupportRequest[]
   tabs             ClientTabs?
-  chatRoom         ChatRoom?
+  aiChats          AIChat[]
 }
 
 model TherapySession {
@@ -214,21 +214,14 @@ model Task {
 }
 
 model ChatRoom {
-  id             String   @id @default(cuid())
-  psychologistId String?  // Временно опциональное для миграции
-  clientId       String?  @unique // Временно опциональное для миграции
-  name           String?  // Имя клиента для отображения
-  createdAt      DateTime @default(now())
-  
-  // Связи
-  client         Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  messages       ChatMessage[]
+  id        String   @id @default(cuid())
+  name      String?
+  createdAt DateTime @default(now())
 }
 
 model ChatMessage {
   id        String   @id @default(cuid())
   roomId    String
-  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
   authorId  String
   content   String
   createdAt DateTime @default(now())
@@ -341,4 +334,37 @@ model SupportRequest {
   respondedAt           DateTime?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+}
+
+// AI чаты психолога
+model AIChat {
+  id              String   @id @default(cuid())
+  psychologistId  String   // ID психолога
+  title            String   // Название чата
+  messages         Json     // Массив сообщений [{role: 'user'|'assistant', content: string}]
+  folderId         String?  // ID папки (если есть)
+  clientId         String?  // ID клиента (если чат связан с клиентом)
+  client           Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// Папки для AI чатов
+model AIChatFolder {
+  id              String   @id @default(cuid())
+  psychologistId  String   // ID психолога
+  name            String   // Название папки
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Шорткаты для AI чата
+model AIChatShortcut {
+  id              String   @id @default(cuid())
+  psychologistId  String   // ID психолога
+  label           String   // Название шортката
+  emoji           String   // Эмодзи
+  prompt          String   // Промпт
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

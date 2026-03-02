@@ -169,13 +169,7 @@ router.get('/auth/me', async (req, res) => {
             name: 'Демо Клиент',
             email: me.email,
             phone: '+7 900 000-00-00',
-            psychologistId: 'u1', // ID демо-психолога
-            chatRoom: {
-              create: {
-                psychologistId: 'u1',
-                name: 'Демо Клиент'
-              }
-            }
+            psychologistId: 'u1' // ID демо-психолога
           }
         });
         

@@ -132,13 +132,7 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
             data: {
               name: req.user!.email.split('@')[0],
               email: req.user!.email,
-              psychologistId: matchingPsychologist.id,
-              chatRoom: {
-                create: {
-                  psychologistId: matchingPsychologist.id,
-                  name: req.user!.email.split('@')[0]
-                }
-              }
+              psychologistId: matchingPsychologist.id
             },
             select: { id: true, psychologistId: true, name: true }
           });
@@ -148,13 +142,7 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
             data: {
               name: req.user!.email.split('@')[0],
               email: req.user!.email,
-              psychologistId: demoPsychologist.id,
-              chatRoom: {
-                create: {
-                  psychologistId: demoPsychologist.id,
-                  name: req.user!.email.split('@')[0]
-                }
-              }
+              psychologistId: demoPsychologist.id
             },
             select: { id: true, psychologistId: true, name: true }
           });
@@ -165,13 +153,7 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
           data: {
             name: req.user!.email.split('@')[0],
             email: req.user!.email,
-            psychologistId: demoPsychologist.id,
-            chatRoom: {
-              create: {
-                psychologistId: demoPsychologist.id,
-                name: req.user!.email.split('@')[0]
-              }
-            }
+            psychologistId: demoPsychologist.id
           },
           select: { id: true, psychologistId: true, name: true }
         });
@@ -531,14 +513,7 @@ router.post('/clients', requireAuth, requireRole(['psychologist', 'admin']), req
       phone, 
       psychologistId: req.user!.id,
       registrationToken,
-      tokenExpiresAt,
-      // Автоматически создаем комнату чата
-      chatRoom: {
-        create: {
-          psychologistId: req.user!.id,
-          name: name
-        }
-      }
+      tokenExpiresAt
     } 
   });
   

@@ -949,4 +949,295 @@ router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), re
   }
 });
 
+// Получить все AI чаты психолога
+router.get('/ai/psychologist/chats', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const chats = await prisma.aIChat.findMany({
+      where: { psychologistId: req.user!.id },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        client: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    const folders = await prisma.aIChatFolder.findMany({
+      where: { psychologistId: req.user!.id },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const shortcuts = await prisma.aIChatShortcut.findMany({
+      where: { psychologistId: req.user!.id },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    res.json({
+      chats: chats.map(chat => ({
+        id: chat.id,
+        title: chat.title,
+        messages: chat.messages,
+        folderId: chat.folderId,
+        clientId: chat.clientId,
+        createdAt: chat.createdAt.toISOString(),
+        updatedAt: chat.updatedAt.toISOString()
+      })),
+      folders: folders.map(folder => ({
+        id: folder.id,
+        name: folder.name,
+        createdAt: folder.createdAt.toISOString()
+      })),
+      shortcuts: shortcuts.map(shortcut => ({
+        id: shortcut.id,
+        label: shortcut.label,
+        emoji: shortcut.emoji,
+        prompt: shortcut.prompt,
+        createdAt: shortcut.createdAt.toISOString()
+      }))
+    });
+  } catch (error: any) {
+    console.error('Failed to load AI chats:', error);
+    res.status(500).json({ error: error.message || 'Failed to load chats' });
+  }
+});
+
+// Сохранить AI чат
+router.post('/ai/psychologist/chats', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { id, title, messages, folderId, clientId } = req.body;
+
+    if (!title || typeof title !== 'string') {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Messages must be an array' });
+    }
+
+    const chatData = {
+      psychologistId: req.user!.id,
+      title,
+      messages: messages as any,
+      folderId: folderId || null,
+      clientId: clientId || null
+    };
+
+    let chat;
+    if (id) {
+      // Проверяем, существует ли чат
+      const existingChat = await prisma.aIChat.findFirst({
+        where: { id, psychologistId: req.user!.id }
+      });
+      
+      if (existingChat) {
+        // Обновить существующий чат
+        chat = await prisma.aIChat.update({
+          where: { id },
+          data: chatData,
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        });
+      } else {
+        // Создать новый чат (если ID был передан, но чата нет в БД)
+        chat = await prisma.aIChat.create({
+          data: chatData,
+          include: {
+            client: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        });
+      }
+    } else {
+      // Создать новый чат
+      chat = await prisma.aIChat.create({
+        data: chatData,
+        include: {
+          client: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          }
+        }
+      });
+    }
+
+    res.json({
+      id: chat.id,
+      title: chat.title,
+      messages: chat.messages,
+      folderId: chat.folderId,
+      clientId: chat.clientId,
+      createdAt: chat.createdAt.toISOString(),
+      updatedAt: chat.updatedAt.toISOString()
+    });
+  } catch (error: any) {
+    console.error('Failed to save AI chat:', error);
+    res.status(500).json({ error: error.message || 'Failed to save chat' });
+  }
+});
+
+// Удалить AI чат
+router.delete('/ai/psychologist/chats/:id', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const chat = await prisma.aIChat.findFirst({
+      where: { id, psychologistId: req.user!.id }
+    });
+
+    if (!chat) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
+
+    await prisma.aIChat.delete({
+      where: { id }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Failed to delete AI chat:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete chat' });
+  }
+});
+
+// Создать/обновить папку
+router.post('/ai/psychologist/folders', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { id, name } = req.body;
+
+    if (!name || typeof name !== 'string') {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    let folder;
+    if (id) {
+      folder = await prisma.aIChatFolder.update({
+        where: { id },
+        data: { name }
+      });
+    } else {
+      folder = await prisma.aIChatFolder.create({
+        data: {
+          psychologistId: req.user!.id,
+          name
+        }
+      });
+    }
+
+    res.json({
+      id: folder.id,
+      name: folder.name,
+      createdAt: folder.createdAt.toISOString()
+    });
+  } catch (error: any) {
+    console.error('Failed to save folder:', error);
+    res.status(500).json({ error: error.message || 'Failed to save folder' });
+  }
+});
+
+// Удалить папку
+router.delete('/ai/psychologist/folders/:id', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const folder = await prisma.aIChatFolder.findFirst({
+      where: { id, psychologistId: req.user!.id }
+    });
+
+    if (!folder) {
+      return res.status(404).json({ error: 'Folder not found' });
+    }
+
+    await prisma.aIChatFolder.delete({
+      where: { id }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Failed to delete folder:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete folder' });
+  }
+});
+
+// Создать/обновить шорткат
+router.post('/ai/psychologist/shortcuts', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { id, label, emoji, prompt } = req.body;
+
+    if (!label || typeof label !== 'string' || !prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'Label and prompt are required' });
+    }
+
+    let shortcut;
+    if (id) {
+      shortcut = await prisma.aIChatShortcut.update({
+        where: { id },
+        data: { label, emoji: emoji || '📝', prompt }
+      });
+    } else {
+      shortcut = await prisma.aIChatShortcut.create({
+        data: {
+          psychologistId: req.user!.id,
+          label,
+          emoji: emoji || '📝',
+          prompt
+        }
+      });
+    }
+
+    res.json({
+      id: shortcut.id,
+      label: shortcut.label,
+      emoji: shortcut.emoji,
+      prompt: shortcut.prompt,
+      createdAt: shortcut.createdAt.toISOString()
+    });
+  } catch (error: any) {
+    console.error('Failed to save shortcut:', error);
+    res.status(500).json({ error: error.message || 'Failed to save shortcut' });
+  }
+});
+
+// Удалить шорткат
+router.delete('/ai/psychologist/shortcuts/:id', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const shortcut = await prisma.aIChatShortcut.findFirst({
+      where: { id, psychologistId: req.user!.id }
+    });
+
+    if (!shortcut) {
+      return res.status(404).json({ error: 'Shortcut not found' });
+    }
+
+    await prisma.aIChatShortcut.delete({
+      where: { id }
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Failed to delete shortcut:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete shortcut' });
+  }
+});
+
 export default router;
