@@ -156,7 +156,15 @@ export default function ResearcherDreams() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <ResearcherNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: 1400,
+          margin: '0 auto',
+          width: '100%'
+        }}
+      >
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 16 }}>
             <div>

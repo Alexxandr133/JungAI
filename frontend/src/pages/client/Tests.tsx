@@ -366,7 +366,14 @@ export default function ClientTests() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <ClientNavbar />
-        <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+        <main
+          style={{
+            flex: 1,
+            padding: '24px clamp(16px, 5vw, 48px)',
+            maxWidth: '100%',
+            overflowX: 'hidden'
+          }}
+        >
           <div className="card" style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
             <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h2 style={{ margin: 0 }}>Результаты: Гексаграмма {hex.number}</h2>
@@ -516,7 +523,14 @@ export default function ClientTests() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <ClientNavbar />
-        <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+        <main
+          style={{
+            flex: 1,
+            padding: '24px clamp(16px, 5vw, 48px)',
+            maxWidth: '100%',
+            overflowX: 'hidden'
+          }}
+        >
           <div className="card" style={{ padding: 24, maxWidth: 1000, margin: '0 auto' }}>
             <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h2 style={{ margin: 0 }}>Результаты теста: Спиральная динамика</h2>
@@ -648,7 +662,14 @@ export default function ClientTests() {
       return (
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
           <ClientNavbar />
-          <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+          <main
+            style={{
+              flex: 1,
+              padding: '24px clamp(16px, 5vw, 48px)',
+              maxWidth: '100%',
+              overflowX: 'hidden'
+            }}
+          >
             <div className="card" style={{ padding: 24, maxWidth: 800, margin: '0 auto' }}>
               <div style={{ marginBottom: 20 }}>
                 <button className="button secondary" onClick={() => { setSelectedTest(null); setIChingStep('question'); }} style={{ padding: '6px 12px', fontSize: 13 }}>← Назад</button>
@@ -687,7 +708,16 @@ export default function ClientTests() {
       return (
         <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
           <ClientNavbar />
-          <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden', display: 'grid', placeItems: 'center' }}>
+          <main
+            style={{
+              flex: 1,
+              padding: '24px clamp(16px, 5vw, 48px)',
+              maxWidth: '100%',
+              overflowX: 'hidden',
+              display: 'grid',
+              placeItems: 'center'
+            }}
+          >
             <div className="card" style={{ padding: 32, maxWidth: 600, width: '100%', textAlign: 'center' }}>
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 48, marginBottom: 16 }}>☯️</div>
@@ -815,9 +845,16 @@ export default function ClientTests() {
     const progress = ((currentQuestion + 1) / totalQuestions) * 100;
 
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <ClientNavbar />
-        <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+          <ClientNavbar />
+          <main
+            style={{
+              flex: 1,
+              padding: '24px clamp(16px, 5vw, 48px)',
+              maxWidth: '100%',
+              overflowX: 'hidden'
+            }}
+          >
           <div className="card" style={{ padding: 24, maxWidth: 800, margin: '0 auto' }}>
             <div style={{ marginBottom: 20 }}>
               <button className="button secondary" onClick={() => { setSelectedTest(null); setCurrentQuestion(0); setAnswers({}); }} style={{ padding: '6px 12px', fontSize: 13 }}>← Назад</button>
@@ -863,7 +900,14 @@ export default function ClientTests() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <ClientNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: '100%',
+          overflowX: 'hidden'
+        }}
+      >
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Тесты и мантические техники</h1>
         </div>

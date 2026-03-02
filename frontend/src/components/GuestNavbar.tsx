@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -95,7 +96,7 @@ export function GuestNavbar() {
       style={{
         position: 'sticky',
         top: 0,
-        zIndex: 100,
+        zIndex: 10000,
         background: 'var(--surface)',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         backdropFilter: 'blur(12px)',
@@ -111,7 +112,10 @@ export function GuestNavbar() {
           </Link>
 
           {/* Desktop Menu */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
+          <div
+            className="guest-desktop-menu"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}
+          >
             {menuItems.map((item) => {
               if (item.children) {
                 return (
@@ -252,39 +256,59 @@ export function GuestNavbar() {
           </button>
         </div>
 
-        {/* Mobile Menu */}
-        {mobileMenuOpen && (
+        {/* Mobile Menu - rendered via Portal */}
+        {mobileMenuOpen && typeof document !== 'undefined' && createPortal(
           <div
             style={{
-              display: 'grid',
-              gap: 8,
-              padding: '16px 0',
-              borderTop: '1px solid rgba(255,255,255,0.08)'
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(5,8,16,0.8)',
+              backdropFilter: 'blur(6px)',
+              zIndex: 99999,
+              display: 'flex',
+              justifyContent: 'flex-end'
             }}
+            onClick={() => setMobileMenuOpen(false)}
           >
-            {menuItems.map((item) => (
-              <Link
-                key={item.path || item.label}
-                to={item.path || '#'}
-                onClick={() => setMobileMenuOpen(false)}
-                style={{
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  textDecoration: 'none',
-                  color: 'var(--text)',
-                  fontSize: 14,
-                  fontWeight: 600,
-                  background: isActive(item.path) ? 'var(--surface-2)' : 'transparent',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8
-                }}
-              >
-                {item.icon && <span>{item.icon}</span>}
-                <span>{item.label}</span>
-              </Link>
-            ))}
-          </div>
+            <div
+              style={{
+                width: '80%',
+                maxWidth: 320,
+                background: 'var(--surface)',
+                padding: '12px 16px',
+                borderLeft: '1px solid rgba(255,255,255,0.12)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                overflowY: 'auto'
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              {menuItems.map((item) => (
+                <Link
+                  key={item.path || item.label}
+                  to={item.path || '#'}
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    textDecoration: 'none',
+                    color: 'var(--text)',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    background: isActive(item.path) ? 'var(--surface-2)' : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}
+                >
+                  {item.icon && <span>{item.icon}</span>}
+                  <span>{item.label}</span>
+                </Link>
+              ))}
+            </div>
+          </div>,
+          document.body
         )}
       </div>
 
@@ -293,7 +317,7 @@ export function GuestNavbar() {
           .mobile-menu-btn {
             display: block !important;
           }
-          nav > div > div:first-of-type > div:nth-of-type(2) {
+          .guest-desktop-menu {
             display: none !important;
           }
         }

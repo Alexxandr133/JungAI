@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
@@ -81,10 +82,12 @@ export default function PsychologistAIChat() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
-  const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string }>>([]);
+  const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string; avatarUrl?: string }>>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientModeEnabled, setClientModeEnabled] = useState(true); // Тумблер для работы с клиентами
+  const [showClientsDropdown, setShowClientsDropdown] = useState(false);
   const [isSending, setIsSending] = useState(false); // Дополнительная блокировка отправки
+  const [isMobileView, setIsMobileView] = useState(false);
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showAddShortcutModal, setShowAddShortcutModal] = useState(false);
@@ -107,12 +110,27 @@ export default function PsychologistAIChat() {
     }
   }, [clientModeEnabled]);
 
+  // Detect mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileView(window.innerWidth <= 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   async function loadClients() {
     if (!token) return;
     setLoadingClients(true);
     try {
-      const res = await api<{ items: Array<{ id: string; name: string; email?: string }> }>('/api/clients', { token });
-      setClients(res.items || []);
+      const res = await api<{ items: Array<{ id: string; name: string; email?: string; avatarUrl?: string; profile?: { avatarUrl?: string } }> }>('/api/clients', { token });
+      setClients((res.items || []).map(item => ({
+        id: item.id,
+        name: item.name,
+        email: item.email,
+        avatarUrl: item.avatarUrl || item.profile?.avatarUrl
+      })));
     } catch (e) {
       console.error('Failed to load clients:', e);
       setClients([]);
@@ -120,6 +138,21 @@ export default function PsychologistAIChat() {
       setLoadingClients(false);
     }
   }
+
+  // Close clients dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const dropdown = document.querySelector('[data-clients-dropdown]');
+      if (dropdown && !dropdown.contains(target)) {
+        setShowClientsDropdown(false);
+      }
+    };
+    if (showClientsDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showClientsDropdown]);
 
   useEffect(() => {
     if (currentChatId) {
@@ -160,21 +193,30 @@ export default function PsychologistAIChat() {
     }
   }, [showEmojiPicker]);
 
-  function loadChats() {
+  async function loadChats() {
+    if (!token) return;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const loadedChats = Array.isArray(parsed) ? parsed : [];
-        // Сбрасываем флаги загрузки при загрузке (на случай, если браузер был закрыт во время загрузки)
-        const chatsWithResetLoading = loadedChats.map((chat: Chat) => ({
-          ...chat,
-          isLoading: false
-        }));
-        setChats(chatsWithResetLoading);
-      }
+      const res = await api<{ chats: Chat[]; folders: Folder[]; shortcuts: Shortcut[] }>('/api/ai/psychologist/chats', { token });
+      const loadedChats = (res.chats || []).map((chat: any) => ({
+        ...chat,
+        isLoading: false
+      }));
+      setChats(loadedChats);
+      setFolders(res.folders || []);
+      setShortcuts(res.shortcuts || []);
     } catch (e) {
-      console.error('Failed to load chats:', e);
+      console.error('Failed to load chats from API:', e);
+      // Fallback to localStorage if API fails
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          const loadedChats = Array.isArray(parsed) ? parsed : [];
+          setChats(loadedChats.map((chat: Chat) => ({ ...chat, isLoading: false })));
+        }
+      } catch (localError) {
+        console.error('Failed to load from localStorage:', localError);
+      }
     }
   }
 
@@ -190,21 +232,56 @@ export default function PsychologistAIChat() {
     }
   }
 
-  function saveChats(newChats: Chat[]) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newChats));
+  async function saveChats(newChats: Chat[]) {
+    if (!token) {
       setChats(newChats);
-    } catch (e) {
-      console.error('Failed to save chats:', e);
+      return;
     }
+    
+    // Save each chat to backend and update IDs if needed
+    const updatedChats = await Promise.all(
+      newChats.map(async (chat) => {
+        try {
+          const saved = await api<Chat>('/api/ai/psychologist/chats', {
+            method: 'POST',
+            token,
+            body: {
+              id: chat.id,
+              title: chat.title,
+              messages: chat.messages,
+              folderId: chat.folderId,
+              clientId: selectedClientId
+            }
+          });
+          // Используем ID, который вернул сервер (важно для новых чатов)
+          return { ...chat, id: saved.id, createdAt: saved.createdAt, updatedAt: saved.updatedAt };
+        } catch (e) {
+          console.error('Failed to save chat to backend:', e);
+          return chat; // Возвращаем оригинальный чат при ошибке
+        }
+      })
+    );
+    
+    setChats(updatedChats);
   }
 
-  function saveFolders(newFolders: Folder[]) {
-    try {
-      localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(newFolders));
-      setFolders(newFolders);
-    } catch (e) {
-      console.error('Failed to save folders:', e);
+  async function saveFolders(newFolders: Folder[]) {
+    setFolders(newFolders);
+    // Save each folder to backend
+    if (!token) return;
+    for (const folder of newFolders) {
+      try {
+        await api('/api/ai/psychologist/folders', {
+          method: 'POST',
+          token,
+          body: {
+            id: folder.id,
+            name: folder.name
+          }
+        });
+      } catch (e) {
+        console.error('Failed to save folder:', e);
+      }
     }
   }
 
@@ -248,12 +325,25 @@ export default function PsychologistAIChat() {
     }
   }
 
-  function saveShortcuts(newShortcuts: Shortcut[]) {
-    try {
-      localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(newShortcuts));
-      setShortcuts(newShortcuts);
-    } catch (e) {
-      console.error('Failed to save shortcuts:', e);
+  async function saveShortcuts(newShortcuts: Shortcut[]) {
+    setShortcuts(newShortcuts);
+    // Save each shortcut to backend
+    if (!token) return;
+    for (const shortcut of newShortcuts) {
+      try {
+        await api('/api/ai/psychologist/shortcuts', {
+          method: 'POST',
+          token,
+          body: {
+            id: shortcut.id,
+            label: shortcut.label,
+            emoji: shortcut.emoji,
+            prompt: shortcut.prompt
+          }
+        });
+      } catch (e) {
+        console.error('Failed to save shortcut:', e);
+      }
     }
   }
 
@@ -292,9 +382,16 @@ export default function PsychologistAIChat() {
     cancelEditShortcut();
   }
 
-  function deleteShortcut(shortcutId: string) {
+  async function deleteShortcut(shortcutId: string) {
     if (!window.confirm('Удалить этот шорткаст?')) return;
-    saveShortcuts(shortcuts.filter(s => s.id !== shortcutId));
+    if (token) {
+      try {
+        await api(`/api/ai/psychologist/shortcuts/${shortcutId}`, { method: 'DELETE', token });
+      } catch (e) {
+        console.error('Failed to delete shortcut from backend:', e);
+      }
+    }
+    setShortcuts(shortcuts.filter(s => s.id !== shortcutId));
   }
 
   function startEditShortcut(shortcut: Shortcut) {
@@ -366,12 +463,37 @@ export default function PsychologistAIChat() {
     }
   }
 
-  function deleteFolder(folderId: string) {
+  async function deleteFolder(folderId: string) {
     if (!window.confirm('Удалить эту папку? Все чаты в ней будут перемещены в корень.')) return;
+    if (token) {
+      try {
+        await api(`/api/ai/psychologist/folders/${folderId}`, { method: 'DELETE', token });
+      } catch (e) {
+        console.error('Failed to delete folder from backend:', e);
+      }
+    }
     const newFolders = folders.filter(f => f.id !== folderId);
     const newChats = chats.map(c => c.folderId === folderId ? { ...c, folderId: null } : c);
-    saveFolders(newFolders);
-    saveChats(newChats);
+    setFolders(newFolders);
+    setChats(newChats);
+    // Save updated chats
+    for (const chat of newChats.filter(c => c.folderId === null && chats.find(old => old.id === c.id)?.folderId === folderId)) {
+      try {
+        await api('/api/ai/psychologist/chats', {
+          method: 'POST',
+          token: token!,
+          body: {
+            id: chat.id,
+            title: chat.title,
+            messages: chat.messages,
+            folderId: null,
+            clientId: selectedClientId
+          }
+        });
+      } catch (e) {
+        console.error('Failed to update chat:', e);
+      }
+    }
   }
 
   function updateChatTitle(chatId: string, newTitle: string) {
@@ -510,11 +632,27 @@ export default function PsychologistAIChat() {
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <PsychologistNavbar />
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0, position: 'relative' }}>
+        {/* Overlay для мобильной версии */}
+        {isMobileView && sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0, 0, 0, 0.5)',
+              zIndex: 99,
+              transition: 'opacity 0.3s'
+            }}
+          />
+        )}
         {/* Sidebar */}
         <div
           style={{
-            width: sidebarOpen ? 280 : 0,
+            width: sidebarOpen ? (isMobileView ? '100%' : 280) : 0,
             background: 'var(--surface)',
             borderRight: '1px solid rgba(255,255,255,0.08)',
             display: 'flex',
@@ -522,7 +660,10 @@ export default function PsychologistAIChat() {
             transition: 'width 0.3s',
             overflow: 'hidden',
             height: '100%',
-            position: 'relative'
+            position: isMobileView ? 'absolute' : 'relative',
+            zIndex: isMobileView && sidebarOpen ? 100 : 'auto',
+            left: 0,
+            top: 0
           }}
         >
           {sidebarOpen && (
@@ -532,14 +673,14 @@ export default function PsychologistAIChat() {
                 <button
                   className="button"
                   onClick={() => createNewChat()}
-                  style={{ width: '100%', padding: '12px', fontSize: 14, fontWeight: 600 }}
+                  style={{ width: '100%', padding: '12px', fontSize: isMobileView ? 12 : 14, fontWeight: 600 }}
                 >
                   + Новый чат
                 </button>
                 <button
                   className="button secondary"
                   onClick={() => setShowNewFolderModal(true)}
-                  style={{ width: '100%', padding: '10px', marginTop: 8, fontSize: 13 }}
+                  style={{ width: '100%', padding: '10px', marginTop: 8, fontSize: isMobileView ? 11 : 13 }}
                 >
                   + Новая папка
                 </button>
@@ -554,29 +695,51 @@ export default function PsychologistAIChat() {
                       <div
                         key={chat.id}
                         style={{
-                          padding: '8px 12px',
-                          borderRadius: 8,
-                          marginBottom: 4,
-                          background: currentChatId === chat.id ? 'var(--primary)22' : 'transparent',
+                          padding: '10px 14px',
+                          borderRadius: 10,
+                          marginBottom: 8,
+                          background: currentChatId === chat.id ? 'rgba(91, 124, 250, 0.15)' : 'var(--surface)',
+                          border: currentChatId === chat.id 
+                            ? '2px solid var(--primary)' 
+                            : '1px solid rgba(255,255,255,0.08)',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 8,
+                          gap: 10,
                           position: 'relative',
+                          transition: 'all 0.2s ease',
+                          boxShadow: currentChatId === chat.id 
+                            ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
+                            : '0 1px 3px rgba(0,0,0,0.1)'
                         }}
-                        onClick={() => setCurrentChatId(chat.id)}
+                        onClick={() => {
+                          setCurrentChatId(chat.id);
+                          if (isMobileView) {
+                            setSidebarOpen(false);
+                          }
+                        }}
                         onMouseEnter={(e) => {
                           if (currentChatId !== chat.id) {
                             e.currentTarget.style.background = 'var(--surface-2)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+                            e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
                           }
+                          // Показываем подсказку о переименовании
+                          const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
+                          if (hint) hint.style.display = 'inline';
                         }}
                         onMouseLeave={(e) => {
                           if (currentChatId !== chat.id) {
-                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.background = 'var(--surface)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
                           }
+                          // Скрываем подсказку
+                          const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
+                          if (hint) hint.style.display = 'none';
                         }}
                       >
-                        <span style={{ fontSize: 16 }}>💬</span>
+                        <span style={{ fontSize: isMobileView ? 14 : 16 }}>💬</span>
                         {editingChatId === chat.id ? (
                           <input
                             value={editingChatTitle}
@@ -606,17 +769,33 @@ export default function PsychologistAIChat() {
                             <span
                               style={{
                                 flex: 1,
-                                fontSize: 13,
+                                fontSize: isMobileView ? 11 : 13,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
+                                whiteSpace: 'nowrap',
+                                fontWeight: currentChatId === chat.id ? 600 : 400,
+                                color: currentChatId === chat.id ? 'var(--primary)' : 'var(--text)',
+                                position: 'relative'
                               }}
                               onDoubleClick={() => {
                                 setEditingChatId(chat.id);
                                 setEditingChatTitle(chat.title);
                               }}
+                              title="Двойной клик для переименования"
                             >
                               {chat.title}
+                            </span>
+                            <span 
+                              style={{ 
+                                fontSize: 10, 
+                                opacity: 0.5, 
+                                color: 'var(--text-muted)',
+                                marginLeft: 4,
+                                display: 'none'
+                              }}
+                              className="rename-hint"
+                            >
+                              ✏️
                             </span>
                             {folders.length > 0 && (
                               <select
@@ -629,7 +808,7 @@ export default function PsychologistAIChat() {
                                 onClick={e => e.stopPropagation()}
                                 style={{
                                   padding: '2px 6px',
-                                  fontSize: 11,
+                                  fontSize: isMobileView ? 10 : 11,
                                   borderRadius: 4,
                                   border: '1px solid rgba(255,255,255,0.12)',
                                   background: 'var(--surface-2)',
@@ -658,7 +837,7 @@ export default function PsychologistAIChat() {
                                 border: 'none',
                                 color: 'var(--text-muted)',
                                 cursor: 'pointer',
-                                fontSize: 12,
+                                fontSize: isMobileView ? 10 : 12,
                                 opacity: 0.6
                               }}
                               onMouseEnter={(e) => {
@@ -692,7 +871,7 @@ export default function PsychologistAIChat() {
                         marginBottom: 4
                       }}
                     >
-                      <span style={{ fontSize: 14 }}>📁</span>
+                      <span style={{ fontSize: isMobileView ? 12 : 14 }}>📁</span>
                       {editingFolderId === folder.id ? (
                         <input
                           value={editingFolderName}
@@ -722,7 +901,7 @@ export default function PsychologistAIChat() {
                           <span
                             style={{
                               flex: 1,
-                              fontSize: 13,
+                              fontSize: isMobileView ? 11 : 13,
                               fontWeight: 600,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -743,7 +922,7 @@ export default function PsychologistAIChat() {
                               border: 'none',
                               color: 'var(--text-muted)',
                               cursor: 'pointer',
-                              fontSize: 12,
+                              fontSize: isMobileView ? 10 : 12,
                               opacity: 0.6
                             }}
                             onMouseEnter={(e) => {
@@ -765,28 +944,50 @@ export default function PsychologistAIChat() {
                         <div
                           key={chat.id}
                           style={{
-                            padding: '8px 12px',
-                            borderRadius: 8,
-                            marginBottom: 4,
-                            background: currentChatId === chat.id ? 'var(--primary)22' : 'transparent',
+                            padding: '10px 14px',
+                            borderRadius: 10,
+                            marginBottom: 8,
+                            background: currentChatId === chat.id ? 'rgba(91, 124, 250, 0.15)' : 'var(--surface)',
+                            border: currentChatId === chat.id 
+                              ? '2px solid var(--primary)' 
+                              : '1px solid rgba(255,255,255,0.08)',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 8
+                            gap: 10,
+                            transition: 'all 0.2s ease',
+                            boxShadow: currentChatId === chat.id 
+                              ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
+                              : '0 1px 3px rgba(0,0,0,0.1)'
                           }}
-                          onClick={() => setCurrentChatId(chat.id)}
+                          onClick={() => {
+                          setCurrentChatId(chat.id);
+                          if (isMobileView) {
+                            setSidebarOpen(false);
+                          }
+                        }}
                           onMouseEnter={(e) => {
                             if (currentChatId !== chat.id) {
                               e.currentTarget.style.background = 'var(--surface-2)';
+                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+                              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
                             }
+                            // Показываем подсказку о переименовании
+                            const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
+                            if (hint) hint.style.display = 'inline';
                           }}
                           onMouseLeave={(e) => {
                             if (currentChatId !== chat.id) {
-                              e.currentTarget.style.background = 'transparent';
+                              e.currentTarget.style.background = 'var(--surface)';
+                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
                             }
+                            // Скрываем подсказку
+                            const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
+                            if (hint) hint.style.display = 'none';
                           }}
                         >
-                          <span style={{ fontSize: 14 }}>💬</span>
+                          <span style={{ fontSize: isMobileView ? 12 : 14 }}>💬</span>
                           {editingChatId === chat.id ? (
                             <input
                               value={editingChatTitle}
@@ -816,17 +1017,33 @@ export default function PsychologistAIChat() {
                               <span
                                 style={{
                                   flex: 1,
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap'
+                                  whiteSpace: 'nowrap',
+                                  fontWeight: currentChatId === chat.id ? 600 : 400,
+                                  color: currentChatId === chat.id ? 'var(--primary)' : 'var(--text)',
+                                  position: 'relative'
                                 }}
                                 onDoubleClick={() => {
                                   setEditingChatId(chat.id);
                                   setEditingChatTitle(chat.title);
                                 }}
+                                title="Двойной клик для переименования"
                               >
                                 {chat.title}
+                              </span>
+                              <span 
+                                style={{ 
+                                  fontSize: isMobileView ? 9 : 10, 
+                                  opacity: 0.5, 
+                                  color: 'var(--text-muted)',
+                                  marginLeft: 4,
+                                  display: 'none'
+                                }}
+                                className="rename-hint"
+                              >
+                                ✏️
                               </span>
                               {folders.length > 0 && (
                                 <select
@@ -839,7 +1056,7 @@ export default function PsychologistAIChat() {
                                   onClick={e => e.stopPropagation()}
                                   style={{
                                     padding: '2px 6px',
-                                    fontSize: 11,
+                                    fontSize: isMobileView ? 10 : 11,
                                     borderRadius: 4,
                                     border: '1px solid rgba(255,255,255,0.12)',
                                     background: 'var(--surface-2)',
@@ -869,7 +1086,7 @@ export default function PsychologistAIChat() {
                                   border: 'none',
                                   color: 'var(--text-muted)',
                                   cursor: 'pointer',
-                                  fontSize: 12,
+                                  fontSize: isMobileView ? 10 : 12,
                                   opacity: 0.6
                                 }}
                                 onMouseEnter={(e) => {
@@ -894,7 +1111,7 @@ export default function PsychologistAIChat() {
                           width: '100%',
                           padding: '6px 12px',
                           marginTop: 4,
-                          fontSize: 12
+                          fontSize: isMobileView ? 10 : 12
                         }}
                       >
                         + Чат в папке
@@ -911,6 +1128,113 @@ export default function PsychologistAIChat() {
                 background: 'var(--surface-2)',
                 marginTop: 'auto'
               }}>
+                {/* Client selector - показываем только если режим работы с клиентами включен */}
+                {clientModeEnabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                    <label style={{ fontSize: isMobileView ? 10 : 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Выбор клиента
+                    </label>
+                    {selectedClientId ? (
+                      <div style={{ position: 'relative' }} data-clients-dropdown>
+                        <button
+                          onClick={() => setShowClientsDropdown(!showClientsDropdown)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 16px',
+                            borderRadius: 10,
+                            border: 'none',
+                            background: 'var(--surface)',
+                            color: 'var(--text)',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            width: '100%'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'var(--surface-2)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'var(--surface)';
+                          }}
+                        >
+                          {(() => {
+                            const currentClient = clients.find(c => c.id === selectedClientId);
+                            if (!currentClient) return null;
+                            const avatarUrl = currentClient.avatarUrl;
+                            return avatarUrl ? (
+                              <img
+                                src={avatarUrl}
+                                alt={currentClient.name || 'Аватар'}
+                                style={{
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  border: '2px solid rgba(255,255,255,0.1)',
+                                  flexShrink: 0
+                                }}
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent && !parent.querySelector('.avatar-fallback')) {
+                                    const fallback = document.createElement('div');
+                                    fallback.className = 'avatar-fallback';
+                                    fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
+                                    fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
+                                    parent.appendChild(fallback);
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                                {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
+                              </div>
+                            );
+                          })()}
+                          <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                              {clients.find(c => c.id === selectedClientId)?.name || 'Клиент'}
+                            </div>
+                            <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                              {clients.find(c => c.id === selectedClientId)?.email || '—'}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: 12, opacity: 0.6, flexShrink: 0 }}>▼</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setShowClientsDropdown(true)}
+                        disabled={loadingClients}
+                        style={{
+                          width: '100%',
+                          padding: '10px 16px',
+                          borderRadius: 10,
+                          border: '1px solid rgba(255,255,255,0.12)',
+                          background: 'var(--surface)',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          fontSize: isMobileView ? 11 : 13,
+                          textAlign: 'left'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
+                          e.currentTarget.style.background = 'var(--surface-2)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                          e.currentTarget.style.background = 'var(--surface)';
+                        }}
+                      >
+                        {loadingClients ? 'Загрузка...' : 'Выберите клиента'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Toggle for client mode */}
                 <div style={{ 
                   display: 'flex', 
@@ -919,11 +1243,10 @@ export default function PsychologistAIChat() {
                   padding: '12px', 
                   background: 'var(--surface)', 
                   borderRadius: 10, 
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  marginBottom: 12
+                  border: '1px solid rgba(255,255,255,0.08)'
                 }}>
                   <label style={{ 
-                    fontSize: 13, 
+                    fontSize: isMobileView ? 11 : 13, 
                     color: 'var(--text)', 
                     fontWeight: 600, 
                     cursor: 'pointer', 
@@ -950,7 +1273,7 @@ export default function PsychologistAIChat() {
                     <span>Режим работы с клиентами</span>
                   </label>
                   <div style={{ 
-                    fontSize: 11, 
+                    fontSize: isMobileView ? 10 : 11, 
                     color: 'var(--text-muted)', 
                     paddingLeft: 30,
                     display: 'flex',
@@ -968,117 +1291,92 @@ export default function PsychologistAIChat() {
                     {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
                   </div>
                 </div>
-
-                {/* Client selector - показываем только если режим работы с клиентами включен */}
-                {clientModeEnabled && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <label style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Выбор клиента
-                    </label>
-                    <select
-                      value={selectedClientId || ''}
-                      onChange={(e) => setSelectedClientId(e.target.value || null)}
-                      disabled={loadingClients}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        borderRadius: 8,
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        background: 'var(--surface)',
-                        color: 'var(--text)',
-                        fontSize: 13,
-                        fontFamily: 'inherit',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                        e.currentTarget.style.background = 'var(--surface-2)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                        e.currentTarget.style.background = 'var(--surface)';
-                      }}
-                    >
-                      <option value="">Все клиенты</option>
-                      {clients.map(client => (
-                        <option key={client.id} value={client.id}>
-                          {client.name} {client.email ? `(${client.email})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedClientId && (
-                      <button
-                        onClick={() => setSelectedClientId(null)}
-                        style={{
-                          width: '100%',
-                          padding: '8px 12px',
-                          fontSize: 12,
-                          background: 'transparent',
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          borderRadius: 8,
-                          color: 'var(--text-muted)',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 6
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                          e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                          e.currentTarget.style.color = '#ef4444';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                          e.currentTarget.style.color = 'var(--text-muted)';
-                        }}
-                      >
-                        <span>✕</span>
-                        <span>Сбросить выбор</span>
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Toggle sidebar button */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          style={{
-            position: 'absolute',
-            left: sidebarOpen ? 280 : 0,
-            top: 80,
-            width: 24,
-            height: 40,
-            background: 'var(--surface-2)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderLeft: 'none',
-            borderRadius: '0 8px 8px 0',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-            transition: 'left 0.3s'
-          }}
-        >
-          {sidebarOpen ? '‹' : '›'}
-        </button>
+        {/* Toggle sidebar button - только на десктопе */}
+        {!isMobileView && (
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            style={{
+              position: 'absolute',
+              left: sidebarOpen ? 280 : 0,
+              top: 80,
+              width: 24,
+              height: 40,
+              background: 'var(--surface-2)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderLeft: 'none',
+              borderRadius: '0 8px 8px 0',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              transition: 'left 0.3s'
+            }}
+          >
+            {sidebarOpen ? '‹' : '›'}
+          </button>
+        )}
 
         {/* Main chat area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%' }}>
+          {/* Mobile back button */}
+          {isMobileView && currentChatId && (
+            <div style={{
+              padding: '12px 16px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              background: 'var(--surface)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexShrink: 0
+            }}>
+              <button
+                onClick={() => {
+                  setSidebarOpen(true);
+                  setCurrentChatId(null);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  fontSize: 18,
+                  flexShrink: 0
+                }}
+                title="Назад к чатам"
+              >
+                ←
+              </button>
+              <div style={{ 
+                fontWeight: 600, 
+                fontSize: 14, 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis', 
+                whiteSpace: 'nowrap', 
+                flex: 1,
+                color: 'var(--text)'
+              }}>
+                {chats.find(c => c.id === currentChatId)?.title || 'Чат'}
+              </div>
+            </div>
+          )}
           {!currentChatId && messages.length === 0 ? (
             <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 48 }}>
               <div style={{ textAlign: 'center', maxWidth: 600 }}>
                 <div style={{ fontSize: 64, marginBottom: 24 }}>🤖</div>
-                <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент психолога</h2>
-                <p style={{ color: 'var(--text-muted)', fontSize: 16, lineHeight: 1.6, marginBottom: 32 }}>
+                <h2 style={{ fontSize: isMobileView ? 20 : 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент психолога</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 13 : 16, lineHeight: 1.6, marginBottom: 32 }}>
                   {clientModeEnabled 
                     ? 'Задавайте вопросы о клиентах, их снах, заметках, сессиях. Я помогу вам с амплификациями, анализом символов, выявлением архетипических паттернов и интерпретацией снов пациентов.'
                     : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я помогу вам как обобщенный ассистент психолога без доступа к данным конкретных клиентов.'
@@ -1087,7 +1385,7 @@ export default function PsychologistAIChat() {
                 <button
                   className="button"
                   onClick={() => createNewChat()}
-                  style={{ padding: '12px 24px', fontSize: 15 }}
+                  style={{ padding: '12px 24px', fontSize: isMobileView ? 13 : 15 }}
                 >
                   Начать новый чат
                 </button>
@@ -1115,17 +1413,17 @@ export default function PsychologistAIChat() {
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
                       <div style={{ textAlign: 'center', maxWidth: 500 }}>
                         <div style={{ fontSize: 56, marginBottom: 20, opacity: 0.8 }}>💬</div>
-                        <h3 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
+                        <h3 style={{ fontSize: isMobileView ? 16 : 22, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
                           Начните диалог с AI ассистентом
                         </h3>
-                        <p style={{ color: 'var(--text-muted)', fontSize: 15, lineHeight: 1.6, marginBottom: 24 }}>
+                        <p style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 12 : 15, lineHeight: 1.6, marginBottom: 24 }}>
                           {clientModeEnabled
                             ? 'Задавайте вопросы о клиентах, их снах, заметках и сессиях. Я помогу вам с анализом, интерпретацией и подготовкой к работе с пациентами.'
                             : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я работаю как обобщенный ассистент без доступа к данным конкретных клиентов.'
                           }
                         </p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-                          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
+                          <div style={{ fontSize: isMobileView ? 11 : 13, color: 'var(--text-muted)', marginBottom: 8 }}>
                             Попробуйте спросить:
                           </div>
                           <div style={{ 
@@ -1141,7 +1439,7 @@ export default function PsychologistAIChat() {
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
                                   borderRadius: 8, 
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   color: 'var(--text-muted)',
                                   textAlign: 'left',
                                   border: '1px solid rgba(255,255,255,0.05)'
@@ -1152,7 +1450,7 @@ export default function PsychologistAIChat() {
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
                                   borderRadius: 8, 
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   color: 'var(--text-muted)',
                                   textAlign: 'left',
                                   border: '1px solid rgba(255,255,255,0.05)'
@@ -1163,7 +1461,7 @@ export default function PsychologistAIChat() {
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
                                   borderRadius: 8, 
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   color: 'var(--text-muted)',
                                   textAlign: 'left',
                                   border: '1px solid rgba(255,255,255,0.05)'
@@ -1177,7 +1475,7 @@ export default function PsychologistAIChat() {
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
                                   borderRadius: 8, 
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   color: 'var(--text-muted)',
                                   textAlign: 'left',
                                   border: '1px solid rgba(255,255,255,0.05)'
@@ -1188,7 +1486,7 @@ export default function PsychologistAIChat() {
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
                                   borderRadius: 8, 
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   color: 'var(--text-muted)',
                                   textAlign: 'left',
                                   border: '1px solid rgba(255,255,255,0.05)'
@@ -1199,7 +1497,7 @@ export default function PsychologistAIChat() {
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
                                   borderRadius: 8, 
-                                  fontSize: 13,
+                                  fontSize: isMobileView ? 11 : 13,
                                   color: 'var(--text-muted)',
                                   textAlign: 'left',
                                   border: '1px solid rgba(255,255,255,0.05)'
@@ -1236,7 +1534,7 @@ export default function PsychologistAIChat() {
                               lineHeight: 1.6,
                               whiteSpace: 'pre-wrap',
                               wordBreak: 'break-word',
-                              fontSize: 15,
+                              fontSize: isMobileView ? 13 : 15,
                               boxShadow: msg.role === 'user' 
                                 ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
                                 : '0 2px 8px rgba(0, 0, 0, 0.1)'
@@ -1254,7 +1552,7 @@ export default function PsychologistAIChat() {
                           borderRadius: 18,
                           background: 'var(--surface-2)',
                           color: 'var(--text-muted)',
-                          fontSize: 15,
+                          fontSize: isMobileView ? 13 : 15,
                           display: 'flex',
                           alignItems: 'center',
                           gap: 8
@@ -1301,7 +1599,7 @@ export default function PsychologistAIChat() {
                         marginBottom: 8
                       }}>
                         <div style={{ 
-                          fontSize: 11, 
+                          fontSize: isMobileView ? 10 : 11, 
                           color: 'var(--text-muted)', 
                           fontWeight: 600, 
                           textTransform: 'uppercase', 
@@ -1313,7 +1611,7 @@ export default function PsychologistAIChat() {
                           onClick={() => setShowShortcutsModal(true)}
                           style={{
                             padding: '6px 12px',
-                            fontSize: 11,
+                            fontSize: isMobileView ? 10 : 11,
                             background: 'rgba(91, 124, 250, 0.1)',
                             border: '1px solid rgba(91, 124, 250, 0.2)',
                             borderRadius: 6,
@@ -1341,7 +1639,7 @@ export default function PsychologistAIChat() {
                             disabled={loading || isSending}
                             style={{
                               padding: '10px 16px',
-                              fontSize: 13,
+                              fontSize: isMobileView ? 11 : 13,
                               background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
                               border: '1px solid rgba(91, 124, 250, 0.3)',
                               borderRadius: 8,
@@ -1423,7 +1721,7 @@ export default function PsychologistAIChat() {
                           border: '1px solid rgba(255,255,255,0.12)',
                           background: 'var(--surface-2)',
                           color: 'var(--text)',
-                          fontSize: 15,
+                          fontSize: isMobileView ? 13 : 15,
                           fontFamily: 'inherit',
                           resize: 'none',
                           minHeight: 24,
@@ -1638,7 +1936,7 @@ export default function PsychologistAIChat() {
                       <div style={{ fontSize: 24 }}>{shortcut.emoji}</div>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 600, marginBottom: 4 }}>{shortcut.label}</div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-word' }}>
+                        <div style={{ fontSize: isMobileView ? 10 : 12, color: 'var(--text-muted)', wordBreak: 'break-word' }}>
                           {shortcut.prompt.length > 60 ? shortcut.prompt.substring(0, 60) + '...' : shortcut.prompt}
                         </div>
                       </div>
@@ -1647,7 +1945,7 @@ export default function PsychologistAIChat() {
                           onClick={() => startEditShortcut(shortcut)}
                           style={{
                             padding: '6px 12px',
-                            fontSize: 12,
+                            fontSize: isMobileView ? 10 : 12,
                             background: 'rgba(91, 124, 250, 0.1)',
                             border: '1px solid rgba(91, 124, 250, 0.2)',
                             borderRadius: 6,
@@ -1662,7 +1960,7 @@ export default function PsychologistAIChat() {
                           onClick={() => deleteShortcut(shortcut.id)}
                           style={{
                             padding: '6px 12px',
-                            fontSize: 12,
+                            fontSize: isMobileView ? 10 : 12,
                             background: 'rgba(239, 68, 68, 0.1)',
                             border: '1px solid rgba(239, 68, 68, 0.2)',
                             borderRadius: 6,
@@ -1801,7 +2099,7 @@ export default function PsychologistAIChat() {
                     {EMOJI_CATEGORIES.map((category, catIdx) => (
                       <div key={catIdx} style={{ marginBottom: catIdx < EMOJI_CATEGORIES.length - 1 ? 16 : 0 }}>
                         <div style={{ 
-                          fontSize: 11, 
+                          fontSize: isMobileView ? 10 : 11, 
                           fontWeight: 600, 
                           color: 'var(--text-muted)', 
                           textTransform: 'uppercase',
@@ -1939,6 +2237,216 @@ export default function PsychologistAIChat() {
           }
         }
       `}</style>
+
+      {/* Bottom sheet for client selection */}
+      {showClientsDropdown && clientModeEnabled && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            animation: 'fadeIn 0.2s ease'
+          }}
+          onClick={() => setShowClientsDropdown(false)}
+        >
+          <div
+            style={{
+              background: 'var(--surface)',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              width: '100%',
+              maxWidth: 600,
+              maxHeight: '80vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              animation: 'slideUp 0.3s ease',
+              boxShadow: '0 -8px 32px rgba(0,0,0,0.3)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              padding: '20px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>Выберите клиента</h3>
+              <button
+                onClick={() => setShowClientsDropdown(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                  fontSize: 20,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  e.currentTarget.style.color = 'var(--text)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = 'var(--text-muted)';
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '8px'
+            }}>
+              <button
+                onClick={() => {
+                  setSelectedClientId(null);
+                  setShowClientsDropdown(false);
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '12px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: !selectedClientId ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%',
+                  transition: 'background 0.2s',
+                  marginBottom: 4
+                }}
+                onMouseEnter={(e) => {
+                  if (selectedClientId) {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (selectedClientId) {
+                    e.currentTarget.style.background = 'transparent';
+                  }
+                }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: 999, background: 'var(--surface-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: 20 }}>👥</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>Все клиенты</div>
+                  <div style={{ fontSize: 12, opacity: 0.7, color: 'var(--text-muted)' }}>Обобщенный режим</div>
+                </div>
+              </button>
+              {clients.map(client => {
+                const active = client.id === selectedClientId;
+                return (
+                  <button
+                    key={client.id}
+                    onClick={() => {
+                      setSelectedClientId(client.id);
+                      setShowClientsDropdown(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '12px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: active ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      transition: 'background 0.2s',
+                      marginBottom: 4
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                  >
+                    {client.avatarUrl ? (
+                      <img
+                        src={client.avatarUrl}
+                        alt={client.name || 'Аватар'}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: '50%',
+                          objectFit: 'cover',
+                          border: '2px solid rgba(255,255,255,0.1)',
+                          flexShrink: 0
+                        }}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent && !parent.querySelector('.avatar-fallback')) {
+                            const fallback = document.createElement('div');
+                            fallback.className = 'avatar-fallback';
+                            fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
+                            fallback.textContent = (client.name || '?').trim().charAt(0).toUpperCase();
+                            parent.appendChild(fallback);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                        {(client.name || '?').trim().charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                        {client.name || 'Клиент'}
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                        {client.email || '—'}
+                      </div>
+                    </div>
+                    {active && (
+                      <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <span style={{ color: '#0b0f1a', fontSize: 12, fontWeight: 700 }}>✓</span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <style>{`
+            @keyframes fadeIn {
+              from { opacity: 0; }
+              to { opacity: 1; }
+            }
+            @keyframes slideUp {
+              from { transform: translateY(100%); }
+              to { transform: translateY(0); }
+            }
+          `}</style>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

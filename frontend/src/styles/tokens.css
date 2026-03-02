@@ -118,3 +118,33 @@ body {
   position: relative;
   z-index: 2;
 }
+
+/* ===== Responsive tweaks ===== */
+
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  .container {
+    width: 100%;
+    padding-inline: 16px;
+  }
+
+  .button {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+
+  .card {
+    padding: 12px !important;
+  }
+
+  .h1 {
+    font-size: clamp(28px, 8vw, 40px);
+  }
+
+  .h2 {
+    font-size: clamp(22px, 6vw, 32px);
+  }
+}

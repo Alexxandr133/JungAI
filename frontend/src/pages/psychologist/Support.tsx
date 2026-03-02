@@ -114,13 +114,20 @@ export default function PsychologistSupport() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: '100%',
+          overflowX: 'hidden'
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Тех.поддержка</h1>
             <div className="small" style={{ color: 'var(--text-muted)' }}>Создайте запрос, если у вас возникли проблемы</div>
           </div>
-          <button className="button" onClick={() => setShowModal(true)} style={{ padding: '10px 20px' }}>
+          <button className="button" onClick={() => setShowModal(true)} style={{ padding: '8px 16px', fontSize: 14 }}>
             Создать запрос
           </button>
         </div>
@@ -134,11 +141,11 @@ export default function PsychologistSupport() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>Загрузка...</div>
         ) : requests.length === 0 ? (
-          <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+          <div className="card" style={{ padding: 32, textAlign: 'center' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔧</div>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Нет запросов</div>
             <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Создайте первый запрос в техподдержку</div>
-            <button className="button" onClick={() => setShowModal(true)}>Создать запрос</button>
+            <button className="button" onClick={() => setShowModal(true)} style={{ padding: '8px 16px', fontSize: 14 }}>Создать запрос</button>
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 16 }}>

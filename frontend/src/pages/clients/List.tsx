@@ -329,7 +329,14 @@ export default function ClientsList() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: '100%',
+          overflowX: 'hidden'
+        }}
+      >
         {/* Header */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
           <div>

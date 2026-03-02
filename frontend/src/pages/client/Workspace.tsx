@@ -230,7 +230,14 @@ export default function ClientWorkspace() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <ClientNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: '100%',
+          overflowX: 'hidden'
+        }}
+      >
         {/* Баннер для клиента без психолога */}
         {hasPsychologist === false && (
           <div className="card" style={{ 

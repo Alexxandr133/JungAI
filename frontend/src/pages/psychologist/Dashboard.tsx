@@ -231,7 +231,16 @@ export default function PsychologistDashboard() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <PsychologistNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden', overflowY: 'auto', minHeight: 0 }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: '100%',
+          overflowX: 'hidden',
+          overflowY: 'auto',
+          minHeight: 0
+        }}
+      >
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>📊 Рабочий стол</h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>Обзор вашей практики</div>
@@ -253,10 +262,10 @@ export default function PsychologistDashboard() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 16,
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: 12,
                 marginBottom: 0,
-                paddingBottom: 16
+                paddingBottom: 12
               }}
             >
               {widgets

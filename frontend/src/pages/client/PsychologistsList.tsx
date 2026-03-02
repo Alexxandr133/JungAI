@@ -138,7 +138,15 @@ export default function ClientPsychologistsList() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <ClientNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: 1400,
+          margin: '0 auto',
+          width: '100%'
+        }}
+      >
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>
             {hasAttachedPsychologist ? 'Мой психолог' : 'Психологи'}

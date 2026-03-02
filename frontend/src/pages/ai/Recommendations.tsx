@@ -290,7 +290,17 @@ export default function AIRecommendationsPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
-      <main style={{ flex: 1, display: 'grid', gridTemplateRows: 'auto 1fr auto', minWidth: 0, overflow: 'hidden', background: 'var(--surface)', padding: '32px 48px' }}>
+      <main
+        style={{
+          flex: 1,
+          display: 'grid',
+          gridTemplateRows: 'auto 1fr auto',
+          minWidth: 0,
+          overflow: 'hidden',
+          background: 'var(--surface)',
+          padding: '24px clamp(12px, 4vw, 40px)'
+        }}
+      >
         {/* Header */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

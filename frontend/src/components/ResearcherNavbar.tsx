@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
@@ -109,7 +110,7 @@ export function ResearcherNavbar() {
       style={{
         position: 'sticky',
         top: 0,
-        zIndex: 1000,
+        zIndex: 10000,
         background: 'rgba(28, 31, 43, 0.95)',
         backdropFilter: 'blur(12px)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
@@ -149,13 +150,16 @@ export function ResearcherNavbar() {
         </Link>
 
         {/* Desktop Menu */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          flex: 1,
-          justifyContent: 'center'
-        }}>
+        <div
+          className="navbar-desktop-menu"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flex: 1,
+            justifyContent: 'center'
+          }}
+        >
           {menuItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isHovered = hoveredMenu === item.label;
@@ -323,82 +327,104 @@ export function ResearcherNavbar() {
         </button>
       </div>
 
-      {/* Mobile Menu */}
-      <div
-        style={{
-          display: mobileMenuOpen ? 'block' : 'none',
-          padding: '16px 24px',
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          background: 'var(--surface)'
-        }}
-        className="mobile-menu"
-      >
-        <div style={{ display: 'grid', gap: 8 }}>
-          {menuItems.map((item) => (
-            <div key={item.label}>
-              {item.path ? (
-                <Link
-                  to={item.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '12px 16px',
-                    borderRadius: 10,
-                    textDecoration: 'none',
-                    color: isActive(item.path) ? 'var(--primary)' : 'var(--text)',
-                    background: isActive(item.path) ? 'rgba(91, 124, 250, 0.12)' : 'transparent',
-                    fontWeight: isActive(item.path) ? 600 : 500
-                  }}
-                >
-                  {item.icon && <span>{item.icon}</span>}
-                  <span>{item.label}</span>
-                </Link>
-              ) : (
-                <div>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '12px 16px',
-                    borderRadius: 10,
-                    fontWeight: 500
-                  }}>
+      {/* Mobile Menu - rendered via Portal */}
+      {mobileMenuOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5,8,16,0.8)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 99999,
+            display: 'flex',
+            justifyContent: 'flex-end'
+          }}
+          className="mobile-menu"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <div
+            style={{
+              width: '80%',
+              maxWidth: 320,
+              background: 'var(--surface)',
+              padding: '12px 16px',
+              borderLeft: '1px solid rgba(255,255,255,0.12)',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {menuItems.map((item) => (
+              <div key={item.label}>
+                {item.path ? (
+                  <Link
+                    to={item.path}
+                    onClick={() => setMobileMenuOpen(false)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      textDecoration: 'none',
+                      color: isActive(item.path) ? 'var(--primary)' : 'var(--text)',
+                      background: isActive(item.path) ? 'rgba(91, 124, 250, 0.12)' : 'transparent',
+                      fontWeight: isActive(item.path) ? 600 : 500,
+                      fontSize: 14
+                    }}
+                  >
                     {item.icon && <span>{item.icon}</span>}
                     <span>{item.label}</span>
-                  </div>
-                  {item.children && (
-                    <div style={{ paddingLeft: 24, display: 'grid', gap: 4 }}>
-                      {item.children.map((child) => (
-                        <Link
-                          key={child.path}
-                          to={child.path}
-                          onClick={() => setMobileMenuOpen(false)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 10,
-                            padding: '10px 16px',
-                            borderRadius: 8,
-                            textDecoration: 'none',
-                            color: isActive(child.path) ? 'var(--primary)' : 'var(--text-muted)',
-                            fontWeight: isActive(child.path) ? 600 : 500,
-                            fontSize: 14
-                          }}
-                        >
-                          {child.icon && <span>{child.icon}</span>}
-                          <span>{child.label}</span>
-                        </Link>
-                      ))}
+                  </Link>
+                ) : (
+                  <div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      fontWeight: 500,
+                      fontSize: 14
+                    }}>
+                      {item.icon && <span>{item.icon}</span>}
+                      <span>{item.label}</span>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+                    {item.children && (
+                      <div style={{ paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {item.children.map((child) => (
+                          <Link
+                            key={child.path}
+                            to={child.path}
+                            onClick={() => setMobileMenuOpen(false)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              padding: '8px 12px',
+                              borderRadius: 6,
+                              textDecoration: 'none',
+                              color: isActive(child.path) ? 'var(--primary)' : 'var(--text-muted)',
+                              fontWeight: isActive(child.path) ? 600 : 500,
+                              fontSize: 13
+                            }}
+                          >
+                            {child.icon && <span>{child.icon}</span>}
+                            <span>{child.label}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
 
       <style>{`
         @keyframes fadeIn {
@@ -415,8 +441,8 @@ export function ResearcherNavbar() {
           .mobile-menu-button {
             display: flex !important;
           }
-          nav > div > div:nth-child(2) {
-            display: none;
+          .navbar-desktop-menu {
+            display: none !important;
           }
         }
       `}</style>

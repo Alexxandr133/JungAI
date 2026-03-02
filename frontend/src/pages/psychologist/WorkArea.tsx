@@ -45,7 +45,6 @@ type WorkAreaProps = {
 export default function WorkArea({ restrictedClientId, hideNavbar = false, noPadding = false }: WorkAreaProps = {}) {
   const { token } = useAuth();
   const { t } = useI18n();
-  const [query, setQuery] = useState('');
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -63,6 +62,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const [dragOverTab, setDragOverTab] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [showTabContent, setShowTabContent] = useState(false);
 
   const currentClient = useMemo(() => clients.find(c => c.id === currentClientId) || null, [clients, currentClientId]);
   
@@ -98,6 +99,16 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       setVerificationStatus(result.status);
     });
   }, [token]);
+
+  // Detect mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobileView(window.innerWidth <= 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
 
   // Load clients
@@ -154,7 +165,13 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           profile: it.profile || null
         })) as any[];
         setClients(items); // КРИТИЧНО: показываем только реальных клиентов, без fallback на демо
-        setCurrentClientId(prev => prev || (items[0]?.id || ''));
+        setCurrentClientId(prev => {
+          const newId = prev || (items[0]?.id || '');
+          if (newId && newId !== prev) {
+            setExpanded(false); // Показываем панель вкладок при автоматическом выборе клиента
+          }
+          return newId;
+        });
       } catch (error: any) {
         console.error('[WorkArea] Failed to load clients:', error);
         if (error.message?.includes('Verification required')) {
@@ -171,7 +188,13 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     const url = new URL(window.location.href);
     const clientFromQuery = url.searchParams.get('client');
     if (!clientFromQuery) return;
-    setCurrentClientId(prev => prev || clientFromQuery);
+    setCurrentClientId(prev => {
+      const newId = prev || clientFromQuery;
+      if (newId && newId !== prev) {
+        setExpanded(false); // Показываем панель вкладок при выборе клиента из query
+      }
+      return newId;
+    });
   }, []);
 
   const [tabsFromDB, setTabsFromDB] = useState<string[] | null>(null);
@@ -651,163 +674,159 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text)' }}>{t('workArea.title')}</h1>
             
             {/* Client Selector */}
-            {!restrictedClientId && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 8, 
-                flex: 1, 
-                minWidth: 0,
-                maxWidth: 400
-              }}>
-                <span className="small" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{t('workArea.clients')} ({clients.length}):</span>
-                <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-                  <input 
-                    placeholder={`${t('common.search')} (${clients.length} клиентов)`} 
-                    value={query} 
-                    onChange={e => setQuery(e.target.value)}
-                    onFocus={() => setShowClientsDropdown(true)}
-                    onBlur={() => setTimeout(() => setShowClientsDropdown(false), 200)}
-                    style={{ 
-                      width: '100%', 
-                      padding: '8px 12px', 
-                      fontSize: 13, 
-                      borderRadius: 8, 
-                      border: '1px solid rgba(255,255,255,0.12)', 
-                      background: 'var(--surface-2)', 
-                      color: 'var(--text)',
-                      outline: 'none',
-                      cursor: 'pointer'
-                    }} 
-                  />
-                  {showClientsDropdown && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      marginTop: 4,
-                      background: 'var(--surface)',
-                      color: 'var(--text)',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: 8,
-                      maxHeight: 400,
-                      overflowY: 'auto',
-                      zIndex: 100,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                    }}>
-                      {clients
-                        .filter(c => !query || (c.name || '').toLowerCase().includes(query.toLowerCase()) || (c.email || '').toLowerCase().includes(query.toLowerCase()))
-                        .map(c => {
-                        const active = c.id === currentClientId;
-                        return (
-                          <button 
-                            key={c.id} 
-                            onClick={() => {
-                              setCurrentClientId(c.id);
-                              setQuery('');
-                              setShowClientsDropdown(false);
-                            }} 
-                            className={active ? 'button' : 'button secondary'} 
-                            style={{ 
-                              width: '100%',
-                              justifyContent: 'flex-start', 
-                              padding: '10px 12px', 
-                              fontSize: 13, 
-                              borderRadius: 0,
-                              border: 'none',
-                              borderBottom: '1px solid rgba(255,255,255,0.05)'
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
-                              {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
-                                <img
-                                  src={getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) || ''}
-                                  key={`avatar-${c.id}-${c.avatarUrl || c.profile?.avatarUrl || 'none'}`}
-                                  alt={c.name || 'Аватар'}
-                                  style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: '50%',
-                                    objectFit: 'cover',
-                                    border: '2px solid rgba(255,255,255,0.1)',
-                                    flexShrink: 0
-                                  }}
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    const parent = target.parentElement;
-                                    if (parent && !parent.querySelector('.avatar-fallback')) {
-                                      const fallback = document.createElement('div');
-                                      fallback.className = 'avatar-fallback';
-                                      fallback.style.cssText = 'width: 32px; height: 32px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex-shrink: 0;';
-                                      fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
-                                      parent.appendChild(fallback);
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <div style={{ width: 32, height: 32, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
-                                  {(c.name || '?').trim().charAt(0).toUpperCase()}
-                                </div>
-                              )}
-                              <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{c.name || 'Клиент'}</div>
-                                <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{c.email || '—'}</div>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                      {clients.filter(c => !query || (c.name || '').toLowerCase().includes(query.toLowerCase()) || (c.email || '').toLowerCase().includes(query.toLowerCase())).length === 0 && (
-                        <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-                          {query ? 'Клиенты не найдены' : 'Нет клиентов'}
-                        </div>
-                      )}
+            {!restrictedClientId && currentClient && (
+              <div style={{ position: 'relative' }} data-clients-dropdown>
+                <button
+                  onClick={() => setShowClientsDropdown(!showClientsDropdown)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '10px 16px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background: 'var(--surface-2)',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    minWidth: 200
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--surface)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'var(--surface-2)';
+                  }}
+                >
+                  {getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) ? (
+                    <img
+                      src={getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) || ''}
+                      alt={currentClient.name || 'Аватар'}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        border: '2px solid rgba(255,255,255,0.1)',
+                        flexShrink: 0
+                      }}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent && !parent.querySelector('.avatar-fallback')) {
+                          const fallback = document.createElement('div');
+                          fallback.className = 'avatar-fallback';
+                          fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
+                          fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
+                          parent.appendChild(fallback);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                      {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
                     </div>
                   )}
-                </div>
-                {currentClient && (
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: 8, 
-                  padding: '6px 12px', 
-                  borderRadius: 8,
-                  background: 'var(--surface-2)',
-                  flexShrink: 0
-                }}>
-                    {getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) ? (
-                      <img
-                        src={getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) || ''}
-                        key={`avatar-${currentClient.id}-${currentClient.avatarUrl || currentClient.profile?.avatarUrl || 'none'}`}
-                        alt={currentClient.name || 'Аватар'}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: '50%',
-                          objectFit: 'cover',
-                          border: '2px solid rgba(255,255,255,0.1)'
-                        }}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent && !parent.querySelector('.avatar-fallback')) {
-                            const fallback = document.createElement('div');
-                            fallback.className = 'avatar-fallback';
-                            fallback.style.cssText = 'width: 24px; height: 24px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 12px;';
-                            fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
-                            parent.appendChild(fallback);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div style={{ width: 24, height: 24, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12 }}>
-                        {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
+                  <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{currentClient.name || 'Клиент'}</div>
+                    <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{currentClient.email || '—'}</div>
+                  </div>
+                  <span style={{ fontSize: 12, opacity: 0.6, flexShrink: 0 }}>▼</span>
+                </button>
+                {showClientsDropdown && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 8px)',
+                    left: 0,
+                    minWidth: 280,
+                    maxWidth: 400,
+                    background: 'var(--surface)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 12,
+                    maxHeight: 400,
+                    overflowY: 'auto',
+                    zIndex: 1000,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                    padding: '8px'
+                  }}>
+                    {clients.map(c => {
+                      const active = c.id === currentClientId;
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={() => {
+                            setCurrentClientId(c.id);
+                            setShowClientsDropdown(false);
+                            setExpanded(false); // Показываем панель вкладок при выборе клиента
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '12px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: active ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
+                            color: 'var(--text)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            width: '100%',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!active) {
+                              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!active) {
+                              e.currentTarget.style.background = 'transparent';
+                            }
+                          }}
+                        >
+                          {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
+                            <img
+                              src={getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) || ''}
+                              alt={c.name || 'Аватар'}
+                              style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: '50%',
+                                objectFit: 'cover',
+                                border: '2px solid rgba(255,255,255,0.1)',
+                                flexShrink: 0
+                              }}
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent && !parent.querySelector('.avatar-fallback')) {
+                                  const fallback = document.createElement('div');
+                                  fallback.className = 'avatar-fallback';
+                                  fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
+                                  fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
+                                  parent.appendChild(fallback);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                              {(c.name || '?').trim().charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{c.name || 'Клиент'}</div>
+                            <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{c.email || '—'}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {clients.length === 0 && (
+                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                        Нет клиентов
                       </div>
                     )}
-                    <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', color: 'var(--text)' }}>{currentClient.name || 'Клиент'}</span>
                   </div>
                 )}
               </div>
@@ -863,58 +882,115 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 🔓 Режим админа
               </span>
             )}
-            <button className="button secondary" onClick={toggleTheme} style={{ padding: '8px 12px', fontSize: 13 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
-            {!restrictedClientId && (
-              <button className="button secondary" onClick={toggleExpanded} style={{ padding: '8px 12px', fontSize: 13 }}>{expanded ? '◀' : '▶'}</button>
-            )}
           </div>
         </div>
 
         {/* Main Content Area: Sidebar (Tabs) + Editor */}
         <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: (expanded || restrictedClientId) ? '0 1fr' : '240px 1fr', 
+          display: isMobileView ? 'flex' : 'grid', 
+          gridTemplateColumns: isMobileView ? 'none' : ((expanded || restrictedClientId) ? '0 1fr' : '240px 1fr'), 
           gap: 0, 
           flex: 1, 
           minHeight: 0, 
-          overflow: 'hidden'
+          overflow: 'hidden',
+          position: 'relative',
+          transition: 'grid-template-columns 0.3s ease'
         }}>
+          {/* Toggle button on the edge - always visible, positioned outside sidebar */}
+          {!isMobileView && !restrictedClientId && (
+            <button
+              onClick={toggleExpanded}
+              style={{
+                position: 'absolute',
+                left: expanded ? 0 : 239,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 12,
+                height: 100,
+                borderRadius: expanded ? '0 6px 6px 0' : '6px 0 0 6px',
+                border: '1px solid rgba(255,255,255,0.15)',
+                borderLeft: expanded ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                borderRight: expanded ? 'none' : '1px solid rgba(255,255,255,0.15)',
+                background: expanded ? 'rgba(91, 124, 250, 0.2)' : 'var(--surface-2)',
+                color: expanded ? 'var(--primary)' : 'var(--text-muted)',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 200,
+                transition: 'all 0.3s ease',
+                boxShadow: expanded ? '2px 0 8px rgba(91, 124, 250, 0.3)' : 'inset -1px 0 0 rgba(255,255,255,0.1)',
+                pointerEvents: 'auto'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(91, 124, 250, 0.35)';
+                e.currentTarget.style.color = 'var(--primary)';
+                e.currentTarget.style.width = '16px';
+                e.currentTarget.style.boxShadow = '2px 0 12px rgba(91, 124, 250, 0.5)';
+                e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = expanded ? 'rgba(91, 124, 250, 0.2)' : 'var(--surface-2)';
+                e.currentTarget.style.color = expanded ? 'var(--primary)' : 'var(--text-muted)';
+                e.currentTarget.style.width = '12px';
+                e.currentTarget.style.boxShadow = expanded ? '2px 0 8px rgba(91, 124, 250, 0.3)' : 'inset -1px 0 0 rgba(255,255,255,0.1)';
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+              }}
+              title={expanded ? 'Показать вкладки' : 'Скрыть вкладки'}
+            >
+              {expanded ? '►' : '◄'}
+            </button>
+          )}
           {/* Left Sidebar - Tabs */}
           {!restrictedClientId && (
             <div style={{ 
-              display: expanded ? 'none' : 'flex',
+              display: isMobileView ? (showTabContent ? 'none' : 'flex') : 'flex',
               flexDirection: 'column',
-              borderRight: '1px solid rgba(255,255,255,0.08)',
+              borderRight: isMobileView ? 'none' : '1px solid rgba(255,255,255,0.08)',
               background: 'var(--surface-2)',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              width: isMobileView ? '100%' : (expanded ? 0 : 240),
+              minWidth: isMobileView ? 'auto' : (expanded ? 0 : 240),
+              transition: 'width 0.3s ease, min-width 0.3s ease',
+              position: 'relative'
             }}>
               <div style={{ 
                 padding: '16px', 
                 borderBottom: theme === 'light' ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.08)',
-                flexShrink: 0
+                flexShrink: 0,
+                overflow: 'hidden',
+                opacity: expanded ? 0 : 1,
+                transition: 'opacity 0.3s ease'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <b style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)' }}>Вкладки</b>
-                  <button 
-                    className="button secondary" 
-                    onClick={addCustomTab} 
-                    style={{ 
-                      padding: '4px 8px', 
-                      fontSize: 12,
-                      minWidth: 'auto',
-                      lineHeight: 1
-                    }}
-                    title={t('workArea.addTab')}
-                  >
-                    +
-                  </button>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+                  <b style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', flex: 1 }}>Вкладки</b>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <button 
+                      className="button secondary" 
+                      onClick={addCustomTab} 
+                      style={{ 
+                        padding: '4px 8px', 
+                        fontSize: 12,
+                        minWidth: 'auto',
+                        lineHeight: 1
+                      }}
+                      title={t('workArea.addTab')}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               </div>
               <div style={{ 
                 flex: 1, 
                 overflowY: 'auto', 
                 padding: '8px',
-                minHeight: 0
+                minHeight: 0,
+                opacity: expanded ? 0 : 1,
+                transition: 'opacity 0.3s ease',
+                overflow: expanded ? 'hidden' : 'auto'
               }}>
                 {tabs.map(tab => {
                   const active = tab === activeTab;
@@ -938,7 +1014,12 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     >
                       <button 
                         className={active ? 'button' : 'button secondary'} 
-                        onClick={() => setActiveTab(tab)} 
+                        onClick={() => {
+                          setActiveTab(tab);
+                          if (isMobileView) {
+                            setShowTabContent(true);
+                          }
+                        }} 
                         style={{ 
                           width: '100%',
                           justifyContent: 'flex-start',
@@ -947,8 +1028,21 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                           textAlign: 'left',
                           position: 'relative',
                           borderRadius: 8,
-                          cursor: isDragged ? 'grabbing' : 'grab',
-                          border: isDragOver ? '2px dashed var(--primary)' : 'none'
+                          cursor: isDragged ? 'grabbing' : 'pointer',
+                          border: isDragOver ? '2px dashed var(--primary)' : 'none',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!active) {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                            e.currentTarget.style.transform = 'translateX(2px)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!active) {
+                            e.currentTarget.style.background = '';
+                            e.currentTarget.style.transform = 'translateX(0)';
+                          }
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
@@ -963,12 +1057,24 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                               e.stopPropagation();
                               removeCustomTab(tab);
                             }} 
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(255, 107, 107, 0.2)';
+                              e.currentTarget.style.color = '#ff6b6b';
+                              e.currentTarget.style.borderColor = 'rgba(255, 107, 107, 0.4)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '';
+                              e.currentTarget.style.color = '';
+                              e.currentTarget.style.borderColor = '';
+                            }}
                             style={{ 
                               padding: '2px 6px', 
                               fontSize: 11,
                               minWidth: 'auto',
                               marginLeft: 8,
-                              flexShrink: 0
+                              flexShrink: 0,
+                              transition: 'all 0.2s ease',
+                              color: 'var(--text-muted)'
                             }}
                           >
                             ×
@@ -984,13 +1090,119 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
 
           {/* Right Side - Editor Area */}
           <div style={{ 
-            display: 'flex', 
+            display: isMobileView ? (showTabContent ? 'flex' : 'none') : 'flex', 
             flexDirection: 'column', 
             minWidth: 0, 
             minHeight: 0, 
             overflow: 'hidden',
-            background: 'var(--bg)'
+            background: 'var(--bg)',
+            width: isMobileView ? '100%' : 'auto'
           }}>
+            {/* Tab header with title and buttons */}
+            {(!isMobileView || showTabContent) && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '12px 16px',
+                background: 'var(--surface-2)',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                flexShrink: 0,
+                position: 'relative'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                  {isMobileView && (
+                    <button
+                      onClick={() => setShowTabContent(false)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 32,
+                        height: 32,
+                        borderRadius: 10,
+                        border: 'none',
+                        background: 'var(--surface)',
+                        color: 'var(--text)',
+                        cursor: 'pointer',
+                        fontSize: 18,
+                        flexShrink: 0
+                      }}
+                      title="Назад к вкладкам"
+                    >
+                      ←
+                    </button>
+                  )}
+                  <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {activeTab}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  <button 
+                    className="button secondary" 
+                    onClick={toggleTheme} 
+                    style={{ 
+                      padding: '8px 12px', 
+                      fontSize: 13,
+                      flexShrink: 0
+                    }}
+                  >
+                    {theme === 'dark' ? '☀️' : '🌙'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {/* Mobile back button - removed, now in header above */}
+            {false && isMobileView && showTabContent && (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '12px 16px',
+                background: 'var(--surface-2)',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                flexShrink: 0
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                  <button
+                    onClick={() => setShowTabContent(false)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      border: 'none',
+                      background: 'var(--surface)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      fontSize: 18,
+                      flexShrink: 0
+                    }}
+                    title="Назад к вкладкам"
+                  >
+                    ←
+                  </button>
+                  <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {activeTab}
+                  </div>
+                </div>
+                <button 
+                  className="button secondary" 
+                  onClick={toggleTheme} 
+                  style={{ 
+                    padding: '8px 12px', 
+                    fontSize: 13,
+                    flexShrink: 0
+                  }}
+                >
+                  {theme === 'dark' ? '☀️' : '🌙'}
+                </button>
+              </div>
+            )}
 
             {/* Toolbar (скрыт для вкладки "Дневник клиента") */}
             {activeTab !== 'Дневник клиента' && (

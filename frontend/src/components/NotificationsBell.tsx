@@ -19,6 +19,7 @@ export function NotificationsBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const loadNotifications = async () => {
@@ -43,6 +44,16 @@ export function NotificationsBell() {
       return () => clearInterval(interval);
     }
   }, [token]);
+
+  // Detect mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Закрытие при клике вне компонента
   useEffect(() => {
@@ -173,9 +184,17 @@ export function NotificationsBell() {
           style={{
             position: 'absolute',
             top: 'calc(100% + 8px)',
-            right: 0,
-            width: 380,
-            maxWidth: '90vw',
+            ...(isMobile ? {
+              right: 'auto',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: 'calc(100vw - 32px)',
+              maxWidth: 'calc(100vw - 32px)'
+            } : {
+              right: 0,
+              width: 'min(380px, calc(100vw - 16px))',
+              maxWidth: 'calc(100vw - 16px)'
+            }),
             maxHeight: '80vh',
             background: 'var(--surface)',
             border: '1px solid rgba(255, 255, 255, 0.12)',

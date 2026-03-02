@@ -218,9 +218,18 @@ export default function DreamsList() {
       <UniversalNavbar />
 
       {/* Main */}
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden', position: 'relative', zIndex: 0 }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: '100%',
+          overflowX: 'hidden',
+          position: 'relative',
+          zIndex: 0
+        }}
+      >
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800 }}>{t('dreams.title')}</h1>
             <span className="small" style={{ color: 'var(--text-muted)' }}>· {items.length}</span>
@@ -239,7 +248,7 @@ export default function DreamsList() {
               <input placeholder="Поиск по названиям и тексту" value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)' }} />
             </div>
           )}
-          <button className="button" onClick={openModal} style={{ padding: '10px 20px' }}>+ {t('dreams.newEntry')}</button>
+          <button className="button" onClick={openModal} style={{ padding: '8px 16px', fontSize: 14 }}>+ {t('dreams.newEntry')}</button>
         </div>
 
         {/* Content */}
@@ -261,9 +270,9 @@ export default function DreamsList() {
           )}
 
           {!loading && !error && filtered.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 24, maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, maxWidth: 1400, margin: '0 auto', width: '100%' }}>
               {filtered.map(d => (
-                <div key={d.id} className="card card-hover-shimmer" onClick={() => navigate(`/dreams/${d.id}`)} style={{ padding: 32, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div key={d.id} className="card card-hover-shimmer" onClick={() => navigate(`/dreams/${d.id}`)} style={{ padding: 20, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.08)', minHeight: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'start', gap: 20 }}>
                     <div style={{ fontSize: 40, flexShrink: 0 }}>💭</div>
                     <div style={{ flex: 1 }}>
@@ -273,7 +282,19 @@ export default function DreamsList() {
                           {new Date(d.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
                         </div>
                       </div>
-                      <p style={{ margin: 0, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, fontSize: 16, marginBottom: 0 }}>
+                      <p
+                        style={{
+                          margin: 0,
+                          color: 'rgba(255,255,255,0.85)',
+                          lineHeight: 1.6,
+                          fontSize: 14,
+                          marginBottom: 0,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden'
+                        }}
+                      >
                         {d.content}
                       </p>
                       {token && d.symbols && Array.isArray(d.symbols) && d.symbols.length > 0 && (

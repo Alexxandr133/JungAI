@@ -108,6 +108,12 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
         : `${baseOrigin}${profile.avatarUrl}`)
     : null;
   
+  // Отладочная информация
+  if (profile?.avatarUrl) {
+    console.log('Avatar URL in profile:', profile.avatarUrl);
+    console.log('Base origin:', baseOrigin);
+    console.log('Final avatar src:', avatarSrc);
+  }
   
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
@@ -124,6 +130,7 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
             src={avatarSrc} 
             alt={displayName}
             onError={(e) => {
+              console.error('Failed to load avatar image:', avatarSrc);
               // Если изображение не загрузилось, заменяем на инициал
               const img = e.target as HTMLImageElement;
               img.style.display = 'none';
@@ -137,7 +144,7 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
               }
             }}
             onLoad={() => {
-              // Изображение загружено
+              console.log('Avatar image loaded successfully:', avatarSrc);
             }}
             style={{ width: 36, height: 36, borderRadius: 999, objectFit: 'cover' }}
           />
@@ -155,6 +162,7 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
                 src={avatarSrc} 
                 alt={displayName}
                 onError={(e) => {
+                  console.error('Failed to load avatar image in menu:', avatarSrc);
                   const img = e.target as HTMLImageElement;
                   img.style.display = 'none';
                   const parent = img.parentElement;
@@ -167,7 +175,7 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
                   }
                 }}
                 onLoad={() => {
-                  // Изображение загружено
+                  console.log('Avatar image loaded successfully in menu:', avatarSrc);
                 }}
                 style={{ width: 40, height: 40, borderRadius: 999, objectFit: 'cover' }}
               />

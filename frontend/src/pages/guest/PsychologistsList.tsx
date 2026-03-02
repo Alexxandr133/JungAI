@@ -172,7 +172,15 @@ export default function PsychologistsList() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <GuestNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>
+      <main
+        style={{
+          flex: 1,
+          padding: '24px clamp(16px, 5vw, 48px)',
+          maxWidth: 1400,
+          margin: '0 auto',
+          width: '100%'
+        }}
+      >
         <div style={{ marginBottom: 32 }}>
           <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Психологи</h1>
           <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>
