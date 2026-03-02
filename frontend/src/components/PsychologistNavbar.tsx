@@ -285,12 +285,12 @@ export function PsychologistNavbar() {
                             fontSize: 14,
                             transition: 'all 0.15s ease'
                           }}
-                          onMouseEnter={(e) => {
+                          onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                             if (!childIsActive) {
                               e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
                             }
                           }}
-                          onMouseLeave={(e) => {
+                          onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                             if (!childIsActive) {
                               e.currentTarget.style.background = 'transparent';
                             }

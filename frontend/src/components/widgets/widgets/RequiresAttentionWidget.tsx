@@ -48,10 +48,10 @@ export default function RequiresAttentionWidget({ data }: Props) {
                       textDecoration: 'none',
                       transition: 'background 0.2s'
                     }}
-                    onMouseEnter={(e) => {
+                    onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                       e.currentTarget.style.background = 'rgba(255, 193, 7, 0.15)';
                     }}
-                    onMouseLeave={(e) => {
+                    onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                       e.currentTarget.style.background = 'rgba(255, 193, 7, 0.1)';
                     }}
                   >
@@ -88,10 +88,10 @@ export default function RequiresAttentionWidget({ data }: Props) {
                       textDecoration: 'none',
                       transition: 'background 0.2s'
                     }}
-                    onMouseEnter={(e) => {
+                    onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                       e.currentTarget.style.background = 'rgba(91, 124, 250, 0.15)';
                     }}
-                    onMouseLeave={(e) => {
+                    onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                       e.currentTarget.style.background = 'rgba(91, 124, 250, 0.1)';
                     }}
                   >

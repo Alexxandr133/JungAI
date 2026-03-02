@@ -264,6 +264,7 @@ export function AvatarUpload({ currentAvatarUrl, onUpload, uploading, userName, 
               borderRadius: 12,
               overflow: 'hidden'
             }}>
+              {/* @ts-ignore - react-easy-crop type issue */}
               <Cropper
                 image={imageSrc}
                 crop={crop}

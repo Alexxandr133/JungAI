@@ -49,11 +49,11 @@ export default function SessionsCalendarWidget({ data, size }: Props) {
                 transition: 'all 0.2s',
                 border: '1px solid transparent'
               }}
-              onMouseEnter={(e) => {
+              onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                 e.currentTarget.style.background = 'var(--surface)';
                 e.currentTarget.style.borderColor = 'var(--primary)';
               }}
-              onMouseLeave={(e) => {
+              onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                 e.currentTarget.style.background = 'var(--surface-2)';
                 e.currentTarget.style.borderColor = 'transparent';
               }}

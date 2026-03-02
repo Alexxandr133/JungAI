@@ -78,10 +78,10 @@ export default function RecentActivityWidget({ data, size }: Props) {
                     color: 'var(--text)',
                     transition: 'background 0.2s'
                   }}
-                  onMouseEnter={(e) => {
+                  onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                     e.currentTarget.style.background = 'var(--surface-2)';
                   }}
-                  onMouseLeave={(e) => {
+                  onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                     e.currentTarget.style.background = 'var(--surface)';
                   }}
                 >

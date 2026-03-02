@@ -38,11 +38,11 @@ export default function ClientProgressWidget({ data, size }: Props) {
                   color: 'var(--text)',
                   transition: 'all 0.2s'
                 }}
-                onMouseEnter={(e) => {
+                onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                   e.currentTarget.style.background = 'var(--surface)';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
-                onMouseLeave={(e) => {
+                onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                   e.currentTarget.style.background = 'var(--surface-2)';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}

@@ -226,11 +226,11 @@ export default function AdminDashboard() {
                         display: 'block',
                         transition: 'transform 0.2s, box-shadow 0.2s'
                       }}
-                      onMouseEnter={(e) => {
+                      onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                         e.currentTarget.style.transform = 'translateY(-2px)';
                         e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)';
                       }}
-                      onMouseLeave={(e) => {
+                      onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
                         e.currentTarget.style.transform = 'translateY(0)';
                         e.currentTarget.style.boxShadow = '';
                       }}
