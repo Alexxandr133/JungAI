@@ -131,8 +131,46 @@ router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) =>
       }
     }
     
-    // Получаем все комнаты
-    const rooms = await prisma.chatRoom.findMany();
+    // Получаем комнаты в зависимости от роли пользователя
+    let rooms: any[] = [];
+    
+    if (req.user!.role === 'psychologist' || req.user!.role === 'admin') {
+      // Для психолога: только комнаты с прикрепленными клиентами
+      const clients = await prisma.client.findMany({
+        where: { psychologistId: req.user!.id },
+        select: { name: true }
+      });
+      
+      const clientNames = clients.map(c => c.name);
+      
+      if (clientNames.length > 0) {
+        rooms = await prisma.chatRoom.findMany({
+          where: {
+            name: { in: clientNames }
+          }
+        });
+      }
+    } else if (req.user!.role === 'client') {
+      // Для клиента: только комнаты, где клиент отправил хотя бы одно сообщение
+      const clientRooms = await prisma.chatMessage.findMany({
+        where: { authorId: req.user!.id },
+        select: { roomId: true },
+        distinct: ['roomId']
+      });
+      
+      const roomIds = clientRooms.map(m => m.roomId);
+      
+      if (roomIds.length > 0) {
+        rooms = await prisma.chatRoom.findMany({
+          where: {
+            id: { in: roomIds }
+          }
+        });
+      }
+    } else {
+      // Для других ролей - все комнаты (если нужно)
+      rooms = await prisma.chatRoom.findMany();
+    }
     
     let unreadCount = 0;
     for (const room of rooms) {
