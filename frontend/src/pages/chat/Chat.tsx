@@ -27,7 +27,6 @@ export default function ChatPage() {
   const [modalQuery, setModalQuery] = useState('');
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [showChatScreen, setShowChatScreen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -436,7 +435,7 @@ export default function ChatPage() {
           maxWidth: '100%', 
           height: 'calc(100vh - 80px)', 
           display: isMobileView ? 'flex' : 'grid', 
-          gridTemplateColumns: isMobileView ? 'none' : (sidebarCollapsed ? '0 1fr' : 'minmax(260px, 320px) 1fr'), 
+          gridTemplateColumns: isMobileView ? 'none' : 'minmax(260px, 320px) 1fr', 
           gap: 0, 
           background: 'var(--surface)', 
           borderRadius: 0,
@@ -462,7 +461,7 @@ export default function ChatPage() {
           `}</style>
           {/* Clients list (chat sidebar) - Telegram style */}
           <div style={{ 
-            display: isMobileView ? (showChatScreen ? 'none' : 'flex') : (sidebarCollapsed ? 'none' : 'flex'),
+            display: isMobileView ? (showChatScreen ? 'none' : 'flex') : 'flex',
             background: 'var(--surface-2)', 
             borderRight: isMobileView ? 'none' : '1px solid rgba(255,255,255,0.08)', 
             flexDirection: 'column',
@@ -714,7 +713,7 @@ export default function ChatPage() {
                 background: 'var(--surface-2)',
                 flexShrink: 0
               }}>
-                {isMobileView ? (
+                {isMobileView && (
                   <button
                     type="button"
                     onClick={() => {
@@ -738,28 +737,6 @@ export default function ChatPage() {
                     title="Назад к списку чатов"
                   >
                     ←
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setSidebarCollapsed(prev => !prev)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      border: 'none',
-                      background: 'var(--surface)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                      fontSize: 18,
-                      marginRight: 8
-                    }}
-                    title={sidebarCollapsed ? 'Показать список чатов' : 'Скрыть список чатов'}
-                  >
-                    ☰
                   </button>
                 )}
                 <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
