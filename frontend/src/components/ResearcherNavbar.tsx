@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { BrandLogo } from './BrandLogo';
 
 type MenuItem = {
   label: string;
@@ -60,6 +61,7 @@ export function ResearcherNavbar() {
       label: 'Администрирование',
       icon: '⚙️',
       children: [
+        { label: 'Пользователи', path: '/admin/users', icon: '👤' },
         { label: 'Верификация', path: '/admin/verification', icon: '✓' },
       ]
     }] : []) as MenuItem[]
@@ -128,26 +130,7 @@ export function ResearcherNavbar() {
         gap: 24
       }}>
         {/* Logo */}
-        <Link
-          to="/researcher"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            textDecoration: 'none',
-            color: 'inherit',
-            fontWeight: 700,
-            fontSize: 18
-          }}
-        >
-          <div style={{
-            width: 20,
-            height: 20,
-            borderRadius: 6,
-            background: 'linear-gradient(135deg, var(--primary), var(--accent))'
-          }} />
-          <span>JungAI</span>
-        </Link>
+        <BrandLogo to="/researcher" />
 
         {/* Desktop Menu */}
         <div

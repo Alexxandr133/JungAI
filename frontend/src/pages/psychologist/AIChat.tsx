@@ -453,10 +453,22 @@ export default function PsychologistAIChat() {
     setShowNewFolderModal(false);
   }
 
-  function deleteChat(chatId: string) {
+  async function deleteChat(chatId: string) {
     if (!window.confirm('Удалить этот чат?')) return;
+    if (token) {
+      try {
+        await api(`/api/ai/psychologist/chats/${encodeURIComponent(chatId)}`, { method: 'DELETE', token });
+      } catch (e: unknown) {
+        console.error('Failed to delete chat from backend:', e);
+        const status = (e as { status?: number })?.status;
+        if (status !== 404) {
+          alert((e as Error)?.message || 'Не удалось удалить чат');
+          return;
+        }
+      }
+    }
     const newChats = chats.filter(c => c.id !== chatId);
-    saveChats(newChats);
+    setChats(newChats);
     if (currentChatId === chatId) {
       setCurrentChatId(null);
       setMessages([]);

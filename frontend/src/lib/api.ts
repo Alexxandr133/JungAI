@@ -1,13 +1,29 @@
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/** База API и Socket.IO (без завершающего слэша) — как в `api()`, плюс fallback на текущий origin */
+export function getApiBaseUrl(): string {
+  const env = (import.meta as any).env || {};
+  let baseOrigin: string = env.VITE_API_ORIGIN || env.VITE_API_URL || '';
+  if (!baseOrigin && env.DEV && typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '4000') {
+    baseOrigin = 'http://localhost:4000';
+  }
+  if (!baseOrigin && typeof window !== 'undefined') {
+    baseOrigin = window.location.origin;
+  }
+  return baseOrigin.replace(/\/$/, '');
+}
 
 export async function api<T = unknown>(path: string, options: { method?: HttpMethod; token?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const env = (import.meta as any).env || {};
-  let baseOrigin: string = env.VITE_API_ORIGIN || '';
+  let baseOrigin: string = env.VITE_API_ORIGIN || env.VITE_API_URL || '';
   if (!baseOrigin && env.DEV && typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '4000') {
     // In dev, if no explicit API origin is set, default to backend on :4000
     baseOrigin = 'http://localhost:4000';
   }
-  const url = `${baseOrigin}${path.startsWith('/') ? path : `/${path}`}`;
+  if (!baseOrigin && typeof window !== 'undefined') {
+    baseOrigin = window.location.origin;
+  }
+  const url = `${baseOrigin.replace(/\/$/, '')}${path.startsWith('/') ? path : `/${path}`}`;
   const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = options.headers || {};
   if (!isFormData && !headers['Content-Type']) {

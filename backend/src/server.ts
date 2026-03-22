@@ -9,6 +9,8 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config';
 import { setupVoiceRoomSocket } from './websocket/voiceRoom';
+import { setupChatSocket } from './websocket/chatSocket';
+import { setChatIo } from './realtime/chatHub';
 import health from './routes/health';
 import auth from './routes/auth';
 import dreams from './routes/dreams';
@@ -34,6 +36,7 @@ import psychologist from './routes/psychologist';
 import psychologists from './routes/psychologists';
 import researcher from './routes/researcher';
 import admin from './routes/admin';
+import adminUsers from './routes/adminUsers';
 import support from './routes/support';
 
 const app = express();
@@ -136,6 +139,7 @@ app.use('/api/psychologist', psychologist);
 app.use('/api/psychologists', psychologists);
 app.use('/api/researcher', researcher);
 app.use('/api/admin', admin);
+app.use('/api/admin', adminUsers);
 app.use('/api', support);
 
 // Catch-all для всех остальных путей (только если это не /uploads)
@@ -153,8 +157,9 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   res.status(500).json({ error: 'Internal error' });
 });
 
-// Настройка WebSocket для голосовых комнат
+setChatIo(io);
 setupVoiceRoomSocket(io);
+setupChatSocket(io);
 
 httpServer.listen(config.port, () => {
   // eslint-disable-next-line no-console

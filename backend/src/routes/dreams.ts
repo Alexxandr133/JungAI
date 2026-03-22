@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { mergeDreamKeywords } from '../utils/dreamKeywords';
 
 const router = Router();
 
@@ -93,11 +94,17 @@ router.post('/dreams', requireAuth, requireRole(['client', 'psychologist', 'admi
       }
     }
     
+    const mergedSymbols = mergeDreamKeywords(
+      String(title ?? ''),
+      String(content ?? ''),
+      symbols ?? []
+    );
+
     const dream = await (prisma as any).dream.create({
       data: {
         title,
         content,
-        symbols: symbols ?? [],
+        symbols: mergedSymbols,
         userId: req.user?.id,
         clientId: finalClientId || null
       },
@@ -175,12 +182,23 @@ router.put('/dreams/:id', requireAuth, requireRole(['client', 'psychologist', 'a
       return res.status(403).json({ error: 'Forbidden' });
     }
     
+    const nextTitle = title !== undefined ? String(title) : dream.title;
+    const nextContent = content !== undefined ? String(content) : dream.content;
+    const refreshKeywords =
+      title !== undefined || content !== undefined || symbols !== undefined;
+
     const updated = await (prisma as any).dream.update({
       where: { id: req.params.id },
       data: {
-        ...(title && { title }),
-        ...(content && { content }),
-        ...(symbols !== undefined && { symbols }),
+        ...(title !== undefined && { title }),
+        ...(content !== undefined && { content }),
+        ...(refreshKeywords && {
+          symbols: mergeDreamKeywords(
+            nextTitle,
+            nextContent,
+            symbols !== undefined ? symbols : dream.symbols
+          )
+        }),
         ...(clientId !== undefined && { clientId: clientId || null })
       }
     });

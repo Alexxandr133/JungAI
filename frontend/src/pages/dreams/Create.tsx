@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 
+const MAX_DREAM_SYMBOLS = 10;
+
 export default function DreamCreate() {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -15,7 +17,13 @@ export default function DreamCreate() {
     e.preventDefault();
     setError(null);
     try {
-      const symArr = symbols.trim() ? symbols.split(',').map(s => s.trim()) : [];
+      const symArr = symbols.trim()
+        ? symbols
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .slice(0, MAX_DREAM_SYMBOLS)
+        : [];
       if (token) {
         await api('/api/dreams', { method: 'POST', token, body: { title, content, symbols: symArr } });
       } else {
@@ -44,7 +52,11 @@ export default function DreamCreate() {
       <form onSubmit={submit} style={{ display: 'grid', gap: 8, maxWidth: 520 }}>
         <input placeholder="Заголовок" value={title} onChange={e => setTitle(e.target.value)} required />
         <textarea placeholder="Описание" value={content} onChange={e => setContent(e.target.value)} required />
-        <input placeholder="Символы (через запятую)" value={symbols} onChange={e => setSymbols(e.target.value)} />
+        <input
+          placeholder={`Символы через запятую, не более ${MAX_DREAM_SYMBOLS}`}
+          value={symbols}
+          onChange={(e) => setSymbols(e.target.value)}
+        />
         <button type="submit">Создать</button>
         {error && <div style={{ color: 'red' }}>{error}</div>}
       </form>

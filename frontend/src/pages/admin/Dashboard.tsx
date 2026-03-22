@@ -109,6 +109,28 @@ export default function AdminDashboard() {
           <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>Загрузка...</div>
         ) : stats ? (
           <div style={{ display: 'grid', gap: 24 }}>
+            <div
+              className="card"
+              style={{
+                padding: 20,
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 16
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Управление пользователями</div>
+                <div className="small" style={{ color: 'var(--text-muted)' }}>
+                  Пароли, снятие верификации, удаление учётных записей, перенос CRM-клиентов между психологами
+                </div>
+              </div>
+              <Link to="/admin/users" className="button" style={{ padding: '10px 20px', fontSize: 14 }}>
+                Открыть →
+              </Link>
+            </div>
+
             {/* Статистика техподдержки */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>

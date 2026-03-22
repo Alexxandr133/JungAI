@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { api, getApiBaseUrl } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { VerificationRequired } from '../../components/VerificationRequired';
@@ -27,6 +28,7 @@ export default function ChatPage() {
   const [modalQuery, setModalQuery] = useState('');
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [showChatScreen, setShowChatScreen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -203,14 +205,9 @@ export default function ChatPage() {
             clientName = clientProfile.profile.name;
           }
           
-          // Ищем комнату по точному совпадению имени (регистронезависимый)
-          const existingRoom = rooms.find(r => {
-            const roomName = (r.name || '').trim().toLowerCase();
-            const clientNameLower = clientName.trim().toLowerCase();
-            const exactMatch = roomName === clientNameLower;
-            const partialMatch = roomName.includes(clientNameLower) || clientNameLower.includes(roomName);
-            return exactMatch || partialMatch;
-          });
+          // Только точное совпадение имени комнаты с CRM client.name (без includes — иначе можно открыть чужой чат)
+          const clientNameLower = clientName.trim().toLowerCase();
+          const existingRoom = rooms.find(r => (r.name || '').trim().toLowerCase() === clientNameLower);
           
           if (existingRoom) {
             setCurrent(existingRoom.id);
@@ -221,14 +218,8 @@ export default function ChatPage() {
           }
         })
         .catch(() => {
-          // Если не удалось получить профиль, ищем по email
-          const existingRoom = rooms.find(r => {
-            const roomName = (r.name || '').trim().toLowerCase();
-            const clientNameLower = clientName.trim().toLowerCase();
-            return roomName === clientNameLower || 
-                   roomName.includes(clientNameLower) || 
-                   clientNameLower.includes(roomName);
-          });
+          const clientNameLower = clientName.trim().toLowerCase();
+          const existingRoom = rooms.find(r => (r.name || '').trim().toLowerCase() === clientNameLower);
           
           if (existingRoom) {
             setCurrent(existingRoom.id);
@@ -241,6 +232,34 @@ export default function ChatPage() {
   }, [rooms, psychologist, isClient, current, user, token]);
   
   useEffect(() => { if (current) loadMessages(current); }, [current, token]);
+
+  // Доставка новых сообщений в реальном времени (комната Socket.IO `chat:{roomId}`, не путать с голосовыми комнатами)
+  useEffect(() => {
+    if (!token || !current) return;
+    const base = getApiBaseUrl();
+    const socket: Socket = io(base, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      path: '/socket.io/'
+    });
+    const onConnect = () => {
+      socket.emit('chat:subscribe', { roomId: current });
+    };
+    socket.on('connect', onConnect);
+    socket.on('chat:message', (msg: { id: string; roomId: string; authorId: string; content: string; createdAt: string }) => {
+      if (!msg || msg.roomId !== current) return;
+      setMessages(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    });
+    return () => {
+      socket.emit('chat:unsubscribe', { roomId: current });
+      socket.off('connect', onConnect);
+      socket.disconnect();
+    };
+  }, [token, current]);
 
   // Detect mobile view
   useEffect(() => {
@@ -345,13 +364,8 @@ export default function ChatPage() {
     const roomsList = await loadRooms();
     
     // Ищем существующую комнату (регистронезависимый поиск)
-    const existingRoom = roomsList.find(r => {
-      const roomNameLower = (r.name || '').trim().toLowerCase();
-      const clientNameLower = clientName.toLowerCase();
-      return roomNameLower === clientNameLower || 
-             roomNameLower.includes(clientNameLower) || 
-             clientNameLower.includes(roomNameLower);
-    });
+    const clientNameLower = clientName.trim().toLowerCase();
+    const existingRoom = roomsList.find(r => (r.name || '').trim().toLowerCase() === clientNameLower);
     
     if (existingRoom) {
       setCurrent(existingRoom.id);
@@ -435,7 +449,7 @@ export default function ChatPage() {
           maxWidth: '100%', 
           height: 'calc(100vh - 80px)', 
           display: isMobileView ? 'flex' : 'grid', 
-          gridTemplateColumns: isMobileView ? 'none' : 'minmax(260px, 320px) 1fr', 
+          gridTemplateColumns: isMobileView ? 'none' : (sidebarCollapsed ? '0 1fr' : 'minmax(260px, 320px) 1fr'), 
           gap: 0, 
           background: 'var(--surface)', 
           borderRadius: 0,
@@ -461,7 +475,7 @@ export default function ChatPage() {
           `}</style>
           {/* Clients list (chat sidebar) - Telegram style */}
           <div style={{ 
-            display: isMobileView ? (showChatScreen ? 'none' : 'flex') : 'flex',
+            display: isMobileView ? (showChatScreen ? 'none' : 'flex') : (sidebarCollapsed ? 'none' : 'flex'),
             background: 'var(--surface-2)', 
             borderRight: isMobileView ? 'none' : '1px solid rgba(255,255,255,0.08)', 
             flexDirection: 'column',
@@ -486,11 +500,7 @@ export default function ChatPage() {
               {isClient ? (
                 psychologist ? (() => {
                   // Используем имя клиента для поиска активной комнаты
-                  let clientName = user?.email?.split('@')[0] || 'Клиент';
-                  const isActive = current && rooms.find(r => {
-                    const roomName = r.name || '';
-                    return roomName.toLowerCase() === clientName.toLowerCase() || roomName.includes(clientName);
-                  })?.id === current;
+                  const isActive = !!current;
                   const psychName = psychologist.name || psychologist.email?.split('@')[0] || 'Психолог';
                   const psychAvatar = psychologist.avatarUrl;
                   return (
@@ -713,7 +723,7 @@ export default function ChatPage() {
                 background: 'var(--surface-2)',
                 flexShrink: 0
               }}>
-                {isMobileView && (
+                {isMobileView ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -737,6 +747,28 @@ export default function ChatPage() {
                     title="Назад к списку чатов"
                   >
                     ←
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSidebarCollapsed(prev => !prev)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      border: 'none',
+                      background: 'var(--surface)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      fontSize: 18,
+                      marginRight: 8
+                    }}
+                    title={sidebarCollapsed ? 'Показать список чатов' : 'Скрыть список чатов'}
+                  >
+                    ☰
                   </button>
                 )}
                 <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -828,20 +860,26 @@ export default function ChatPage() {
                     }}
                   >
                     {!mine && (
-                      <div style={{ 
-                        width: isGrouped ? 0 : 32, 
-                        height: isGrouped ? 0 : 32, 
-                        borderRadius: 999, 
-                        background: 'linear-gradient(135deg, var(--primary), var(--accent))', 
-                        color: '#0b0f1a', 
-                        display: isGrouped ? 'none' : 'grid', 
-                        placeItems: 'center', 
-                        fontWeight: 800,
-                        fontSize: 14,
-                        flexShrink: 0,
-                        transition: 'all 0.2s'
-                      }}>
-                        {(rooms.find(r => r.id === current)?.name || '?').charAt(0).toUpperCase()}
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 999,
+                          flexShrink: 0,
+                          display: 'grid',
+                          placeItems: 'center',
+                          fontWeight: 800,
+                          fontSize: 14,
+                          background: isGrouped
+                            ? 'transparent'
+                            : 'linear-gradient(135deg, var(--primary), var(--accent))',
+                          color: isGrouped ? 'transparent' : '#0b0f1a',
+                          transition: 'background 0.2s, color 0.2s'
+                        }}
+                        aria-hidden={isGrouped}
+                      >
+                        {!isGrouped &&
+                          (rooms.find(r => r.id === current)?.name || '?').charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div style={{ 
@@ -880,7 +918,7 @@ export default function ChatPage() {
                         {mine && <span style={{ fontSize: 13 }}>✓</span>}
                       </div>
                     </div>
-                    {mine && <div style={{ width: isGrouped ? 0 : 32, flexShrink: 0, transition: 'all 0.2s' }} />}
+                    {mine && <div style={{ width: 32, flexShrink: 0 }} aria-hidden />}
                   </div>
                 );
               })}

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
 import { NotificationsBell } from './NotificationsBell';
 import { MessagesBell } from './MessagesBell';
+import { BrandLogo } from './BrandLogo';
 
 type MenuItem = {
   label: string;
@@ -28,6 +29,7 @@ export function PsychologistNavbar() {
           icon: '⚙️',
           children: [
             { label: 'Дашборд', path: '/admin', icon: '📊' },
+            { label: 'Пользователи', path: '/admin/users', icon: '👤' },
             { label: 'Верификация', path: '/admin/verification', icon: '✓' },
             { label: 'Тех. запросы', path: '/admin/support', icon: '🔧' },
             { label: 'Открытый функционал', path: '/admin/open-access', icon: '🔓' },
@@ -141,26 +143,7 @@ export function PsychologistNavbar() {
         gap: 24
       }}>
         {/* Logo */}
-        <Link
-          to="/psychologist"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            textDecoration: 'none',
-            color: 'inherit',
-            fontWeight: 700,
-            fontSize: 18
-          }}
-        >
-          <div style={{
-            width: 20,
-            height: 20,
-            borderRadius: 6,
-            background: 'linear-gradient(135deg, var(--primary), var(--accent))'
-          }} />
-          <span>JungAI</span>
-        </Link>
+        <BrandLogo to="/psychologist" />
 
         {/* Desktop Menu */}
         <div

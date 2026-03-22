@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { BrandLogo } from './BrandLogo';
 
 type MenuItem = {
   label: string;
@@ -106,10 +107,7 @@ export function GuestNavbar() {
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
           {/* Logo */}
-          <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'var(--text)' }}>
-            <div style={{ fontSize: 28 }}>🧠</div>
-            <div style={{ fontWeight: 800, fontSize: 18 }}>JungAI</div>
-          </Link>
+          <BrandLogo to="/" />
 
           {/* Desktop Menu */}
           <div

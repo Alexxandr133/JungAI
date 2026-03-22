@@ -5,6 +5,142 @@ import { api } from '../../lib/api';
 import { GuestNavbar } from '../../components/GuestNavbar';
 import '../../styles/tokens.css';
 
+/** Пример для плашки, пока нет снов за текущие сутки с достаточным текстом */
+const DEMO_SYMBOL_WORDS: Array<{ symbol: string; count: number }> = [
+  { symbol: 'вода', count: 14 },
+  { symbol: 'дом', count: 12 },
+  { symbol: 'лес', count: 10 },
+  { symbol: 'дорога', count: 9 },
+  { symbol: 'окно', count: 8 },
+  { symbol: 'мать', count: 7 },
+  { symbol: 'дверь', count: 6 },
+  { symbol: 'свет', count: 6 },
+  { symbol: 'тень', count: 5 },
+  { symbol: 'птица', count: 4 }
+];
+
+const symbolChartCardStyle = { padding: 24, marginBottom: 24, width: '100%' as const };
+
+/** Голубой (--accent) → фиолетовый (--primary); чем ниже строка в рейтинге, тем глубже фиолетовый акцент */
+function barFillForRank(index: number, total: number): string {
+  const t = total <= 1 ? 0 : index / (total - 1);
+  const cyanA = 0.88 - t * 0.38;
+  const violA = 0.42 + t * 0.53;
+  return `linear-gradient(90deg, rgba(25,224,255,${cyanA}) 0%, rgba(124,92,255,${violA}) 100%)`;
+}
+
+function SymbolFrequencyChart({
+  items,
+  loading
+}: {
+  items: Array<{ symbol: string; count: number }>;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="card" style={symbolChartCardStyle}>
+        <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 16 }}>Частота символов</div>
+        <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '32px 16px', fontSize: 15 }}>Загрузка…</div>
+      </div>
+    );
+  }
+
+  const isDemo = items.length === 0;
+  const rows = isDemo ? DEMO_SYMBOL_WORDS : items;
+  const max = Math.max(1, ...rows.map((i) => i.count));
+
+  return (
+    <div className="card" style={symbolChartCardStyle}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          marginBottom: 20,
+          flexWrap: 'wrap'
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 18 }}>Частота символов</div>
+        {isDemo && (
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--text-muted)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              padding: '4px 12px',
+              borderRadius: 999,
+              letterSpacing: '0.02em'
+            }}
+          >
+            демо
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {rows.map((row, idx) => (
+          <div
+            key={`${row.symbol}-${idx}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(72px, 0.35fr) 1fr minmax(40px, auto)',
+              gap: 14,
+              alignItems: 'center'
+            }}
+          >
+            <span
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+              title={row.symbol}
+            >
+              {row.symbol}
+            </span>
+            <div
+              style={{
+                height: 12,
+                borderRadius: 8,
+                background: 'rgba(255,255,255,0.06)',
+                overflow: 'hidden',
+                minWidth: 0,
+                boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.2)'
+              }}
+            >
+              <div
+                style={{
+                  width: `${(row.count / max) * 100}%`,
+                  height: '100%',
+                  borderRadius: 8,
+                  background: barFillForRank(idx, rows.length),
+                  minWidth: row.count > 0 ? 4 : 0,
+                  transition: 'width 0.35s ease, background 0.25s ease',
+                  boxShadow: '0 0 14px rgba(25, 224, 255, 0.12), 0 0 18px rgba(124, 92, 255, 0.1)'
+                }}
+              />
+            </div>
+            <span
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: 'var(--text-muted)',
+                textAlign: 'right',
+                fontVariantNumeric: 'tabular-nums'
+              }}
+            >
+              {row.count}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function GuestWorkspace() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -13,12 +149,11 @@ export default function GuestWorkspace() {
     psychologists: 0,
     clients: 0,
     dreams: 0,
-    topSymbolsToday: [] as Array<{ symbol: string; count: number }>,
-    topSymbolsAll: [] as Array<{ symbol: string; count: number }>
+    topSymbolsToday: [] as Array<{ symbol: string; count: number }>
   });
+  const [statsReady, setStatsReady] = useState(false);
 
   useEffect(() => {
-    // Загружаем статистику с API
     (async () => {
       try {
         const data = await api<{
@@ -26,19 +161,23 @@ export default function GuestWorkspace() {
           clients: number;
           dreams: number;
           topSymbolsToday: Array<{ symbol: string; count: number }>;
-          topSymbolsAll: Array<{ symbol: string; count: number }>;
         }>('/api/psychologists/public/stats');
-        setStats(data);
+        setStats({
+          psychologists: data.psychologists,
+          clients: data.clients,
+          dreams: data.dreams,
+          topSymbolsToday: data.topSymbolsToday ?? []
+        });
       } catch (e) {
         console.error('Failed to load stats:', e);
-        // Fallback значения
         setStats({
           psychologists: 0,
           clients: 0,
           dreams: 0,
-          topSymbolsToday: [],
-          topSymbolsAll: []
+          topSymbolsToday: []
         });
+      } finally {
+        setStatsReady(true);
       }
     })();
   }, []);
@@ -120,13 +259,16 @@ export default function GuestWorkspace() {
           </h1>
           <p style={{ 
             margin: '0 auto', 
-            maxWidth: 700, 
+            maxWidth: 720, 
             fontSize: 18,
             lineHeight: 1.7,
             color: 'var(--text-muted)',
             marginBottom: 40
           }}>
-            Jung-Ai — психологическая платформа и ваш интеллектуальный партнер в практических исследованиях и психологической практике. Данная платформа объединяющая психологов и клиентов позволяет практиковать и общаться, вести учет и анализировать терапевтическую динамику, хранить дневник сновидений, исследовать сны и синхронии. Публикуйте свои работы, находите единомышленников и растите профессионально.
+            JungAI — аналитическая платформа и интеллектуальный партнёр в области психологии. Она помогает вести
+            сессии с клиентами, фиксировать и разбирать ход терапии, при необходимости корректировать подход и динамику,
+            вести дневник сновидений и глубже исследовать бессознательное. Это опора для профессионального роста,
+            устойчивой практики и дальнейшего развития.
           </p>
           {!user && (
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -148,49 +290,48 @@ export default function GuestWorkspace() {
           )}
         </div>
 
-        {/* Stats */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 64 }}>
-          <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>👨‍⚕️</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.psychologists}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Психологов</div>
-          </div>
-          <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.clients}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Клиентов</div>
-          </div>
-          <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>💭</div>
-            <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.dreams}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Снов</div>
-          </div>
-          <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>🔮</div>
-            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, minHeight: 28 }}>
-              {stats.topSymbolsToday.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>Топ символов сегодня:</div>
-                  {stats.topSymbolsToday.map((item, idx) => (
-                    <div key={idx} style={{ fontSize: 13, color: 'var(--text)' }}>
-                      {item.symbol} ({item.count})
-                    </div>
-                  ))}
-                </div>
-              ) : stats.topSymbolsAll.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>Частые символы:</div>
-                  {stats.topSymbolsAll.slice(0, 3).map((item, idx) => (
-                    <div key={idx} style={{ fontSize: 13, color: 'var(--text)' }}>
-                      {item.symbol} ({item.count})
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Нет данных</div>
-              )}
+        {/* Символы за сегодня — полная ширина; затем счётчики */}
+        <div style={{ marginBottom: 64 }}>
+          <SymbolFrequencyChart items={stats.topSymbolsToday} loading={!statsReady} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+            <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>👨‍⚕️</div>
+              <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.psychologists}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Психологов</div>
             </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Символы</div>
+            <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+              <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.clients}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Клиентов</div>
+            </div>
+            <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>💭</div>
+              <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{stats.dreams}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Снов</div>
+            </div>
+            <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔮</div>
+              <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, minHeight: 28 }}>
+                {!statsReady ? (
+                  <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>…</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 4 }}>Популярные слова</div>
+                    {(stats.topSymbolsToday.length ? stats.topSymbolsToday : DEMO_SYMBOL_WORDS)
+                      .slice(0, 3)
+                      .map((item, idx) => (
+                        <div key={idx} style={{ fontSize: 13, color: 'var(--text)' }}>
+                          {item.symbol} ({item.count})
+                        </div>
+                      ))}
+                    {stats.topSymbolsToday.length === 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>пример</div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Символы</div>
+            </div>
           </div>
         </div>
 

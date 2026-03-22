@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { mergeDreamKeywords } from '../utils/dreamKeywords';
 import { config } from '../config';
 import { OpenAI } from 'openai';
 
@@ -79,12 +80,18 @@ router.post('/ai/dream/analyze', requireAuth, async (req: AuthedRequest, res) =>
       recommendations.push('ведение дневника эмоций');
     }
 
-    // Если есть dreamId, обновляем символы в базе
+    // Если есть dreamId, сохраняем символы: эвристики анализа + извлечение из текста сна
     if (dreamId) {
       try {
+        const existing = await (prisma as any).dream.findUnique({
+          where: { id: dreamId },
+          select: { title: true }
+        });
+        const title = existing?.title != null ? String(existing.title) : '';
+        const merged = mergeDreamKeywords(title, String(content), extractedSymbols);
         await (prisma as any).dream.update({
           where: { id: dreamId },
-          data: { symbols: extractedSymbols }
+          data: { symbols: merged }
         });
       } catch (e) {
         // Игнорируем ошибки обновления

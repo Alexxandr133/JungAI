@@ -1,6 +1,8 @@
 import { Router } from 'express';
-import { requireAuth, requireVerification, requireRole, AuthedRequest } from '../middleware/auth';
+import { requireAuth, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { getClientVisibleChatRoomIds, userCanAccessChatRoom } from '../utils/chatAccess';
+import { emitChatNewMessage } from '../realtime/chatHub';
 
 const router = Router();
 
@@ -28,20 +30,11 @@ router.get('/chat/rooms', requireAuth, requireRole(['client', 'psychologist', 'a
         });
       }
     } else if (req.user!.role === 'client') {
-      // Для клиента: только комнаты, где клиент отправил хотя бы одно сообщение
-      const clientRooms = await prisma.chatMessage.findMany({
-        where: { authorId: req.user!.id },
-        select: { roomId: true },
-        distinct: ['roomId']
-      });
-      
-      const roomIds = clientRooms.map(m => m.roomId);
-      
+      // Комнаты, где клиент писал, + все комнаты с name = CRM Client.name (как у психолога)
+      const roomIds = await getClientVisibleChatRoomIds(req.user!.id, req.user!.email);
       if (roomIds.length > 0) {
         items = await prisma.chatRoom.findMany({
-          where: {
-            id: { in: roomIds }
-          },
+          where: { id: { in: roomIds } },
           orderBy: { createdAt: 'desc' }
         });
       }
@@ -77,18 +70,31 @@ router.post('/chat/rooms/:id/messages', requireAuth, requireRole(['client', 'psy
   try {
     const { id } = req.params;
     const { content } = req.body ?? {};
-    
+
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       return res.status(400).json({ error: 'Message content is required' });
     }
-    
-    const m = await prisma.chatMessage.create({ 
-      data: { 
-        roomId: id, 
-        authorId: req.user!.id, 
-        content: content.trim() 
-      } 
+
+    const allowed = await userCanAccessChatRoom(req.user!, id);
+    if (!allowed) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const m = await prisma.chatMessage.create({
+      data: {
+        roomId: id,
+        authorId: req.user!.id,
+        content: content.trim()
+      }
     });
+    const payload = {
+      id: m.id,
+      roomId: m.roomId,
+      authorId: m.authorId,
+      content: m.content,
+      createdAt: m.createdAt.toISOString()
+    };
+    emitChatNewMessage(id, payload);
     res.status(201).json(m);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to send message' });
@@ -151,20 +157,10 @@ router.get('/chat/unread-count', requireAuth, async (req: AuthedRequest, res) =>
         });
       }
     } else if (req.user!.role === 'client') {
-      // Для клиента: только комнаты, где клиент отправил хотя бы одно сообщение
-      const clientRooms = await prisma.chatMessage.findMany({
-        where: { authorId: req.user!.id },
-        select: { roomId: true },
-        distinct: ['roomId']
-      });
-      
-      const roomIds = clientRooms.map(m => m.roomId);
-      
+      const roomIds = await getClientVisibleChatRoomIds(req.user!.id, req.user!.email);
       if (roomIds.length > 0) {
         rooms = await prisma.chatRoom.findMany({
-          where: {
-            id: { in: roomIds }
-          }
+          where: { id: { in: roomIds } }
         });
       }
     } else {

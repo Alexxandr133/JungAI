@@ -8,7 +8,7 @@ import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 
 export default function ClientsList() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const [items, setItems] = useState<any[]>([]);
   
   const getAvatarUrl = (url: string | null | undefined, clientId?: string) => {
@@ -47,43 +47,28 @@ export default function ClientsList() {
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
   const location = useLocation();
   function saveItemsToStorage(data: any[]) {
-    try { 
-      if (!user?.id) return; // Не сохраняем, если нет пользователя
-      localStorage.setItem(`clients.items.${user.id}`, JSON.stringify(data)); 
-    } catch {}
+    try { localStorage.setItem('clients.items', JSON.stringify(data)); } catch {}
   }
   function readItemsFromStorage(): any[] {
     try {
-      if (!user?.id) return []; // Не читаем, если нет пользователя
-      const raw = localStorage.getItem(`clients.items.${user.id}`);
+      const raw = localStorage.getItem('clients.items');
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
     } catch { return []; }
   }
   function readOverrides(): Record<string, any> {
-    try { 
-      if (!user?.id) return {}; // Не читаем, если нет пользователя
-      const raw = localStorage.getItem(`clients.overrides.${user.id}`); 
-      return raw ? JSON.parse(raw) : {}; 
-    } catch { return {}; }
+    try { const raw = localStorage.getItem('clients.overrides'); return raw ? JSON.parse(raw) : {}; } catch { return {}; }
   }
   function saveOverrides(map: Record<string, any>) {
-    try { 
-      if (!user?.id) return; // Не сохраняем, если нет пользователя
-      localStorage.setItem(`clients.overrides.${user.id}`, JSON.stringify(map)); 
-    } catch {}
+    try { localStorage.setItem('clients.overrides', JSON.stringify(map)); } catch {}
   }
   function saveDeletedToStorage(ids: string[]) {
-    try { 
-      if (!user?.id) return; // Не сохраняем, если нет пользователя
-      localStorage.setItem(`clients.deletedIds.${user.id}`, JSON.stringify(ids)); 
-    } catch {}
+    try { localStorage.setItem('clients.deletedIds', JSON.stringify(ids)); } catch {}
   }
   function readDeletedFromStorage(): string[] {
     try {
-      if (!user?.id) return []; // Не читаем, если нет пользователя
-      const raw = localStorage.getItem(`clients.deletedIds.${user.id}`);
+      const raw = localStorage.getItem('clients.deletedIds');
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed.map(String) : [];
@@ -344,14 +329,7 @@ export default function ClientsList() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: '100%',
-          overflowX: 'hidden'
-        }}
-      >
+      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
         {/* Header */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
           <div>

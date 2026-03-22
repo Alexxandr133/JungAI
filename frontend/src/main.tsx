@@ -35,6 +35,7 @@ import ClientTests from './pages/client/Tests'
 import ClientCommunity from './pages/client/Community'
 import ClientSessions from './pages/client/Sessions'
 import ClientPsychologistsList from './pages/client/PsychologistsList'
+import ClientAIChat from './pages/client/ClientAIChat'
 import VoiceRoom from './pages/room/VoiceRoom'
 import ResearcherDashboard from './pages/researcher/Dashboard'
 import ResearcherProfile from './pages/researcher/Profile'
@@ -50,6 +51,7 @@ import AdminDashboard from './pages/admin/Dashboard'
 import AdminVerification from './pages/admin/Verification'
 import AdminSupport from './pages/admin/Support'
 import AdminOpenAccess from './pages/admin/OpenAccess'
+import AdminUserManagement from './pages/admin/UserManagement'
 import RegisterClient from './pages/auth/RegisterClient'
 import Register from './pages/Register'
 import GuestPage from './pages/guest/Guest'
@@ -157,6 +159,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['admin']}>
                     <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <ProtectedRoute roles={['admin']}>
+                    <AdminUserManagement />
                   </ProtectedRoute>
                 }
               />
@@ -387,6 +397,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['client', 'admin']}>
                     <ClientPsychologistsList />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client/ai"
+                element={
+                  <ProtectedRoute roles={['client', 'admin']}>
+                    <ClientAIChat />
                   </ProtectedRoute>
                 }
               />

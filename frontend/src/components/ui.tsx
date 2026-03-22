@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { BrandLogo } from './BrandLogo';
 
 export const Section: React.FC<{ id?: string; children: React.ReactNode; style?: React.CSSProperties }>
   = ({ id, children, style }) => (
@@ -48,11 +49,8 @@ export const Nav: React.FC = () => {
   
   return (
     <div style={{ position: 'sticky', top: 0, zIndex: 20, borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(28,31,43,0.95)', backdropFilter: 'blur(12px)' }}>
-      <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', maxWidth: 1400, margin: '0 auto' }}>
-        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
-          <div style={{ width: 14, height: 14, borderRadius: 9999, background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} />
-          <b style={{ fontSize: 18 }}>JungAI</b>
-        </Link>
+      <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', minHeight: 64, maxWidth: 1400, margin: '0 auto' }}>
+        <BrandLogo to="/" />
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           {user ? (
             <Link to={getDashboardPath()} className="button" style={{ padding: '10px 20px', textDecoration: 'none' }}>

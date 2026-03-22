@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { api } from '../../lib/api';
@@ -25,6 +25,7 @@ export default function DreamsList() {
   const { token, user } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const isClient = user?.role === 'client';
   const isPsychologist = user?.role === 'psychologist' || user?.role === 'admin';
@@ -43,6 +44,11 @@ export default function DreamsList() {
   const [formContent, setFormContent] = useState('');
   const [formClientId, setFormClientId] = useState<string>('');
   const [clients, setClients] = useState<Client[]>([]);
+
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) setQuery(q);
+  }, [searchParams]);
 
   // Check verification status for psychologists
   useEffect(() => {
@@ -412,7 +418,7 @@ export default function DreamsList() {
                         </p>
                         {token && d.symbols && Array.isArray(d.symbols) && d.symbols.length > 0 && (
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 'clamp(8px, 2vw, 10px)' }}>
-                            {d.symbols.slice(0, 6).map((s, idx) => (
+                            {d.symbols.slice(0, 10).map((s, idx) => (
                               <span key={idx} className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4, fontSize: 'clamp(9px, 2.5vw, 10px)' }}>{s}</span>
                             ))}
                           </div>

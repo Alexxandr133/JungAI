@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
 import { MessagesBell } from './MessagesBell';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { BrandLogo } from './BrandLogo';
 
 type MenuItem = {
   label: string;
@@ -29,15 +30,19 @@ export function ClientNavbar() {
         { label: 'Главная', path: '/client', icon: '🏠' },
         { label: 'Мои сны', path: '/dreams', icon: '💭' },
         { label: 'Дневник', path: '/client/journal', icon: '📝' },
-        { label: 'Сессии', path: '/client/sessions', icon: '📅' },
+        { label: 'Сессии', path: '/client/sessions', icon: '📅' }
       ]
+    },
+    {
+      label: 'ИИ-помощник',
+      path: '/client/ai',
+      icon: '🤖'
     },
     {
       label: 'Личное развитие',
       icon: '🌟',
       children: [
-        { label: 'Ежедневные задания', path: '/client/tasks', icon: '✅' },
-        { label: 'Мой ранг', path: '/client/rank', icon: '🏆' },
+        { label: 'Баллы и уровень', path: '/client/tasks', icon: '🏆' },
         { label: 'Тесты', path: '/client/tests', icon: '📊' },
       ]
     },
@@ -73,6 +78,9 @@ export function ClientNavbar() {
     if (!path) return false;
     if (path === '/client') {
       return location.pathname === '/client';
+    }
+    if (path === '/client/ai') {
+      return location.pathname === '/client/ai';
     }
     return location.pathname.startsWith(path);
   };
@@ -119,26 +127,7 @@ export function ClientNavbar() {
         gap: 24
       }}>
         {/* Logo */}
-        <Link
-          to="/client"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            textDecoration: 'none',
-            color: 'inherit',
-            fontWeight: 700,
-            fontSize: 18
-          }}
-        >
-          <div style={{
-            width: 20,
-            height: 20,
-            borderRadius: 6,
-            background: 'linear-gradient(135deg, var(--primary), var(--accent))'
-          }} />
-          <span>JungAI</span>
-        </Link>
+        <BrandLogo to="/client" />
 
         {/* Desktop Menu */}
         <div
