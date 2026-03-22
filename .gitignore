@@ -37,7 +37,6 @@ backend/uploads/
 # docs with secrets
 docs/cursor_client_interface_tasks.md
 
-# lockfiles (managed per workspace)
-package-lock.json
+# lockfiles: package-lock.json коммитим для совпадения `npm ci` на сервере
 yarn.lock
 pnpm-lock.yaml
