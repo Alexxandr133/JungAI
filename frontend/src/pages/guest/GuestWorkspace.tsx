@@ -296,46 +296,107 @@ export default function GuestWorkspace() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(104px, 132px))',
-              gap: 12,
-              maxWidth: 520,
-              margin: '16px auto 0',
-              justifyContent: 'center'
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 16,
+              marginTop: 16
             }}
           >
-            <div className="card" style={{ padding: 16, textAlign: 'center' }}>
-              <div style={{ fontSize: 26, marginBottom: 6 }}>👨‍⚕️</div>
-              <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>{stats.psychologists}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Психологов</div>
+            <div
+              className="card"
+              style={{
+                padding: '28px 20px',
+                minHeight: 0,
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+            >
+              <div style={{ fontSize: 24, lineHeight: 1 }}>👨‍⚕️</div>
+              <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{stats.psychologists}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.25 }}>Психологов</div>
             </div>
-            <div className="card" style={{ padding: 16, textAlign: 'center' }}>
-              <div style={{ fontSize: 26, marginBottom: 6 }}>👥</div>
-              <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>{stats.clients}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Клиентов</div>
+            <div
+              className="card"
+              style={{
+                padding: '16px 18px',
+                minHeight: 0,
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+            >
+              <div style={{ fontSize: 24, lineHeight: 1 }}>👥</div>
+              <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{stats.clients}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.25 }}>Клиентов</div>
             </div>
-            <div className="card" style={{ padding: 16, textAlign: 'center' }}>
-              <div style={{ fontSize: 26, marginBottom: 6 }}>💭</div>
-              <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>{stats.dreams}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Снов</div>
+            <div
+              className="card"
+              style={{
+                padding: '16px 18px',
+                minHeight: 0,
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+            >
+              <div style={{ fontSize: 24, lineHeight: 1 }}>💭</div>
+              <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{stats.dreams}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.25 }}>Снов</div>
             </div>
-            <div className="card" style={{ padding: 16, textAlign: 'center' }}>
-              <div style={{ fontSize: 26, marginBottom: 6 }}>🔮</div>
-              <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4, minHeight: 28 }}>
+            <div
+              className="card"
+              style={{
+                padding: '16px 18px',
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 14,
+                textAlign: 'left'
+              }}
+            >
+              <div style={{ fontSize: 24, lineHeight: 1, flexShrink: 0 }} aria-hidden>🔮</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 {!statsReady ? (
-                  <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>…</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>…</div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2, lineHeight: 1.25 }}>
+                  <>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--text-muted)',
+                        letterSpacing: '0.03em',
+                        textTransform: 'uppercase',
+                        marginBottom: 6,
+                        lineHeight: 1.25
+                      }}
+                    >
                       Популярные символы
                     </div>
-                    {(stats.topSymbolsToday.length ? stats.topSymbolsToday : DEMO_SYMBOL_WORDS)
-                      .slice(0, 3)
-                      .map((item, idx) => (
-                        <div key={idx} style={{ fontSize: 12, color: 'var(--text)', lineHeight: 1.3 }}>
-                          {item.symbol} ({item.count})
-                        </div>
-                      ))}
-                  </div>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        color: 'var(--text)',
+                        lineHeight: 1.4,
+                        fontVariantNumeric: 'tabular-nums'
+                      }}
+                    >
+                      {(stats.topSymbolsToday.length ? stats.topSymbolsToday : DEMO_SYMBOL_WORDS)
+                        .slice(0, 3)
+                        .map((item) => `${item.symbol} ${item.count}`)
+                        .join(' · ')}
+                    </div>
+                  </>
                 )}
               </div>
             </div>
