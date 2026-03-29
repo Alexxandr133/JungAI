@@ -25,7 +25,7 @@ export default function GuestTests() {
               </div>
             </div>
           )}
-          <ClientTests />
+          <ClientTests persistResults={false} />
         </div>
       </div>
     </div>

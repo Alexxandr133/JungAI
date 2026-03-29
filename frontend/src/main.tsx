@@ -2,7 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App.tsx'
+import './styles/tokens.css'
+import './styles/appearance.css'
 import './index.css'
+import { AppearanceProvider } from './context/AppearanceContext'
+import { GlobalAppearance } from './components/GlobalAppearance'
 import { AuthProvider } from './context/AuthContext'
 import { I18nProvider } from './context/I18nContext'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -37,7 +41,7 @@ import ClientSessions from './pages/client/Sessions'
 import ClientPsychologistsList from './pages/client/PsychologistsList'
 import ClientAIChat from './pages/client/ClientAIChat'
 import VoiceRoom from './pages/room/VoiceRoom'
-import ResearcherDashboard from './pages/researcher/Dashboard'
+import { ResearcherDashboard } from './pages/researcher/Dashboard'
 import ResearcherProfile from './pages/researcher/Profile'
 import ResearcherPeople from './pages/researcher/People'
 import ResearcherDreams from './pages/researcher/Dreams'
@@ -65,9 +69,11 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <I18nProvider>
-        <AuthProvider>
-          <ErrorBoundary>
+      <AppearanceProvider>
+        <GlobalAppearance />
+        <I18nProvider>
+          <AuthProvider>
+            <ErrorBoundary>
             <Routes>
               <Route path="/" element={<App />} />
               <Route path="/login" element={<Login />} />
@@ -469,9 +475,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
               <Route path="*" element={<div>Not found</div>} />
             </Routes>
-          </ErrorBoundary>
-        </AuthProvider>
-      </I18nProvider>
+            </ErrorBoundary>
+          </AuthProvider>
+        </I18nProvider>
+      </AppearanceProvider>
     </BrowserRouter>
   </React.StrictMode>,
 )

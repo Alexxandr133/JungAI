@@ -4,12 +4,15 @@ import { useAuth } from '../../context/AuthContext';
 import { api, getApiBaseUrl } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { useAppearance } from '../../context/AppearanceContext';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 
 export default function ChatPage() {
   const { token, user } = useAuth();
+  const { appearance } = useAppearance();
+  const light = appearance.colorMode === 'light';
   const isClient = user?.role === 'client';
   const isPsychologist = user?.role === 'psychologist' || user?.role === 'admin';
   const [rooms, setRooms] = useState<any[]>([]);
@@ -429,68 +432,103 @@ export default function ChatPage() {
     );
   }
 
+  const edge = '1px solid var(--navbar-edge)';
+  const chat = {
+    pageBg: light ? 'var(--surface)' : 'var(--bg)',
+    mainBg: light ? 'var(--surface)' : 'var(--bg)',
+    shell: 'var(--surface)',
+    sidebar: light ? '#f1f3f9' : 'var(--surface-2)',
+    panel: light ? '#ffffff' : 'var(--surface-2)',
+    thread: light ? '#e6eaf2' : 'var(--surface)',
+    hoverRow: light ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255,255,255,0.05)',
+    hoverRowHi: light ? 'rgba(15, 23, 42, 0.09)' : 'rgba(255,255,255,0.08)',
+    rowActive: light ? 'rgba(79, 54, 216, 0.14)' : 'rgba(91, 124, 250, 0.15)',
+    mineBg: light
+      ? 'linear-gradient(135deg, #4f36d8, #0d9488)'
+      : 'linear-gradient(135deg, var(--primary), var(--accent))',
+    mineFg: light ? '#ffffff' : '#f8fafc',
+    mineTimeOp: light ? 0.88 : 0.8,
+    theirsBg: light ? '#ffffff' : 'var(--surface-2)',
+    theirsShadow: light ? '0 1px 4px rgba(15, 23, 42, 0.08)' : '0 1px 2px rgba(0,0,0,0.1)',
+    scrollThumb: light ? 'rgba(15, 23, 42, 0.2)' : 'rgba(255,255,255,0.22)',
+    scrollThumbHi: light ? 'rgba(15, 23, 42, 0.32)' : 'rgba(255,255,255,0.35)'
+  };
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+    <div
+      style={{
+        height: '100vh',
+        maxHeight: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: chat.pageBg,
+        overflow: 'hidden'
+      }}
+    >
       <UniversalNavbar />
       {/* Main area with chat layout */}
-      <main style={{ 
-        flex: 1, 
-        padding: '0', 
-        maxWidth: '100%', 
-        overflowX: 'hidden', 
-        display: 'flex', 
-        alignItems: 'stretch', 
-        justifyContent: 'stretch',
-        background: 'var(--bg)'
-      }}>
-        {/* Chat container - Telegram style */}
-        <div style={{ 
-          width: '100%', 
-          maxWidth: '100%', 
-          height: 'calc(100vh - 80px)', 
-          display: isMobileView ? 'flex' : 'grid', 
-          gridTemplateColumns: isMobileView ? 'none' : (sidebarCollapsed ? '0 1fr' : 'minmax(260px, 320px) 1fr'), 
-          gap: 0, 
-          background: 'var(--surface)', 
-          borderRadius: 0,
+      <main
+        style={{
+          flex: 1,
+          minHeight: 0,
+          padding: '0',
+          maxWidth: '100%',
           overflow: 'hidden',
-          boxShadow: 'none',
-          border: 'none'
-        }}>
+          display: 'flex',
+          alignItems: 'stretch',
+          justifyContent: 'stretch',
+          background: chat.mainBg
+        }}
+      >
+        {/* Chat container - Telegram style */}
+        <div
+          style={{
+            width: '100%',
+            maxWidth: '100%',
+            flex: 1,
+            minHeight: 0,
+            display: isMobileView ? 'flex' : 'grid',
+            flexDirection: isMobileView ? 'row' : undefined,
+            gridTemplateColumns: isMobileView ? 'none' : sidebarCollapsed ? '0 1fr' : 'minmax(260px, 320px) 1fr',
+            gridTemplateRows: isMobileView ? undefined : 'minmax(0, 1fr)',
+            gap: 0,
+            background: chat.shell,
+            borderRadius: 0,
+            overflow: 'hidden',
+            boxShadow: 'none',
+            border: 'none'
+          }}
+        >
           <style>{`
-            /* Custom scrollbar styles */
-            div[style*="overflowY: auto"]::-webkit-scrollbar {
-              width: 6px;
-            }
-            div[style*="overflowY: auto"]::-webkit-scrollbar-track {
-              background: transparent;
-            }
-            div[style*="overflowY: auto"]::-webkit-scrollbar-thumb {
-              background: rgba(255,255,255,0.2);
+            .chat-scroll::-webkit-scrollbar { width: 6px; }
+            .chat-scroll::-webkit-scrollbar-track { background: transparent; }
+            .chat-scroll::-webkit-scrollbar-thumb {
+              background: ${chat.scrollThumb};
               border-radius: 3px;
             }
-            div[style*="overflowY: auto"]::-webkit-scrollbar-thumb:hover {
-              background: rgba(255,255,255,0.3);
+            .chat-scroll::-webkit-scrollbar-thumb:hover {
+              background: ${chat.scrollThumbHi};
             }
           `}</style>
           {/* Clients list (chat sidebar) - Telegram style */}
           <div style={{ 
             display: isMobileView ? (showChatScreen ? 'none' : 'flex') : (sidebarCollapsed ? 'none' : 'flex'),
-            background: 'var(--surface-2)', 
-            borderRight: isMobileView ? 'none' : '1px solid rgba(255,255,255,0.08)', 
+            background: chat.sidebar, 
+            borderRight: isMobileView ? 'none' : edge, 
             flexDirection: 'column',
             minWidth: 0,
+            minHeight: 0,
             width: isMobileView ? '100%' : 'auto',
             height: '100%'
           }}>
             {/* Sidebar header */}
             <div style={{ 
               padding: '16px 20px', 
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              borderBottom: edge,
               display: 'flex', 
               alignItems: 'center', 
               gap: 12,
-              background: 'var(--surface-2)'
+              background: chat.sidebar
             }}>
               <div style={{ width: 8, height: 8, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} />
               <b style={{ fontSize: 16, fontWeight: 700 }}>{isClient ? 'Мой психолог' : 'Сообщения'}</b>
@@ -521,7 +559,7 @@ export default function ChatPage() {
                           gap: 12, 
                           alignItems: 'center',
                           cursor: 'pointer',
-                          background: isActive ? 'rgba(255,255,255,0.08)' : 'transparent',
+                          background: isActive ? chat.rowActive : 'transparent',
                           border: 'none',
                           borderRadius: 12,
                           color: 'var(--text)',
@@ -529,7 +567,7 @@ export default function ChatPage() {
                         }}
                         onMouseEnter={(e) => {
                           if (!isActive) {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                            e.currentTarget.style.background = chat.hoverRow;
                           }
                         }}
                         onMouseLeave={(e) => {
@@ -557,14 +595,14 @@ export default function ChatPage() {
                             if (parent && !parent.querySelector('.avatar-fallback')) {
                               const fallback = document.createElement('div');
                               fallback.className = 'avatar-fallback';
-                              fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
+                              fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #f8fafc; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
                               fallback.textContent = psychName.charAt(0).toUpperCase();
                               parent.appendChild(fallback);
                             }
                           }}
                         />
                       ) : (
-                        <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 18, flexShrink: 0 }}>
+                        <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 18, flexShrink: 0 }}>
                           {psychName.charAt(0).toUpperCase()}
                         </div>
                       )}
@@ -585,7 +623,7 @@ export default function ChatPage() {
               ) : (
                 <>
                   {/* Search */}
-                  <div style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ padding: '12px', borderBottom: edge }}>
                     <input 
                       placeholder="Поиск" 
                       value={query} 
@@ -594,8 +632,8 @@ export default function ChatPage() {
                         width: '100%', 
                         padding: '10px 16px', 
                         borderRadius: 12, 
-                        border: '1px solid rgba(255,255,255,0.12)', 
-                        background: 'var(--surface)', 
+                        border: edge, 
+                        background: light ? '#ffffff' : 'var(--surface)', 
                         color: 'var(--text)',
                         fontSize: 14
                       }} 
@@ -603,12 +641,12 @@ export default function ChatPage() {
                   </div>
                   
                   {/* Clients list */}
-                  <div style={{ 
+                  <div className="chat-scroll" style={{ 
                     flex: 1, 
                     overflowY: 'auto', 
                     padding: '8px',
                     scrollbarWidth: 'thin',
-                    scrollbarColor: 'rgba(255,255,255,0.2) transparent'
+                    scrollbarColor: `${light ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'} transparent`
                   }}>
                     {(clients || []).filter(c => (c.name || '').toLowerCase().includes(query.toLowerCase())).map(c => {
                       const isActive = rooms.find(r => r.id === current)?.name === c.name;
@@ -629,7 +667,7 @@ export default function ChatPage() {
                             display: 'flex', 
                             gap: 12, 
                             alignItems: 'center',
-                            background: isActive ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
+                            background: isActive ? chat.rowActive : 'transparent',
                             border: 'none',
                             borderRadius: 12,
                             color: 'var(--text)',
@@ -637,7 +675,7 @@ export default function ChatPage() {
                             transition: 'background 0.2s',
                             marginBottom: 2
                           }}
-                          onMouseEnter={(e) => !isActive && (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                          onMouseEnter={(e) => !isActive && (e.currentTarget.style.background = chat.hoverRow)}
                           onMouseLeave={(e) => !isActive && (e.currentTarget.style.background = 'transparent')}
                         >
                           {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
@@ -650,7 +688,7 @@ export default function ChatPage() {
                                 height: 48,
                                 borderRadius: '50%',
                                 objectFit: 'cover',
-                                border: '2px solid rgba(255,255,255,0.1)',
+                                border: `2px solid ${light ? 'var(--navbar-edge)' : 'rgba(255,255,255,0.1)'}`,
                                 flexShrink: 0
                               }}
                               onError={(e) => {
@@ -660,14 +698,14 @@ export default function ChatPage() {
                                 if (parent && !parent.querySelector('.avatar-fallback')) {
                                   const fallback = document.createElement('div');
                                   fallback.className = 'avatar-fallback';
-                                  fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
+                                  fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #f8fafc; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
                                   fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
                                   parent.appendChild(fallback);
                                 }
                               }}
                             />
                           ) : (
-                            <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 18, flexShrink: 0 }}>
+                            <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 18, flexShrink: 0 }}>
                               {(c.name || '?').trim().charAt(0).toUpperCase()}
                             </div>
                           )}
@@ -682,7 +720,7 @@ export default function ChatPage() {
                   </div>
                   
                   {/* Create chat button */}
-                  <div style={{ padding: '12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ padding: '12px', borderTop: edge }}>
                     <button 
                       className="button" 
                       type="button" 
@@ -706,21 +744,23 @@ export default function ChatPage() {
           <div style={{ 
             display: isMobileView ? (showChatScreen ? 'flex' : 'none') : 'flex', 
             flexDirection: 'column', 
-            background: 'var(--surface)', 
+            background: chat.shell, 
             minWidth: 0, 
+            minHeight: 0,
             maxWidth: '100%',
             width: isMobileView ? '100%' : 'auto',
-            height: '100%'
+            height: '100%',
+            overflow: 'hidden'
           }}>
             {/* Chat header */}
             {current ? (
               <div style={{ 
                 padding: '16px 20px', 
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                borderBottom: edge,
                 display: 'flex', 
                 alignItems: 'center', 
                 gap: 12,
-                background: 'var(--surface-2)',
+                background: chat.panel,
                 flexShrink: 0
               }}>
                 {isMobileView ? (
@@ -738,7 +778,7 @@ export default function ChatPage() {
                       height: 32,
                       borderRadius: 10,
                       border: 'none',
-                      background: 'var(--surface)',
+                      background: light ? '#eef1f7' : 'var(--surface)',
                       color: 'var(--text)',
                       cursor: 'pointer',
                       fontSize: 18,
@@ -760,7 +800,7 @@ export default function ChatPage() {
                       height: 32,
                       borderRadius: 10,
                       border: 'none',
-                      background: 'var(--surface)',
+                      background: light ? '#eef1f7' : 'var(--surface)',
                       color: 'var(--text)',
                       cursor: 'pointer',
                       fontSize: 18,
@@ -778,11 +818,11 @@ export default function ChatPage() {
             ) : (
               <div style={{ 
                 padding: '16px 20px', 
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                borderBottom: edge,
                 display: 'flex', 
                 alignItems: 'center', 
                 justifyContent: 'center',
-                background: 'var(--surface-2)',
+                background: chat.panel,
                 flexShrink: 0
               }}>
                 <div style={{ color: 'var(--text-muted)', fontSize: 15 }}>Выберите чат для начала общения</div>
@@ -792,17 +832,19 @@ export default function ChatPage() {
             {/* Messages area */}
             <div 
               ref={messagesContainerRef}
+              className="chat-scroll"
               style={{ 
                 flex: 1, 
+                minHeight: 0,
                 overflowY: 'auto', 
                 padding: '20px',
-                background: 'var(--surface)',
+                background: chat.thread,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 8,
                 scrollBehavior: 'smooth',
                 scrollbarWidth: 'thin',
-                scrollbarColor: 'rgba(255,255,255,0.2) transparent'
+                scrollbarColor: `${light ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'} transparent`
               }}
             >
               {loadingMessages && (
@@ -873,7 +915,7 @@ export default function ChatPage() {
                           background: isGrouped
                             ? 'transparent'
                             : 'linear-gradient(135deg, var(--primary), var(--accent))',
-                          color: isGrouped ? 'transparent' : '#0b0f1a',
+                          color: isGrouped ? 'transparent' : '#f8fafc',
                           transition: 'background 0.2s, color 0.2s'
                         }}
                         aria-hidden={isGrouped}
@@ -885,10 +927,9 @@ export default function ChatPage() {
                     <div style={{ 
                       maxWidth: '65%', 
                       minWidth: '80px',
-                      background: mine 
-                        ? 'linear-gradient(135deg, var(--primary), var(--accent))' 
-                        : 'var(--surface-2)', 
-                      color: mine ? '#0b0f1a' : 'var(--text)', 
+                      background: mine ? chat.mineBg : chat.theirsBg, 
+                      color: mine ? chat.mineFg : 'var(--text)', 
+                      border: mine ? 'none' : light ? edge : 'none',
                       borderRadius: mine 
                         ? (isGrouped ? '18px 18px 4px 18px' : '18px 18px 4px 18px')
                         : (isGrouped ? '18px 18px 18px 4px' : '18px 18px 18px 4px'),
@@ -898,14 +939,18 @@ export default function ChatPage() {
                       overflowWrap: 'break-word',
                       lineHeight: 1.4,
                       fontSize: 15,
-                      boxShadow: mine ? '0 2px 8px rgba(91, 124, 250, 0.25)' : '0 1px 2px rgba(0,0,0,0.1)',
+                      boxShadow: mine
+                        ? light
+                          ? '0 2px 12px rgba(79, 54, 216, 0.22)'
+                          : '0 2px 8px rgba(91, 124, 250, 0.25)'
+                        : chat.theirsShadow,
                       position: 'relative',
                       transition: 'all 0.2s'
                     }}>
                       <div style={{ marginBottom: 2 }}>{m.content}</div>
                       <div style={{ 
                         fontSize: 11, 
-                        opacity: mine ? 0.75 : 0.55, 
+                        opacity: mine ? chat.mineTimeOp : 0.55, 
                         textAlign: 'right',
                         marginTop: 4,
                         display: 'flex',
@@ -931,8 +976,8 @@ export default function ChatPage() {
                 onSubmit={sendMessage} 
                 style={{ 
                   padding: '12px 16px',
-                  borderTop: '1px solid rgba(255,255,255,0.08)',
-                  background: 'var(--surface-2)',
+                  borderTop: edge,
+                  background: chat.panel,
                   display: 'flex', 
                   gap: 8, 
                   alignItems: 'flex-end',
@@ -955,8 +1000,8 @@ export default function ChatPage() {
                       width: '100%',
                       padding: '12px 16px', 
                       borderRadius: 24,
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      background: 'var(--surface)',
+                      border: edge,
+                      background: light ? '#f8fafc' : 'var(--surface)',
                       color: 'var(--text)',
                       fontSize: 15,
                       fontFamily: 'inherit',
@@ -993,7 +1038,7 @@ export default function ChatPage() {
                 color: '#ff6b6b', 
                 fontSize: 13,
                 background: 'rgba(255, 107, 107, 0.1)',
-                borderTop: '1px solid rgba(255,255,255,0.08)'
+                borderTop: edge
               }}>
                 {error}
               </div>
@@ -1023,7 +1068,7 @@ export default function ChatPage() {
               maxHeight: '80vh', 
               overflow: 'hidden', 
               padding: 0, 
-              border: '1px solid rgba(255,255,255,0.1)', 
+              border: edge, 
               borderRadius: 16, 
               boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
               background: 'var(--surface)',
@@ -1035,7 +1080,7 @@ export default function ChatPage() {
             {/* Modal header */}
             <div style={{ 
               padding: '20px', 
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              borderBottom: edge,
               display: 'flex', 
               justifyContent: 'space-between', 
               alignItems: 'center'
@@ -1055,7 +1100,7 @@ export default function ChatPage() {
             </div>
             
             {/* Search */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: edge }}>
               <input 
                 placeholder="Поиск пациента" 
                 value={modalQuery} 
@@ -1064,7 +1109,7 @@ export default function ChatPage() {
                   width: '100%', 
                   padding: '12px 16px', 
                   borderRadius: 12, 
-                  border: '1px solid rgba(255,255,255,0.12)', 
+                  border: edge, 
                   background: 'var(--surface-2)', 
                   color: 'var(--text)',
                   fontSize: 14
@@ -1073,7 +1118,7 @@ export default function ChatPage() {
             </div>
             
             {/* Clients list */}
-            <div style={{ 
+            <div className="chat-scroll" style={{ 
               flex: 1,
               overflowY: 'auto', 
               padding: '12px',
@@ -1099,8 +1144,8 @@ export default function ChatPage() {
                     cursor: 'pointer',
                     transition: 'background 0.2s'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = chat.hoverRow)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
                   {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
                     <img
@@ -1112,7 +1157,7 @@ export default function ChatPage() {
                         height: 48,
                         borderRadius: '50%',
                         objectFit: 'cover',
-                        border: '2px solid rgba(255,255,255,0.1)',
+                        border: `2px solid ${light ? 'var(--navbar-edge)' : 'rgba(255,255,255,0.1)'}`,
                         flexShrink: 0
                       }}
                       onError={(e) => {
@@ -1122,7 +1167,7 @@ export default function ChatPage() {
                         if (parent && !parent.querySelector('.avatar-fallback')) {
                           const fallback = document.createElement('div');
                           fallback.className = 'avatar-fallback';
-                          fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
+                          fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #f8fafc; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
                           fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
                           parent.appendChild(fallback);
                         }
@@ -1134,7 +1179,7 @@ export default function ChatPage() {
                       height: 48, 
                       borderRadius: 999, 
                       background: 'linear-gradient(135deg, var(--primary), var(--accent))', 
-                      color: '#0b0f1a', 
+                      color: '#f8fafc', 
                       display: 'grid', 
                       placeItems: 'center', 
                       fontWeight: 800,

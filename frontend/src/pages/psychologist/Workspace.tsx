@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { PlatformIcon } from '../../components/icons';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
@@ -327,7 +328,10 @@ export default function PsychologistWorkspace() {
                   }}
                   title={t('psychologist.clearChat')}
                 >
-                  🗑️ {t('psychologist.clearChat')}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <PlatformIcon name="trash" size={14} strokeWidth={2} />
+                    {t('psychologist.clearChat')}
+                  </span>
                 </button>
               )}
             </div>

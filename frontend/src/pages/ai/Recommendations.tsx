@@ -8,6 +8,7 @@ import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { UserMenu } from '../../components/ui';
+import { PlatformIcon } from '../../components/icons';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -355,23 +356,47 @@ export default function AIRecommendationsPage() {
                     <button
                       onClick={() => setInput('Расскажи о моих клиентах')}
                       className="button secondary"
-                      style={{ padding: '12px 16px', textAlign: 'left', justifyContent: 'flex-start' }}
+                      style={{
+                        padding: '12px 16px',
+                        textAlign: 'left',
+                        justifyContent: 'flex-start',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10
+                      }}
                     >
-                      📊 Расскажи о моих клиентах
+                      <PlatformIcon name="chart" size={18} strokeWidth={1.75} style={{ flexShrink: 0, opacity: 0.9 }} />
+                      Расскажи о моих клиентах
                     </button>
                     <button
                       onClick={() => setInput('Какие сны требуют анализа?')}
                       className="button secondary"
-                      style={{ padding: '12px 16px', textAlign: 'left', justifyContent: 'flex-start' }}
+                      style={{
+                        padding: '12px 16px',
+                        textAlign: 'left',
+                        justifyContent: 'flex-start',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10
+                      }}
                     >
-                      💭 Какие сны требуют анализа?
+                      <PlatformIcon name="dreams" size={18} strokeWidth={1.75} style={{ flexShrink: 0, opacity: 0.9 }} />
+                      Какие сны требуют анализа?
                     </button>
                     <button
                       onClick={() => setInput('Помоги с амплификацией символа')}
                       className="button secondary"
-                      style={{ padding: '12px 16px', textAlign: 'left', justifyContent: 'flex-start' }}
+                      style={{
+                        padding: '12px 16px',
+                        textAlign: 'left',
+                        justifyContent: 'flex-start',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10
+                      }}
                     >
-                      🔮 Помоги с амплификацией символа
+                      <PlatformIcon name="orbit" size={18} strokeWidth={1.75} style={{ flexShrink: 0, opacity: 0.9 }} />
+                      Помоги с амплификацией символа
                     </button>
                   </>
                 ) : (
@@ -379,16 +404,32 @@ export default function AIRecommendationsPage() {
                     <button
                       onClick={() => setInput('Проанализируй мой сон')}
                       className="button secondary"
-                      style={{ padding: '12px 16px', textAlign: 'left', justifyContent: 'flex-start' }}
+                      style={{
+                        padding: '12px 16px',
+                        textAlign: 'left',
+                        justifyContent: 'flex-start',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10
+                      }}
                     >
-                      💭 Проанализируй мой сон
+                      <PlatformIcon name="dreams" size={18} strokeWidth={1.75} style={{ flexShrink: 0, opacity: 0.9 }} />
+                      Проанализируй мой сон
                     </button>
                     <button
                       onClick={() => setInput('Что означают символы в моих снах?')}
                       className="button secondary"
-                      style={{ padding: '12px 16px', textAlign: 'left', justifyContent: 'flex-start' }}
+                      style={{
+                        padding: '12px 16px',
+                        textAlign: 'left',
+                        justifyContent: 'flex-start',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10
+                      }}
                     >
-                      🔮 Что означают символы в моих снах?
+                      <PlatformIcon name="orbit" size={18} strokeWidth={1.75} style={{ flexShrink: 0, opacity: 0.9 }} />
+                      Что означают символы в моих снах?
                     </button>
                   </>
                 )}

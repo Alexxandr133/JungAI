@@ -1,3 +1,5 @@
+import type { PlatformIconName } from '../icons';
+
 export type WidgetType = 
   | 'totalClients'
   | 'activeSessions'
@@ -18,7 +20,7 @@ export type WidgetConfig = {
   id: string;
   type: WidgetType;
   title: string;
-  icon: string;
+  icon: PlatformIconName;
   description: string;
   defaultSize: 'small' | 'medium' | 'large';
   minSize?: 'small' | 'medium' | 'large';
@@ -38,7 +40,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'totalClients',
     type: 'totalClients',
     title: 'Всего клиентов',
-    icon: '👥',
+    icon: 'users',
     description: 'Общее количество ваших клиентов',
     defaultSize: 'small',
     minSize: 'small',
@@ -48,7 +50,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'activeSessions',
     type: 'activeSessions',
     title: 'Активные сессии',
-    icon: '📅',
+    icon: 'calendar',
     description: 'Количество запланированных сессий',
     defaultSize: 'small',
     minSize: 'small',
@@ -58,7 +60,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'newDreams',
     type: 'newDreams',
     title: 'Новые сны',
-    icon: '💭',
+    icon: 'dreams',
     description: 'Новые сны за последнюю неделю',
     defaultSize: 'small',
     minSize: 'small',
@@ -68,7 +70,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'newJournalEntries',
     type: 'newJournalEntries',
     title: 'Записи в дневниках',
-    icon: '📝',
+    icon: 'clipboard',
     description: 'Новые записи в дневниках клиентов',
     defaultSize: 'small',
     minSize: 'small',
@@ -78,7 +80,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'topClients',
     type: 'topClients',
     title: 'Топ клиенты',
-    icon: '⭐',
+    icon: 'star',
     description: 'Самые активные клиенты по количеству снов и сессий',
     defaultSize: 'medium',
     minSize: 'small',
@@ -88,7 +90,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'topSymbols',
     type: 'topSymbols',
     title: 'Частые символы',
-    icon: '🔮',
+    icon: 'orbit',
     description: 'Наиболее часто встречающиеся символы в снах',
     defaultSize: 'medium',
     minSize: 'small',
@@ -98,7 +100,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'requiresAttention',
     type: 'requiresAttention',
     title: 'Требуют внимания',
-    icon: '⚠️',
+    icon: 'alertTriangle',
     description: 'Клиенты и сны, требующие вашего внимания',
     defaultSize: 'medium',
     minSize: 'small',
@@ -108,7 +110,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'activityChart',
     type: 'activityChart',
     title: 'График активности',
-    icon: '📊',
+    icon: 'chart',
     description: 'Визуализация активности клиентов по времени',
     defaultSize: 'large',
     minSize: 'medium',
@@ -118,7 +120,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'recentActivity',
     type: 'recentActivity',
     title: 'Последние активности',
-    icon: '🕐',
+    icon: 'clock',
     description: 'Недавние сны и записи в дневниках',
     defaultSize: 'medium',
     minSize: 'small',
@@ -128,7 +130,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'sessionsCalendar',
     type: 'sessionsCalendar',
     title: 'Календарь сессий',
-    icon: '📆',
+    icon: 'calendarDays',
     description: 'Ближайшие запланированные сессии',
     defaultSize: 'medium',
     minSize: 'small',
@@ -138,7 +140,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'dreamsStats',
     type: 'dreamsStats',
     title: 'Статистика снов',
-    icon: '💤',
+    icon: 'bed',
     description: 'Детальная статистика по снам клиентов',
     defaultSize: 'medium',
     minSize: 'small',
@@ -148,7 +150,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'clientProgress',
     type: 'clientProgress',
     title: 'Прогресс клиентов',
-    icon: '📈',
+    icon: 'lineChart',
     description: 'Визуализация прогресса работы с клиентами',
     defaultSize: 'large',
     minSize: 'medium',
@@ -158,7 +160,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'monthlyStats',
     type: 'monthlyStats',
     title: 'Статистика за месяц',
-    icon: '📅',
+    icon: 'calendar',
     description: 'Общая статистика за текущий месяц',
     defaultSize: 'medium',
     minSize: 'small',
@@ -168,7 +170,7 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     id: 'symbolsChart',
     type: 'symbolsChart',
     title: 'График символов',
-    icon: '🔮',
+    icon: 'orbit',
     description: 'Визуализация частоты символов в снах',
     defaultSize: 'large',
     minSize: 'medium',

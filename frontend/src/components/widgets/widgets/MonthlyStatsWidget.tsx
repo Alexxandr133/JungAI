@@ -1,3 +1,4 @@
+import { PlatformIcon } from '../../icons';
 
 interface Props {
   data: any;
@@ -15,7 +16,10 @@ export default function MonthlyStatsWidget({ data, size }: Props) {
 
   return (
     <>
-      <h3 style={{ marginTop: 0, marginBottom: 16 }}>📅 Статистика за месяц</h3>
+      <h3 style={{ marginTop: 0, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <PlatformIcon name="calendar" size={22} strokeWidth={1.75} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+        Статистика за месяц
+      </h3>
       <div style={{ display: 'grid', gap: 10 }}>
         <div style={{ 
           display: 'flex', 
@@ -33,7 +37,9 @@ export default function MonthlyStatsWidget({ data, size }: Props) {
               {totalClients}
             </div>
           </div>
-          <div style={{ fontSize: 24 }}>👥</div>
+          <div style={{ color: 'var(--primary)' }}>
+            <PlatformIcon name="users" size={26} strokeWidth={1.5} />
+          </div>
         </div>
         <div style={{ 
           display: 'flex', 
@@ -51,7 +57,9 @@ export default function MonthlyStatsWidget({ data, size }: Props) {
               {activeSessions}
             </div>
           </div>
-          <div style={{ fontSize: 24 }}>📅</div>
+          <div style={{ color: 'var(--primary)' }}>
+            <PlatformIcon name="calendar" size={26} strokeWidth={1.5} />
+          </div>
         </div>
         {size !== 'small' && (
           <>
@@ -71,7 +79,9 @@ export default function MonthlyStatsWidget({ data, size }: Props) {
                   {totalDreams}
                 </div>
               </div>
-              <div style={{ fontSize: 24 }}>💭</div>
+              <div style={{ color: 'var(--primary)' }}>
+                <PlatformIcon name="dreams" size={26} strokeWidth={1.5} />
+              </div>
             </div>
             <div style={{ 
               display: 'flex', 
@@ -89,7 +99,9 @@ export default function MonthlyStatsWidget({ data, size }: Props) {
                   {totalSessions}
                 </div>
               </div>
-              <div style={{ fontSize: 24 }}>📊</div>
+              <div style={{ color: 'var(--primary)' }}>
+                <PlatformIcon name="chart" size={26} strokeWidth={1.5} />
+              </div>
             </div>
           </>
         )}

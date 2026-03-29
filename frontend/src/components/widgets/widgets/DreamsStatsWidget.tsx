@@ -1,3 +1,4 @@
+import { PlatformIcon } from '../../icons';
 
 interface Props {
   data: any;
@@ -13,7 +14,10 @@ export default function DreamsStatsWidget({ data, size }: Props) {
 
   return (
     <>
-      <h3 style={{ marginTop: 0, marginBottom: 16 }}>💤 Статистика снов</h3>
+      <h3 style={{ marginTop: 0, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <PlatformIcon name="bed" size={22} strokeWidth={1.75} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+        Статистика снов
+      </h3>
       <div style={{ display: 'grid', gap: 12 }}>
         <div style={{ 
           padding: 16, 

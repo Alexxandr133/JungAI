@@ -6,6 +6,9 @@ import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
+import { readableTextOnBackground } from '../../lib/colorContrast';
+
+const fieldBorder = '1px solid var(--navbar-edge)';
 
 export default function ClientsList() {
   const { token } = useAuth();
@@ -337,7 +340,7 @@ export default function ClientsList() {
             <form onSubmit={onSearch} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, maxWidth: 600 }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <span style={{ position: 'absolute', left: 12, top: 10, opacity: .7 }}>🔎</span>
-                <input style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', minWidth: 0 }} placeholder="Поиск: клиенты, сны, архетипы" value={query} onChange={e => setQuery(e.target.value)} />
+                <input style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: 12, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)', minWidth: 0 }} placeholder="Поиск: клиенты, сны, архетипы" value={query} onChange={e => setQuery(e.target.value)} />
               </div>
             </form>
           </div>
@@ -354,11 +357,27 @@ export default function ClientsList() {
 
         {/* Tag filters */}
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div className="small" style={{ opacity: .8 }}>Фильтр по тегам:</div>
+          <div className="small" style={{ opacity: .8, color: 'var(--text-muted)' }}>Фильтр по тегам:</div>
           {[...PRESET_TAGS, ...allExistingTags.filter(l => !PRESET_TAGS.some(p => p.label === l)).map(l => ({ label: l, color: getColorForLabel(l) }))].slice(0, 24).map(t => {
             const active = selectedTags.includes(t.label);
+            const onColor = readableTextOnBackground(t.color);
             return (
-              <button key={t.label} onClick={() => setSelectedTags(prev => active ? prev.filter(x => x !== t.label) : [...prev, t.label])} className={active ? 'button' : 'button secondary'} style={{ padding: '4px 8px', fontSize: 12, color: t.color }}>
+              <button
+                key={t.label}
+                type="button"
+                onClick={() => setSelectedTags(prev => active ? prev.filter(x => x !== t.label) : [...prev, t.label])}
+                style={{
+                  padding: '5px 11px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 999,
+                  cursor: 'pointer',
+                  border: `2px solid ${t.color}`,
+                  background: active ? t.color : 'var(--surface-2)',
+                  color: active ? onColor : 'var(--text)',
+                  boxShadow: active ? `0 2px 10px ${t.color}40` : 'none'
+                }}
+              >
                 {t.label}
               </button>
             );
@@ -382,7 +401,7 @@ export default function ClientsList() {
                       height: 48,
                       borderRadius: '50%',
                       objectFit: 'cover',
-                      border: '2px solid rgba(255,255,255,0.1)'
+                      border: `2px solid var(--navbar-edge)`
                     }}
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
@@ -391,14 +410,14 @@ export default function ClientsList() {
                       if (parent && !parent.querySelector('.avatar-fallback')) {
                         const fallback = document.createElement('div');
                         fallback.className = 'avatar-fallback';
-                        fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 800;';
+                        fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #f8fafc; text-shadow: 0 1px 2px rgba(0,0,0,0.3); display: grid; place-items: center; font-weight: 800;';
                         fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
                         parent.appendChild(fallback);
                       }
                     }}
                   />
                 ) : (
-                  <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 800 }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', textShadow: '0 1px 2px rgba(0,0,0,0.3)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>
                     {(c.name || '?').trim().charAt(0).toUpperCase()}
                   </div>
                 )}
@@ -407,13 +426,29 @@ export default function ClientsList() {
                   <div className="small" style={{ color: 'var(--text-muted)' }}>{c.city || '—'}{c.age ? ` • ${c.age} лет` : ''}</div>
                 </div>
               </div>
-              {c.email && <div className="small" style={{ wordBreak: 'break-word' }}>{c.email}</div>}
+              {c.email && <div className="small" style={{ wordBreak: 'break-word', color: 'var(--text-muted)' }}>{c.email}</div>}
               {c.phone && <div className="small" style={{ color: 'var(--text-muted)' }}>{c.phone}</div>}
               {Array.isArray(c.tags) && c.tags.length > 0 && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {c.tags.map((t: any, idx: number) => (
-                    <span key={idx} className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: 999, color: t.color }}>{t.label}</span>
-                  ))}
+                  {c.tags.map((t: any, idx: number) => {
+                    const hex = typeof t.color === 'string' && t.color.startsWith('#') ? t.color : getColorForLabel(String(t.label));
+                    return (
+                      <span
+                        key={idx}
+                        style={{
+                          padding: '3px 10px',
+                          borderRadius: 999,
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: 'var(--text)',
+                          background: `color-mix(in srgb, ${hex} 20%, var(--surface-2))`,
+                          border: `1px solid color-mix(in srgb, ${hex} 50%, var(--navbar-edge))`
+                        }}
+                      >
+                        {t.label}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -435,7 +470,7 @@ export default function ClientsList() {
         {/* Modal for showing registration link */}
         {showLinkModal && createdClientLink && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1001, padding: 16 }} onClick={() => { setShowLinkModal(false); setCreatedClientLink(null); }}>
-            <div className="card" style={{ width: 'min(600px, 94vw)', padding: 24, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
+            <div className="card" style={{ width: 'min(600px, 94vw)', padding: 24, border: fieldBorder, boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 20 }}>
                 <div>
                   <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Клиент создан!</div>
@@ -454,7 +489,7 @@ export default function ClientsList() {
                       flex: 1, 
                       padding: '12px 16px', 
                       borderRadius: 10, 
-                      border: '1px solid rgba(255,255,255,0.12)', 
+                      border: fieldBorder, 
                       background: 'var(--surface-2)', 
                       color: 'var(--text)',
                       fontSize: 13,
@@ -507,7 +542,7 @@ export default function ClientsList() {
         {/* Modal for adding client */}
         {showModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }} onClick={() => setShowModal(false)}>
-            <div className="card" style={{ width: 'min(720px, 94vw)', padding: 20, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
+            <div className="card" style={{ width: 'min(720px, 94vw)', padding: 20, border: fieldBorder, boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ fontWeight: 800 }}>Добавить клиента</div>
                 <button className="button secondary" onClick={() => setShowModal(false)} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
@@ -521,30 +556,44 @@ export default function ClientsList() {
                     onChange={e => setUsername(e.target.value)} 
                     required
                     minLength={3}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)' }} 
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} 
                   />
                   <div className="small" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
                     Минимум 3 символа. Будет использован для входа клиента
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <input placeholder="Имя" value={name} onChange={e => setName(e.target.value)} required style={{ padding: '10px 12px', borderRadius: 10 }} />
-                  <input placeholder="Город" value={city} onChange={e => setCity(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10 }} />
-                  <input placeholder="Email (опционально)" value={email} onChange={e => setEmail(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10 }} />
-                  <input placeholder="Телефон" value={phone} onChange={e => setPhone(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10 }} />
-                  <input placeholder="Возраст" value={age} onChange={e => setAge(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10 }} />
+                  <input placeholder="Имя" value={name} onChange={e => setName(e.target.value)} required style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Город" value={city} onChange={e => setCity(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Email (опционально)" value={email} onChange={e => setEmail(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Телефон" value={phone} onChange={e => setPhone(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Возраст" value={age} onChange={e => setAge(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
                 </div>
                 <div>
                   <div className="small" style={{ marginBottom: 6 }}>Теги</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input placeholder="Новый тег" value={tagInput} onChange={e => setTagInput(e.target.value)} style={{ flex: '1 1 200px', padding: '10px 12px', borderRadius: 10 }} />
+                    <input placeholder="Новый тег" value={tagInput} onChange={e => setTagInput(e.target.value)} style={{ flex: '1 1 200px', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
                     <input type="color" value={tagColor} onChange={e => setTagColor(e.target.value)} title="Цвет тега" />
                     <button type="button" className="button secondary" onClick={addTag} style={{ padding: '6px 10px', fontSize: 13 }}>Добавить тег</button>
                   </div>
                   {/* Suggestions */}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                     {PRESET_TAGS.map(s => (
-                      <button key={s.label} type="button" className="button secondary" style={{ padding: '4px 8px', fontSize: 12, color: s.color }} onClick={() => { setTags(prev => [...prev, { label: s.label, color: s.color }]); }}>
+                      <button
+                        key={s.label}
+                        type="button"
+                        style={{
+                          padding: '4px 10px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          borderRadius: 999,
+                          cursor: 'pointer',
+                          border: `2px solid ${s.color}`,
+                          background: 'var(--surface-2)',
+                          color: 'var(--text)'
+                        }}
+                        onClick={() => { setTags(prev => [...prev, { label: s.label, color: s.color }]); }}
+                      >
                         {s.label}
                       </button>
                     ))}
@@ -552,9 +601,23 @@ export default function ClientsList() {
                   {tags.length > 0 && (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                       {tags.map((t, i) => (
-                        <span key={`${t.label}-${i}`} className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.08)', padding: '4px 10px', borderRadius: 999, color: t.color, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <span
+                          key={`${t.label}-${i}`}
+                          style={{
+                            padding: '4px 10px',
+                            borderRadius: 999,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: 'var(--text)',
+                            background: `color-mix(in srgb, ${t.color} 20%, var(--surface-2))`,
+                            border: `1px solid color-mix(in srgb, ${t.color} 50%, var(--navbar-edge))`
+                          }}
+                        >
                           {t.label}
-                          <button type="button" onClick={() => removeTag(i)} style={{ background: 'transparent', border: 'none', color: t.color, cursor: 'pointer' }}>✕</button>
+                          <button type="button" onClick={() => removeTag(i)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>✕</button>
                         </span>
                       ))}
                     </div>

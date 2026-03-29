@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
+import { PlatformIcon } from '../../components/icons';
 import '../../styles/tokens.css';
 
 type Dream = {
@@ -168,7 +169,12 @@ export default function ResearcherDreams() {
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 16 }}>
             <div>
-              <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>💭 База снов</h1>
+              <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
+                  <PlatformIcon name="dreams" size={34} strokeWidth={1.5} />
+                </span>
+                База снов
+              </h1>
               <div className="small" style={{ color: 'var(--text-muted)' }}>
                 Все сны в системе · {dreams.length} {dreams.length === 1 ? 'сон' : dreams.length < 5 ? 'сна' : 'снов'} · {filtered.length} {filtered.length === 1 ? 'отображается' : filtered.length < 5 ? 'отображается' : 'отображается'}
               </div>

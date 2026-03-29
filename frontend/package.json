@@ -13,6 +13,7 @@
     "agora-react-uikit": "^1.2.0",
     "agora-rtc-react": "^2.5.1",
     "agora-rtc-sdk-ng": "^4.24.2",
+    "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-easy-crop": "^5.5.6",

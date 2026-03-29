@@ -1,3 +1,5 @@
+import type { PlatformIconName } from '../icons';
+
 export type ResearcherWidgetType = 
   | 'totalDreams'
   | 'totalClients'
@@ -14,7 +16,7 @@ export type ResearcherWidgetConfig = {
   id: string;
   type: ResearcherWidgetType;
   title: string;
-  icon: string;
+  icon: PlatformIconName;
   description: string;
   defaultSize: 'small' | 'medium' | 'large';
   minSize?: 'small' | 'medium' | 'large';
@@ -34,7 +36,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'totalDreams',
     type: 'totalDreams',
     title: 'Всего снов',
-    icon: '💭',
+    icon: 'dreams',
     description: 'Общее количество снов в системе',
     defaultSize: 'small',
     minSize: 'small',
@@ -44,7 +46,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'totalClients',
     type: 'totalClients',
     title: 'Всего клиентов',
-    icon: '👥',
+    icon: 'users',
     description: 'Общее количество клиентов',
     defaultSize: 'small',
     minSize: 'small',
@@ -54,7 +56,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'totalSessions',
     type: 'totalSessions',
     title: 'Всего сессий',
-    icon: '📅',
+    icon: 'calendar',
     description: 'Общее количество сессий',
     defaultSize: 'small',
     minSize: 'small',
@@ -64,7 +66,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'totalAmplifications',
     type: 'totalAmplifications',
     title: 'Амплификаций',
-    icon: '🔮',
+    icon: 'orbit',
     description: 'Общее количество амплификаций',
     defaultSize: 'small',
     minSize: 'small',
@@ -74,7 +76,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'symbolFrequency',
     type: 'symbolFrequency',
     title: 'Частота символов',
-    icon: '🔮',
+    icon: 'orbit',
     description: 'Наиболее часто встречающиеся символы',
     defaultSize: 'medium',
     minSize: 'small',
@@ -84,7 +86,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'testDistribution',
     type: 'testDistribution',
     title: 'Распределение тестов',
-    icon: '📊',
+    icon: 'chart',
     description: 'Распределение результатов по типам тестов',
     defaultSize: 'medium',
     minSize: 'small',
@@ -94,7 +96,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'categoryDistribution',
     type: 'categoryDistribution',
     title: 'Категории амплификаций',
-    icon: '📚',
+    icon: 'library',
     description: 'Распределение амплификаций по категориям',
     defaultSize: 'medium',
     minSize: 'small',
@@ -104,7 +106,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'dreamsChart',
     type: 'dreamsChart',
     title: 'График снов',
-    icon: '📈',
+    icon: 'lineChart',
     description: 'Визуализация количества снов по времени',
     defaultSize: 'large',
     minSize: 'medium',
@@ -114,7 +116,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'symbolsChart',
     type: 'symbolsChart',
     title: 'График символов',
-    icon: '🔮',
+    icon: 'orbit',
     description: 'Визуализация частоты символов',
     defaultSize: 'large',
     minSize: 'medium',
@@ -124,7 +126,7 @@ export const RESEARCHER_WIDGET_DEFINITIONS: Record<ResearcherWidgetType, Researc
     id: 'customWidget',
     type: 'customWidget',
     title: 'Запросить виджет',
-    icon: '➕',
+    icon: 'plus',
     description: 'Отправить запрос на создание нового виджета',
     defaultSize: 'small',
     minSize: 'small',

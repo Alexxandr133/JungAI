@@ -2,6 +2,20 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { PlatformIcon, isPlatformIconName, type PlatformIconName } from '../../components/icons';
+
+const TOPIC_ICON_OPTIONS: Array<{ value: PlatformIconName; label: string }> = [
+  { value: 'messages', label: 'Сообщения' },
+  { value: 'brain', label: 'Мозг / методики' },
+  { value: 'clipboard', label: 'Кейсы' },
+  { value: 'users', label: 'Люди / супервизия' },
+  { value: 'microscope', label: 'Исследования' },
+  { value: 'dreams', label: 'Сны' },
+  { value: 'drama', label: 'Юнгианская тема' },
+  { value: 'scale', label: 'Этика' },
+  { value: 'library', label: 'Библиотека' },
+  { value: 'orbit', label: 'Символы' }
+];
 
 type Post = {
   id: string;
@@ -38,7 +52,7 @@ export default function PublicationsPage() {
   const [newPostTopicId, setNewPostTopicId] = useState<string>(''); // Отдельный стейт для выбора темы в модальном окне
   const [newTopicName, setNewTopicName] = useState('');
   const [newTopicDescription, setNewTopicDescription] = useState('');
-  const [newTopicIcon, setNewTopicIcon] = useState('💬');
+  const [newTopicIcon, setNewTopicIcon] = useState<PlatformIconName>('messages');
   const [loading, setLoading] = useState(false);
 
   async function loadTopics() {
@@ -49,26 +63,26 @@ export default function PublicationsPage() {
       } else {
         // Demo data
         const demoTopics: Topic[] = [
-          { id: 't1', name: 'Методики работы', description: 'Обмен опытом по техникам терапии', postsCount: 24, icon: '🧠' },
-          { id: 't2', name: 'Кейсы и разборы', description: 'Обсуждение клинических случаев', postsCount: 18, icon: '📋' },
-          { id: 't3', name: 'Супервизия', description: 'Вопросы и консультации коллег', postsCount: 31, icon: '👥' },
-          { id: 't4', name: 'Исследования', description: 'Научные публикации и исследования', postsCount: 42, icon: '🔬' },
-          { id: 't5', name: 'Интерпретация снов', description: 'Символика и архетипы', postsCount: 67, icon: '💭' },
-          { id: 't6', name: 'Юнгианская психология', description: 'Архетипы, коллективное бессознательное', postsCount: 19, icon: '🎭' },
-          { id: 't7', name: 'Этика и практика', description: 'Профессиональные стандарты', postsCount: 15, icon: '⚖️' }
+          { id: 't1', name: 'Методики работы', description: 'Обмен опытом по техникам терапии', postsCount: 24, icon: 'brain' },
+          { id: 't2', name: 'Кейсы и разборы', description: 'Обсуждение клинических случаев', postsCount: 18, icon: 'clipboard' },
+          { id: 't3', name: 'Супервизия', description: 'Вопросы и консультации коллег', postsCount: 31, icon: 'users' },
+          { id: 't4', name: 'Исследования', description: 'Научные публикации и исследования', postsCount: 42, icon: 'microscope' },
+          { id: 't5', name: 'Интерпретация снов', description: 'Символика и архетипы', postsCount: 67, icon: 'dreams' },
+          { id: 't6', name: 'Юнгианская психология', description: 'Архетипы, коллективное бессознательное', postsCount: 19, icon: 'drama' },
+          { id: 't7', name: 'Этика и практика', description: 'Профессиональные стандарты', postsCount: 15, icon: 'scale' }
         ];
         setTopics(demoTopics);
       }
     } catch (e) {
       // Fallback to demo data
       const demoTopics: Topic[] = [
-        { id: 't1', name: 'Методики работы', description: 'Обмен опытом по техникам терапии', postsCount: 24, icon: '🧠' },
-        { id: 't2', name: 'Кейсы и разборы', description: 'Обсуждение клинических случаев', postsCount: 18, icon: '📋' },
-        { id: 't3', name: 'Супервизия', description: 'Вопросы и консультации коллег', postsCount: 31, icon: '👥' },
-        { id: 't4', name: 'Исследования', description: 'Научные публикации и исследования', postsCount: 42, icon: '🔬' },
-        { id: 't5', name: 'Интерпретация снов', description: 'Символика и архетипы', postsCount: 67, icon: '💭' },
-        { id: 't6', name: 'Юнгианская психология', description: 'Архетипы, коллективное бессознательное', postsCount: 19, icon: '🎭' },
-        { id: 't7', name: 'Этика и практика', description: 'Профессиональные стандарты', postsCount: 15, icon: '⚖️' }
+        { id: 't1', name: 'Методики работы', description: 'Обмен опытом по техникам терапии', postsCount: 24, icon: 'brain' },
+        { id: 't2', name: 'Кейсы и разборы', description: 'Обсуждение клинических случаев', postsCount: 18, icon: 'clipboard' },
+        { id: 't3', name: 'Супервизия', description: 'Вопросы и консультации коллег', postsCount: 31, icon: 'users' },
+        { id: 't4', name: 'Исследования', description: 'Научные публикации и исследования', postsCount: 42, icon: 'microscope' },
+        { id: 't5', name: 'Интерпретация снов', description: 'Символика и архетипы', postsCount: 67, icon: 'dreams' },
+        { id: 't6', name: 'Юнгианская психология', description: 'Архетипы, коллективное бессознательное', postsCount: 19, icon: 'drama' },
+        { id: 't7', name: 'Этика и практика', description: 'Профессиональные стандарты', postsCount: 15, icon: 'scale' }
       ];
       setTopics(demoTopics);
     }
@@ -207,7 +221,7 @@ export default function PublicationsPage() {
       setShowNewTopic(false);
       setNewTopicName('');
       setNewTopicDescription('');
-      setNewTopicIcon('💬');
+      setNewTopicIcon('messages');
     } catch (e: any) {
       console.error('Failed to create topic:', e);
     } finally {
@@ -251,7 +265,9 @@ export default function PublicationsPage() {
                 border: !selectedTopic ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)'
               }}
             >
-              <div style={{ fontSize: 28, marginBottom: 8 }}>📋</div>
+              <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                <PlatformIcon name="clipboard" size={28} strokeWidth={1.6} />
+              </div>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>Все темы</div>
               <div className="small" style={{ color: 'var(--text-muted)' }}>Все публикации</div>
             </div>
@@ -266,7 +282,13 @@ export default function PublicationsPage() {
                   border: selectedTopic === topic.id ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)'
                 }}
               >
-                <div style={{ fontSize: 28, marginBottom: 8 }}>{topic.icon}</div>
+                <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                  {isPlatformIconName(topic.icon) ? (
+                    <PlatformIcon name={topic.icon} size={28} strokeWidth={1.6} />
+                  ) : (
+                    <span style={{ fontSize: 28 }}>{topic.icon}</span>
+                  )}
+                </div>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>{topic.name}</div>
                 <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4, lineHeight: 1.4 }}>{topic.description}</div>
                 <div className="small" style={{ color: 'var(--text-muted)' }}>{topic.postsCount} публикаций</div>
@@ -283,7 +305,9 @@ export default function PublicationsPage() {
           <div style={{ display: 'grid', gap: 14 }}>
             {filteredPosts.length === 0 ? (
               <div className="card" style={{ padding: 32, textAlign: 'center' }}>
-                <div style={{ fontSize: 56, marginBottom: 16 }}>💬</div>
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="messages" size={56} strokeWidth={1.25} />
+                </div>
                 <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8 }}>Нет публикаций</div>
                 <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>Создайте первую публикацию в этой теме!</div>
               </div>
@@ -300,9 +324,15 @@ export default function PublicationsPage() {
                         </div>
                         <div className="small" style={{ color: 'var(--text-muted)' }}>{formatDate(post.createdAt)}</div>
                         <div style={{ display: 'flex', gap: 16 }}>
-                          <div className="small" style={{ color: 'var(--text-muted)' }}>👍 {post.likes}</div>
-                          <div className="small" style={{ color: 'var(--text-muted)' }}>💬 {post.replies}</div>
-                          <div className="small" style={{ color: 'var(--text-muted)' }}>👁 {post.views}</div>
+                          <div className="small" style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <PlatformIcon name="thumbsUp" size={14} strokeWidth={2} /> {post.likes}
+                          </div>
+                          <div className="small" style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <PlatformIcon name="message" size={14} strokeWidth={2} /> {post.replies}
+                          </div>
+                          <div className="small" style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <PlatformIcon name="eye" size={14} strokeWidth={2} /> {post.views}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -331,7 +361,11 @@ export default function PublicationsPage() {
                     style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 14 }}
                   >
                     <option value="">Выберите тему</option>
-                    {topics.map(t => <option key={t.id} value={t.id}>{t.icon} {t.name}</option>)}
+                    {topics.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -366,22 +400,26 @@ export default function PublicationsPage() {
 
         {/* New Topic Modal */}
         {showNewTopic && (
-          <div onClick={(e) => { if (e.target === e.currentTarget) { setShowNewTopic(false); setNewTopicName(''); setNewTopicDescription(''); setNewTopicIcon('💬'); } }} style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 1000 }}>
+          <div onClick={(e) => { if (e.target === e.currentTarget) { setShowNewTopic(false); setNewTopicName(''); setNewTopicDescription(''); setNewTopicIcon('messages'); } }} style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 1000 }}>
             <div className="card" onClick={(e) => e.stopPropagation()} style={{ width: 'min(600px, 96vw)', padding: 20, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 60px rgba(0,0,0,0.45)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div style={{ fontWeight: 800, fontSize: 20 }}>Новая тема</div>
-                <button className="button secondary" onClick={() => { setShowNewTopic(false); setNewTopicName(''); setNewTopicDescription(''); setNewTopicIcon('💬'); }} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
+                <button className="button secondary" onClick={() => { setShowNewTopic(false); setNewTopicName(''); setNewTopicDescription(''); setNewTopicIcon('messages'); }} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
               </div>
               <div style={{ display: 'grid', gap: 14 }}>
                 <div>
                   <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Иконка</div>
-                  <input 
+                  <select
                     value={newTopicIcon}
-                    onChange={e => setNewTopicIcon(e.target.value)}
-                    placeholder="💬"
-                    maxLength={2}
-                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 20, textAlign: 'center' }}
-                  />
+                    onChange={e => setNewTopicIcon(e.target.value as PlatformIconName)}
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 14 }}
+                  >
+                    {TOPIC_ICON_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Название</div>
@@ -405,7 +443,7 @@ export default function PublicationsPage() {
                   />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-                  <button className="button secondary" onClick={() => { setShowNewTopic(false); setNewTopicName(''); setNewTopicDescription(''); setNewTopicIcon('💬'); }} style={{ padding: '10px 16px', fontSize: 14 }}>Отмена</button>
+                  <button className="button secondary" onClick={() => { setShowNewTopic(false); setNewTopicName(''); setNewTopicDescription(''); setNewTopicIcon('messages'); }} style={{ padding: '10px 16px', fontSize: 14 }}>Отмена</button>
                   <button type="button" className="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); createTopic(e); }} disabled={!newTopicName.trim() || !newTopicDescription.trim() || loading} style={{ padding: '10px 16px', fontSize: 14 }}>{loading ? 'Создание...' : 'Создать тему'}</button>
                 </div>
               </div>

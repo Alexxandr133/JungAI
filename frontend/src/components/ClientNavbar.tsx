@@ -6,12 +6,14 @@ import { UserMenu } from './ui';
 import { MessagesBell } from './MessagesBell';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { BrandLogo } from './BrandLogo';
+import { ThemeMenuButton } from './ThemeMenuButton';
+import { PlatformIcon, type PlatformIconName } from './icons';
 
 type MenuItem = {
   label: string;
   path?: string;
-  icon?: string;
-  children?: Array<{ label: string; path: string; icon?: string }>;
+  icon?: PlatformIconName;
+  children?: Array<{ label: string; path: string; icon?: PlatformIconName }>;
 };
 
 export function ClientNavbar() {
@@ -25,39 +27,39 @@ export function ClientNavbar() {
   const menuItems: MenuItem[] = [
     {
       label: 'Основное',
-      icon: '🏠',
+      icon: 'home',
       children: [
-        { label: 'Главная', path: '/client', icon: '🏠' },
-        { label: 'Мои сны', path: '/dreams', icon: '💭' },
-        { label: 'Дневник', path: '/client/journal', icon: '📝' },
-        { label: 'Сессии', path: '/client/sessions', icon: '📅' }
+        { label: 'Главная', path: '/client', icon: 'home' },
+        { label: 'Мои сны', path: '/dreams', icon: 'dreams' },
+        { label: 'Дневник', path: '/client/journal', icon: 'journal' },
+        { label: 'Сессии', path: '/client/sessions', icon: 'calendar' }
       ]
     },
     {
       label: 'ИИ-помощник',
       path: '/client/ai',
-      icon: '🤖'
+      icon: 'bot'
     },
     {
       label: 'Личное развитие',
-      icon: '🌟',
+      icon: 'sparkles',
       children: [
-        { label: 'Баллы и уровень', path: '/client/tasks', icon: '🏆' },
-        { label: 'Тесты', path: '/client/tests', icon: '📊' },
+        { label: 'Баллы и уровень', path: '/client/tasks', icon: 'trophy' },
+        { label: 'Тесты', path: '/client/tests', icon: 'chart' }
       ]
     },
     {
       label: 'Сообщество',
-      icon: '👥',
+      icon: 'users',
       children: [
-        { label: 'Форум', path: '/client/community', icon: '💬' },
-        { label: 'Сообщения', path: '/chat', icon: '📨' },
+        { label: 'Форум', path: '/client/community', icon: 'messages' },
+        { label: 'Сообщения', path: '/chat', icon: 'inbox' }
       ]
     },
     {
       label: 'Мой психолог',
       path: '/client/psychologists',
-      icon: '👨‍⚕️'
+      icon: 'stethoscope'
     }
   ];
 
@@ -110,9 +112,9 @@ export function ClientNavbar() {
         position: 'sticky',
         top: 0,
         zIndex: 10000,
-        background: 'rgba(28, 31, 43, 0.95)',
+        background: 'var(--surface)',
         backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        borderBottom: '1px solid var(--navbar-edge)',
         boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
       }}
     >
@@ -174,7 +176,7 @@ export function ClientNavbar() {
                       border: itemIsActive ? '1px solid rgba(91, 124, 250, 0.2)' : '1px solid transparent'
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                     <span>{item.label}</span>
                   </Link>
                 ) : (
@@ -198,7 +200,7 @@ export function ClientNavbar() {
                       border: itemIsActive ? '1px solid rgba(91, 124, 250, 0.2)' : '1px solid transparent'
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                     <span>{item.label}</span>
                     {hasChildren && (
                       <span style={{
@@ -263,7 +265,7 @@ export function ClientNavbar() {
                             }
                           }}
                         >
-                          {child.icon && <span style={{ fontSize: 16 }}>{child.icon}</span>}
+                          {child.icon && <PlatformIcon name={child.icon} size={16} style={{ flexShrink: 0, opacity: 0.9 }} />}
                           <span>{child.label}</span>
                         </Link>
                       );
@@ -281,6 +283,7 @@ export function ClientNavbar() {
           alignItems: 'center',
           gap: 12
         }}>
+          <ThemeMenuButton />
           <MessagesBell />
           <LanguageSwitcher />
           <UserMenu user={user as any} />
@@ -304,7 +307,7 @@ export function ClientNavbar() {
           }}
           className="mobile-menu-button"
         >
-          {mobileMenuOpen ? '✕' : '☰'}
+          <PlatformIcon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
         </button>
       </div>
 
@@ -329,7 +332,7 @@ export function ClientNavbar() {
               maxWidth: 320,
               background: 'var(--surface)',
               padding: '12px 16px',
-              borderLeft: '1px solid rgba(255,255,255,0.12)',
+              borderLeft: '1px solid var(--navbar-edge)',
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',
@@ -337,6 +340,9 @@ export function ClientNavbar() {
             }}
             onClick={e => e.stopPropagation()}
           >
+            <div style={{ padding: '8px 0 12px', borderBottom: '1px solid var(--navbar-edge)' }}>
+              <ThemeMenuButton compact={false} />
+            </div>
             {menuItems.map((item) => (
               <div key={item.label}>
                 {item.path ? (
@@ -356,7 +362,7 @@ export function ClientNavbar() {
                       fontSize: 14
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                     <span>{item.label}</span>
                   </Link>
                 ) : (
@@ -370,7 +376,7 @@ export function ClientNavbar() {
                       fontWeight: 500,
                       fontSize: 14
                     }}>
-                      {item.icon && <span>{item.icon}</span>}
+                      {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                       <span>{item.label}</span>
                     </div>
                     {item.children && (
@@ -392,7 +398,7 @@ export function ClientNavbar() {
                               fontSize: 13
                             }}
                           >
-                            {child.icon && <span>{child.icon}</span>}
+                            {child.icon && <PlatformIcon name={child.icon} size={16} style={{ flexShrink: 0, opacity: 0.9 }} />}
                             <span>{child.label}</span>
                           </Link>
                         ))}

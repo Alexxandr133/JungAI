@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { WidgetType } from './WidgetTypes';
 import { WIDGET_DEFINITIONS } from './WidgetTypes';
+import { PlatformIcon } from '../icons';
 
 interface WidgetSelectorModalProps {
   onClose: () => void;
@@ -158,7 +159,22 @@ export default function WidgetSelectorModal({
                   e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
                 }}
               >
-                <div style={{ fontSize: 32, flexShrink: 0 }}>{widget.icon}</div>
+                <div
+                  style={{
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: 'var(--surface)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    color: 'var(--primary)'
+                  }}
+                >
+                  <PlatformIcon name={widget.icon} size={26} strokeWidth={1.75} />
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{

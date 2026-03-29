@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Section, Title, Feature, Grid, Nav, Footer } from '../components/ui';
+import { PlatformIcon } from '../components/icons';
 import '../styles/tokens.css';
 
 export default function HomePage() {
@@ -58,32 +59,56 @@ export default function HomePage() {
           <div style={{ marginTop: 48 }}>
             <Grid cols={3}>
             <Feature 
-              icon={<div style={{ fontSize: 48, marginBottom: 16 }}>💭</div>}
+              icon={
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="dreams" size={48} strokeWidth={1.25} />
+                </div>
+              }
               title="Журналы сновидений" 
               text="Структурированный ввод снов и необычных случаев с метками, тегами и символами. Автоматический анализ и поиск паттернов." 
             />
             <Feature 
-              icon={<div style={{ fontSize: 48, marginBottom: 16 }}>📊</div>}
+              icon={
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="chart" size={48} strokeWidth={1.25} />
+                </div>
+              }
               title="Аналитика и статистика" 
               text="Частоты символов, архетипические паттерны, гипотезы и рекомендации ИИ. Визуализация данных для исследований." 
             />
             <Feature 
-              icon={<div style={{ fontSize: 48, marginBottom: 16 }}>🔮</div>}
+              icon={
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="orbit" size={48} strokeWidth={1.25} />
+                </div>
+              }
               title="Амплификации" 
               text="База знаний символов, архетипов и мифов. Связывайте сны с амплификациями для глубокого анализа." 
             />
             <Feature 
-              icon={<div style={{ fontSize: 48, marginBottom: 16 }}>👥</div>}
+              icon={
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="users" size={48} strokeWidth={1.25} />
+                </div>
+              }
               title="Рабочая область" 
               text="Ведите клиентов, создавайте заметки, планируйте сессии и отслеживайте прогресс. Всё в одном месте." 
             />
             <Feature 
-              icon={<div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>}
+              icon={
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="microscope" size={48} strokeWidth={1.25} />
+                </div>
+              }
               title="Исследования" 
               text="Инструменты для исследователей: обезличенные данные, статистика, экспорт данных для научных работ." 
             />
             <Feature 
-              icon={<div style={{ fontSize: 48, marginBottom: 16 }}>📚</div>}
+              icon={
+                <div style={{ marginBottom: 16, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="library" size={48} strokeWidth={1.25} />
+                </div>
+              }
               title="Публикации" 
               text="Создавайте и публикуйте материалы, делитесь результатами исследований с сообществом." 
             />
@@ -104,7 +129,9 @@ export default function HomePage() {
             />
             <div style={{ marginTop: 48, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 32 }}>
               <div>
-                <div style={{ fontSize: 32, marginBottom: 16 }}>🎯</div>
+                <div style={{ marginBottom: 16, color: 'var(--primary)' }}>
+                  <PlatformIcon name="target" size={32} strokeWidth={1.5} />
+                </div>
                 <h3 style={{ margin: 0, marginBottom: 12, fontSize: 20, fontWeight: 700 }}>Для психологов</h3>
                 <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.6 }}>
                   Ведите клиентов, анализируйте сны, создавайте заметки и отслеживайте прогресс терапии. 
@@ -112,7 +139,9 @@ export default function HomePage() {
                 </p>
               </div>
               <div>
-                <div style={{ fontSize: 32, marginBottom: 16 }}>🔬</div>
+                <div style={{ marginBottom: 16, color: 'var(--primary)' }}>
+                  <PlatformIcon name="microscope" size={32} strokeWidth={1.5} />
+                </div>
                 <h3 style={{ margin: 0, marginBottom: 12, fontSize: 20, fontWeight: 700 }}>Для исследователей</h3>
                 <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.6 }}>
                   Анализируйте обезличенные данные, находите паттерны, экспортируйте данные для исследований. 
@@ -120,7 +149,9 @@ export default function HomePage() {
                 </p>
               </div>
               <div>
-                <div style={{ fontSize: 32, marginBottom: 16 }}>💭</div>
+                <div style={{ marginBottom: 16, color: 'var(--primary)' }}>
+                  <PlatformIcon name="dreams" size={32} strokeWidth={1.5} />
+                </div>
                 <h3 style={{ margin: 0, marginBottom: 12, fontSize: 20, fontWeight: 700 }}>Для клиентов</h3>
                 <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.6 }}>
                   Ведите дневник сновидений, получайте анализы и рекомендации, отслеживайте свой прогресс 

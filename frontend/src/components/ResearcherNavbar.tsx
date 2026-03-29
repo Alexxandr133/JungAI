@@ -5,12 +5,14 @@ import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { BrandLogo } from './BrandLogo';
+import { ThemeMenuButton } from './ThemeMenuButton';
+import { PlatformIcon, type PlatformIconName } from './icons';
 
 type MenuItem = {
   label: string;
   path?: string;
-  icon?: string;
-  children?: Array<{ label: string; path: string; icon?: string }>;
+  icon?: PlatformIconName;
+  children?: Array<{ label: string; path: string; icon?: PlatformIconName }>;
 };
 
 export function ResearcherNavbar() {
@@ -25,44 +27,44 @@ export function ResearcherNavbar() {
     {
       label: 'Дашборд',
       path: '/researcher',
-      icon: '📊'
+      icon: 'dashboard'
     },
     {
       label: 'Сны',
       path: '/researcher/dreams',
-      icon: '💭'
+      icon: 'dreams'
     },
     {
       label: 'Люди',
       path: '/researcher/people',
-      icon: '👥'
+      icon: 'users'
     },
     {
       label: 'Амплификации',
       path: '/research/amplifications',
-      icon: '🔮'
+      icon: 'orbit'
     },
     {
       label: 'Публикации',
       path: '/publications',
-      icon: '📚'
+      icon: 'library'
     },
     {
       label: 'AI Ассистент',
       path: '/researcher/ai',
-      icon: '🤖'
+      icon: 'bot'
     },
     {
       label: 'Тех.поддержка',
       path: '/researcher/support',
-      icon: '🔧'
+      icon: 'wrench'
     },
     ...(user?.role === 'admin' ? [{
       label: 'Администрирование',
-      icon: '⚙️',
+      icon: 'settings',
       children: [
-        { label: 'Пользователи', path: '/admin/users', icon: '👤' },
-        { label: 'Верификация', path: '/admin/verification', icon: '✓' },
+        { label: 'Пользователи', path: '/admin/users', icon: 'user' },
+        { label: 'Верификация', path: '/admin/verification', icon: 'check' },
       ]
     }] : []) as MenuItem[]
   ];
@@ -113,9 +115,9 @@ export function ResearcherNavbar() {
         position: 'sticky',
         top: 0,
         zIndex: 10000,
-        background: 'rgba(28, 31, 43, 0.95)',
+        background: 'var(--surface)',
         backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        borderBottom: '1px solid var(--navbar-edge)',
         boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1)'
       }}
     >
@@ -177,7 +179,7 @@ export function ResearcherNavbar() {
                       border: itemIsActive ? '1px solid rgba(91, 124, 250, 0.2)' : '1px solid transparent'
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                     <span>{item.label}</span>
                   </Link>
                 ) : (
@@ -201,7 +203,7 @@ export function ResearcherNavbar() {
                       border: itemIsActive ? '1px solid rgba(91, 124, 250, 0.2)' : '1px solid transparent'
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                     <span>{item.label}</span>
                     {hasChildren && (
                       <span style={{
@@ -266,7 +268,7 @@ export function ResearcherNavbar() {
                             }
                           }}
                         >
-                          {child.icon && <span style={{ fontSize: 16 }}>{child.icon}</span>}
+                          {child.icon && <PlatformIcon name={child.icon} size={16} style={{ flexShrink: 0, opacity: 0.9 }} />}
                           <span>{child.label}</span>
                         </Link>
                       );
@@ -284,6 +286,7 @@ export function ResearcherNavbar() {
           alignItems: 'center',
           gap: 12
         }}>
+          <ThemeMenuButton />
           <LanguageSwitcher />
           <UserMenu user={user as any} />
         </div>
@@ -306,7 +309,7 @@ export function ResearcherNavbar() {
           }}
           className="mobile-menu-button"
         >
-          {mobileMenuOpen ? '✕' : '☰'}
+          <PlatformIcon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
         </button>
       </div>
 
@@ -331,7 +334,7 @@ export function ResearcherNavbar() {
               maxWidth: 320,
               background: 'var(--surface)',
               padding: '12px 16px',
-              borderLeft: '1px solid rgba(255,255,255,0.12)',
+              borderLeft: '1px solid var(--navbar-edge)',
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',
@@ -339,6 +342,9 @@ export function ResearcherNavbar() {
             }}
             onClick={e => e.stopPropagation()}
           >
+            <div style={{ padding: '8px 0 12px', borderBottom: '1px solid var(--navbar-edge)' }}>
+              <ThemeMenuButton compact={false} />
+            </div>
             {menuItems.map((item) => (
               <div key={item.label}>
                 {item.path ? (
@@ -358,7 +364,7 @@ export function ResearcherNavbar() {
                       fontSize: 14
                     }}
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                     <span>{item.label}</span>
                   </Link>
                 ) : (
@@ -372,7 +378,7 @@ export function ResearcherNavbar() {
                       fontWeight: 500,
                       fontSize: 14
                     }}>
-                      {item.icon && <span>{item.icon}</span>}
+                      {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                       <span>{item.label}</span>
                     </div>
                     {item.children && (
@@ -394,7 +400,7 @@ export function ResearcherNavbar() {
                               fontSize: 13
                             }}
                           >
-                            {child.icon && <span>{child.icon}</span>}
+                            {child.icon && <PlatformIcon name={child.icon} size={16} style={{ flexShrink: 0, opacity: 0.9 }} />}
                             <span>{child.label}</span>
                           </Link>
                         ))}

@@ -11,6 +11,7 @@ import { WIDGET_DEFINITIONS, WIDGET_STORAGE_KEY } from '../../components/widgets
 import WidgetRenderer from '../../components/widgets/WidgetRenderer';
 import AddWidgetButton from '../../components/widgets/AddWidgetButton';
 import WidgetSelectorModal from '../../components/widgets/WidgetSelectorModal';
+import { PlatformIcon } from '../../components/icons';
 
 type DashboardData = {
   totalClients: number;
@@ -242,7 +243,12 @@ export default function PsychologistDashboard() {
         }}
       >
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>📊 Рабочий стол</h1>
+          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
+              <PlatformIcon name="dashboard" size={34} strokeWidth={1.5} />
+            </span>
+            Рабочий стол
+          </h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>Обзор вашей практики</div>
         </div>
 

@@ -3,12 +3,14 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { BrandLogo } from './BrandLogo';
+import { ThemeMenuButton } from './ThemeMenuButton';
+import { PlatformIcon, type PlatformIconName } from './icons';
 
 type MenuItem = {
   label: string;
   path?: string;
-  icon?: string;
-  children?: Array<{ label: string; path: string; icon?: string }>;
+  icon?: PlatformIconName;
+  children?: Array<{ label: string; path: string; icon?: PlatformIconName }>;
 };
 
 export function GuestNavbar() {
@@ -23,32 +25,32 @@ export function GuestNavbar() {
     {
       label: 'Главная',
       path: '/',
-      icon: '🏠'
+      icon: 'home'
     },
     {
       label: 'Психологи',
       path: '/psychologists',
-      icon: '👨‍⚕️'
+      icon: 'stethoscope'
     },
     {
       label: 'Тесты',
       path: '/guest/tests',
-      icon: '📊'
+      icon: 'chart'
     },
     {
       label: 'Форум',
       path: '/guest/community',
-      icon: '💬'
+      icon: 'messages'
     },
     {
       label: 'Публикации',
       path: '/guest/publications',
-      icon: '📚'
+      icon: 'library'
     },
     {
       label: 'Мои сны',
       path: '/guest/dreams',
-      icon: '💭'
+      icon: 'dreams'
     }
   ];
 
@@ -99,7 +101,7 @@ export function GuestNavbar() {
         top: 0,
         zIndex: 10000,
         background: 'var(--surface)',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        borderBottom: '1px solid var(--navbar-edge)',
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)'
       }}
@@ -138,7 +140,7 @@ export function GuestNavbar() {
                         transition: 'all 0.2s'
                       }}
                     >
-                      {item.icon && <span>{item.icon}</span>}
+                      {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                       <span>{item.label}</span>
                     </div>
                     {hoveredMenu === item.label && item.children && (
@@ -174,7 +176,7 @@ export function GuestNavbar() {
                               transition: 'all 0.2s'
                             }}
                           >
-                            {child.icon && <span>{child.icon}</span>}
+                            {child.icon && <PlatformIcon name={child.icon} size={16} style={{ flexShrink: 0, opacity: 0.9 }} />}
                             <span>{child.label}</span>
                           </Link>
                         ))}
@@ -201,7 +203,7 @@ export function GuestNavbar() {
                     transition: 'all 0.2s'
                   }}
                 >
-                  {item.icon && <span>{item.icon}</span>}
+                  {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                   <span>{item.label}</span>
                 </Link>
               );
@@ -210,6 +212,7 @@ export function GuestNavbar() {
 
           {/* Right side */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ThemeMenuButton />
             {user ? (
               <Link 
                 to={
@@ -250,7 +253,7 @@ export function GuestNavbar() {
             }}
             className="mobile-menu-btn"
           >
-            {mobileMenuOpen ? '✕' : '☰'}
+            <PlatformIcon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
           </button>
         </div>
 
@@ -274,7 +277,7 @@ export function GuestNavbar() {
                 maxWidth: 320,
                 background: 'var(--surface)',
                 padding: '12px 16px',
-                borderLeft: '1px solid rgba(255,255,255,0.12)',
+                borderLeft: '1px solid var(--navbar-edge)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 4,
@@ -282,6 +285,9 @@ export function GuestNavbar() {
               }}
               onClick={e => e.stopPropagation()}
             >
+              <div style={{ padding: '8px 0 12px', borderBottom: '1px solid var(--navbar-edge)' }}>
+                <ThemeMenuButton compact={false} />
+              </div>
               {menuItems.map((item) => (
                 <Link
                   key={item.path || item.label}
@@ -300,7 +306,7 @@ export function GuestNavbar() {
                     gap: 8
                   }}
                 >
-                  {item.icon && <span>{item.icon}</span>}
+                  {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
                   <span>{item.label}</span>
                 </Link>
               ))}

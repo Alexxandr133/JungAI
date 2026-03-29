@@ -9,6 +9,7 @@ import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import { StarfieldBackground } from '../../components/visuals';
+import { PlatformIcon } from '../../components/icons';
 
 type Dream = {
   id: string;
@@ -393,7 +394,9 @@ export default function DreamsList() {
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'start', gap: 'clamp(10px, 3vw, 12px)' }}>
-                      <div style={{ fontSize: 'clamp(24px, 6vw, 28px)', flexShrink: 0 }}>💭</div>
+                      <div style={{ flexShrink: 0, color: 'var(--primary)', display: 'flex', alignItems: 'center' }}>
+                        <PlatformIcon name="dreams" size={28} strokeWidth={1.5} />
+                      </div>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'clamp(8px, 2vw, 10px)', flexWrap: 'wrap', gap: 8 }}>
                           <h3 style={{ margin: 0, fontSize: 'clamp(16px, 4vw, 18px)', fontWeight: 700, lineHeight: 1.3 }}>{d.title || 'Без названия'}</h3>
@@ -459,7 +462,9 @@ export default function DreamsList() {
         <div onClick={closeModal} style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', padding: 16, zIndex: 1000 }}>
           <div className="card" onClick={e => e.stopPropagation()} style={{ width: 'min(600px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 32, border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 60px rgba(0,0,0,0.45)' }}>
             <div style={{ textAlign: 'center', marginBottom: 32 }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>💭</div>
+              <div style={{ marginBottom: 16, color: 'var(--primary)' }}>
+                <PlatformIcon name="dreams" size={48} strokeWidth={1.25} />
+              </div>
               <div style={{ fontWeight: 800, fontSize: 24, marginBottom: 8 }}>Записать сон</div>
               <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
                 Опишите свой сон во всех деталях

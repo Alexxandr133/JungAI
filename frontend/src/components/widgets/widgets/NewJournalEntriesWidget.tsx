@@ -1,3 +1,4 @@
+import { PlatformIcon } from '../../icons';
 
 interface Props {
   data: any;
@@ -8,7 +9,9 @@ interface Props {
 export default function NewJournalEntriesWidget({ data }: Props) {
   return (
     <>
-      <div style={{ fontSize: 32, marginBottom: 8 }}>📝</div>
+      <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+        <PlatformIcon name="clipboard" size={32} strokeWidth={1.5} />
+      </div>
       <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{data?.newJournalEntries || 0}</div>
       <div className="small" style={{ color: 'var(--text-muted)' }}>Записей в дневниках</div>
     </>

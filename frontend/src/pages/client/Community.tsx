@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { ClientNavbar } from '../../components/ClientNavbar';
+import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 
 type Post = {
   id: string;
@@ -20,7 +21,7 @@ type Topic = {
   name: string;
   description: string;
   postsCount: number;
-  icon: string;
+  icon: PlatformIconName;
 };
 
 export default function ClientCommunity() {
@@ -35,12 +36,12 @@ export default function ClientCommunity() {
 
   useEffect(() => {
     const demoTopics: Topic[] = [
-      { id: 't1', name: 'Как пережить развод?', description: 'Поддержка и советы', postsCount: 24, icon: '💔' },
-      { id: 't2', name: 'Страх близости', description: 'Обсуждение проблем в отношениях', postsCount: 18, icon: '💑' },
-      { id: 't3', name: 'Кризис среднего возраста', description: 'Поиск смысла и направления', postsCount: 31, icon: '🎯' },
-      { id: 't4', name: 'Работа с Тенью', description: 'Интеграция скрытых аспектов', postsCount: 42, icon: '🌑' },
-      { id: 't5', name: 'Интерпретация снов', description: 'Обмен опытом и символами', postsCount: 67, icon: '💭' },
-      { id: 't6', name: 'Архетипы и мифы', description: 'Изучение архетипических паттернов', postsCount: 19, icon: '🎭' }
+      { id: 't1', name: 'Как пережить развод?', description: 'Поддержка и советы', postsCount: 24, icon: 'heartCrack' },
+      { id: 't2', name: 'Страх близости', description: 'Обсуждение проблем в отношениях', postsCount: 18, icon: 'heart' },
+      { id: 't3', name: 'Кризис среднего возраста', description: 'Поиск смысла и направления', postsCount: 31, icon: 'target' },
+      { id: 't4', name: 'Работа с Тенью', description: 'Интеграция скрытых аспектов', postsCount: 42, icon: 'moon' },
+      { id: 't5', name: 'Интерпретация снов', description: 'Обмен опытом и символами', postsCount: 67, icon: 'dreams' },
+      { id: 't6', name: 'Архетипы и мифы', description: 'Изучение архетипических паттернов', postsCount: 19, icon: 'drama' }
     ];
     setTopics(demoTopics);
 
@@ -122,7 +123,9 @@ export default function ClientCommunity() {
                 border: !selectedTopic ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)'
               }}
             >
-              <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
+              <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                <PlatformIcon name="clipboard" size={24} strokeWidth={1.6} />
+              </div>
               <div style={{ fontWeight: 700 }}>Все темы</div>
             </div>
             {topics.map(topic => (
@@ -136,7 +139,9 @@ export default function ClientCommunity() {
                   border: selectedTopic === topic.id ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)'
                 }}
               >
-                <div style={{ fontSize: 24, marginBottom: 8 }}>{topic.icon}</div>
+                <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                  <PlatformIcon name={topic.icon} size={24} strokeWidth={1.6} />
+                </div>
                 <div style={{ fontWeight: 700, marginBottom: 4 }}>{topic.name}</div>
                 <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{topic.description}</div>
                 <div className="small" style={{ color: 'var(--text-muted)' }}>{topic.postsCount} постов</div>
@@ -151,7 +156,9 @@ export default function ClientCommunity() {
           <div style={{ display: 'grid', gap: 12 }}>
             {filteredPosts.length === 0 ? (
               <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-                <div style={{ fontSize: 48, marginBottom: 12 }}>💬</div>
+                <div style={{ marginBottom: 12, color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}>
+                  <PlatformIcon name="messages" size={48} strokeWidth={1.35} />
+                </div>
                 <div style={{ fontWeight: 600 }}>Нет постов</div>
                 <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>Создайте первый пост в этой теме!</div>
               </div>

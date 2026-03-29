@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { ThemeMenuButton } from '../components/ThemeMenuButton';
 import { api } from '../lib/api';
 
 export default function Register() {
@@ -64,7 +65,10 @@ export default function Register() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: 16 }}>
-      <div className="card" style={{ width: 'min(480px, 94vw)', padding: 40 }}>
+      <div className="card" style={{ width: 'min(480px, 94vw)', padding: 40, position: 'relative' }}>
+        <div style={{ position: 'absolute', top: 16, right: 16 }}>
+          <ThemeMenuButton />
+        </div>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Регистрация</h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>

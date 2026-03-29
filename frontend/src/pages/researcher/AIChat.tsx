@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
+import { PlatformIcon } from '../../components/icons';
 import '../../styles/tokens.css';
 
 type Message = {
@@ -731,7 +732,21 @@ export default function ResearcherAIChat() {
           {!currentChatId && messages.length === 0 ? (
             <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 48 }}>
               <div style={{ textAlign: 'center', maxWidth: 600 }}>
-                <div style={{ fontSize: 64, marginBottom: 24 }}>🤖</div>
+                <div
+                  style={{
+                    margin: '0 auto 24px',
+                    width: 88,
+                    height: 88,
+                    borderRadius: 24,
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'linear-gradient(145deg, rgba(124,92,255,0.2), rgba(34,211,238,0.12))',
+                    border: '1px solid rgba(124,92,255,0.35)',
+                    color: 'var(--primary)'
+                  }}
+                >
+                  <PlatformIcon name="bot" size={44} strokeWidth={1.35} />
+                </div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент исследователя</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: 16, lineHeight: 1.6, marginBottom: 32 }}>
                   Задавайте вопросы о снах, анализируйте паттерны, исследуйте архетипы и символику.

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { GuestNavbar } from '../../components/GuestNavbar';
+import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 import '../../styles/tokens.css';
 
 /** Пример для плашки, пока нет снов за текущие сутки с достаточным текстом */
@@ -182,44 +183,50 @@ export default function GuestWorkspace() {
     })();
   }, []);
 
-  const features = [
+  const features: Array<{
+    icon: PlatformIconName;
+    title: string;
+    description: string;
+    path: string;
+    color: string;
+  }> = [
     {
-      icon: '📊',
+      icon: 'chart',
       title: 'Психологические тесты',
       description: 'Пройдите тесты на определение архетипов, работу с Тенью, спиральную динамику и многое другое',
       path: '/guest/tests',
       color: 'var(--surface-2)'
     },
     {
-      icon: '💬',
+      icon: 'messages',
       title: 'Форум сообщества',
       description: 'Общайтесь с другими участниками, делитесь опытом и получайте поддержку',
       path: '/guest/community',
       color: 'var(--surface-2)'
     },
     {
-      icon: '📚',
+      icon: 'library',
       title: 'Публикации',
       description: 'Читайте статьи и исследования от психологов и исследователей',
       path: '/guest/publications',
       color: 'var(--surface-2)'
     },
     {
-      icon: '💭',
+      icon: 'dreams',
       title: 'Запись снов',
       description: 'Ведите дневник сновидений и делитесь своими снами с сообществом',
       path: '/guest/dreams',
       color: 'var(--surface-2)'
     },
     {
-      icon: '👨‍⚕️',
+      icon: 'stethoscope',
       title: 'Найти психолога',
       description: 'Просмотрите профили психологов и запишитесь на консультацию',
       path: '/psychologists',
       color: 'var(--surface-2)'
     },
     {
-      icon: '🎯',
+      icon: 'target',
       title: 'Индивидуальная работа',
       description: 'Зарегистрируйтесь, чтобы получить доступ к персональным инструментам и работе с психологом',
       path: '/register',
@@ -314,7 +321,9 @@ export default function GuestWorkspace() {
                 gap: 6
               }}
             >
-              <div style={{ fontSize: 24, lineHeight: 1 }}>👨‍⚕️</div>
+              <div style={{ color: 'var(--primary)' }} aria-hidden>
+                <PlatformIcon name="stethoscope" size={26} strokeWidth={1.5} />
+              </div>
               <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{stats.psychologists}</div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.25 }}>Психологов</div>
             </div>
@@ -331,7 +340,9 @@ export default function GuestWorkspace() {
                 gap: 6
               }}
             >
-              <div style={{ fontSize: 24, lineHeight: 1 }}>👥</div>
+              <div style={{ color: 'var(--primary)' }} aria-hidden>
+                <PlatformIcon name="users" size={26} strokeWidth={1.5} />
+              </div>
               <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{stats.clients}</div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.25 }}>Клиентов</div>
             </div>
@@ -348,7 +359,9 @@ export default function GuestWorkspace() {
                 gap: 6
               }}
             >
-              <div style={{ fontSize: 24, lineHeight: 1 }}>💭</div>
+              <div style={{ color: 'var(--primary)' }} aria-hidden>
+                <PlatformIcon name="dreams" size={26} strokeWidth={1.5} />
+              </div>
               <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.1 }}>{stats.dreams}</div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.25 }}>Снов</div>
             </div>
@@ -364,7 +377,9 @@ export default function GuestWorkspace() {
                 textAlign: 'left'
               }}
             >
-              <div style={{ fontSize: 24, lineHeight: 1, flexShrink: 0 }} aria-hidden>🔮</div>
+              <div style={{ flexShrink: 0, color: 'var(--primary)' }} aria-hidden>
+                <PlatformIcon name="orbit" size={26} strokeWidth={1.5} />
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {!statsReady ? (
                   <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>…</div>
@@ -424,7 +439,22 @@ export default function GuestWorkspace() {
                 }}
               >
                 <div style={{ position: 'relative', zIndex: 1 }}>
-                  <div style={{ fontSize: 48, marginBottom: 16 }}>{feature.icon}</div>
+                  <div
+                    style={{
+                      marginBottom: 16,
+                      width: 56,
+                      height: 56,
+                      borderRadius: 14,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'var(--surface)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      color: 'var(--primary)'
+                    }}
+                  >
+                    <PlatformIcon name={feature.icon} size={30} strokeWidth={1.6} />
+                  </div>
                   <h3 style={{ margin: 0, marginBottom: 12, fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>
                     {feature.title}
                   </h3>

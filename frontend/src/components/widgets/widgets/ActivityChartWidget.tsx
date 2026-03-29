@@ -1,3 +1,4 @@
+import { PlatformIcon } from '../../icons';
 
 interface Props {
   data: any;
@@ -12,7 +13,10 @@ export default function ActivityChartWidget({ data }: Props) {
 
   return (
     <>
-      <h3 style={{ marginTop: 0, marginBottom: 16 }}>📊 График активности клиентов</h3>
+      <h3 style={{ marginTop: 0, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <PlatformIcon name="chart" size={22} strokeWidth={1.75} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+        График активности клиентов
+      </h3>
       {topClients.length === 0 ? (
         <div className="small" style={{ color: 'var(--text-muted)' }}>Нет данных</div>
       ) : (

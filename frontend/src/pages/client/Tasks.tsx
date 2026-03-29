@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { ClientNavbar } from '../../components/ClientNavbar';
+import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 import { syncClientActivityPoints, type SyncResult } from '../../lib/clientActivityPoints';
 
 function loadRankPoints(): number {
@@ -20,16 +21,16 @@ type RankRow = {
   title: string;
   tagline: string;
   pointsRequired: number;
-  icon: string;
+  icon: PlatformIconName;
 };
 
 const RANKS: RankRow[] = [
-  { level: 1, title: 'Новичок', tagline: 'Старт — всё ок', pointsRequired: 0, icon: '🌱' },
-  { level: 2, title: 'Знаток', tagline: 'Уже в теме', pointsRequired: 120, icon: '📘' },
-  { level: 3, title: 'Исследователь', tagline: 'Заходишь почаще', pointsRequired: 350, icon: '🔭' },
-  { level: 4, title: 'Мастер', tagline: 'Прям хорошая вовлечённость', pointsRequired: 800, icon: '⭐' },
-  { level: 5, title: 'Эксперт', tagline: 'Серьёзно в процессе', pointsRequired: 1600, icon: '💎' },
-  { level: 6, title: 'Ветеран', tagline: 'Долго с нами', pointsRequired: 3000, icon: '🏅' }
+  { level: 1, title: 'Новичок', tagline: 'Старт — всё ок', pointsRequired: 0, icon: 'sprout' },
+  { level: 2, title: 'Знаток', tagline: 'Уже в теме', pointsRequired: 120, icon: 'book' },
+  { level: 3, title: 'Исследователь', tagline: 'Заходишь почаще', pointsRequired: 350, icon: 'telescope' },
+  { level: 4, title: 'Мастер', tagline: 'Прям хорошая вовлечённость', pointsRequired: 800, icon: 'star' },
+  { level: 5, title: 'Эксперт', tagline: 'Серьёзно в процессе', pointsRequired: 1600, icon: 'gem' },
+  { level: 6, title: 'Ветеран', tagline: 'Долго с нами', pointsRequired: 3000, icon: 'medal' }
 ];
 
 function computeCurrentRank(points: number): RankRow {
@@ -112,10 +113,17 @@ export default function ClientTasks() {
 
   const pointsToNext = nextRank ? nextRank.pointsRequired - pointsTotal : 0;
 
-  const rows = [
+  const rows: Array<{
+    key: string;
+    icon: PlatformIconName;
+    title: string;
+    count: number;
+    to: string;
+    action: string;
+  }> = [
     {
       key: 'dreams',
-      icon: '💭',
+      icon: 'dreams',
       title: 'Сны',
       count: sync?.ownDreamCount ?? 0,
       to: '/dreams/new',
@@ -123,7 +131,7 @@ export default function ClientTasks() {
     },
     {
       key: 'journal',
-      icon: '📔',
+      icon: 'book',
       title: 'Дневник',
       count: sync?.journalCount ?? 0,
       to: '/client/journal',
@@ -131,7 +139,7 @@ export default function ClientTasks() {
     },
     {
       key: 'chat',
-      icon: '💬',
+      icon: 'messages',
       title: 'Чат с психологом',
       count: sync?.therapistMessagesCount ?? 0,
       to: '/chat',
@@ -139,7 +147,7 @@ export default function ClientTasks() {
     },
     {
       key: 'sessions',
-      icon: '📅',
+      icon: 'calendar',
       title: 'Сессии',
       count: sync?.sessionsHeldCount ?? 0,
       to: '/client/sessions',
@@ -147,7 +155,7 @@ export default function ClientTasks() {
     },
     {
       key: 'ai',
-      icon: '🤖',
+      icon: 'bot',
       title: 'ИИ-помощник',
       count: sync?.aiUserMessages ?? 0,
       to: '/client/ai',
@@ -186,7 +194,13 @@ export default function ClientTasks() {
             minWidth: 0
           }}
         >
-          <span style={{ fontSize: isDesktop ? 56 : isMobile ? 40 : 48, lineHeight: 1 }}>{currentRank.icon}</span>
+          <span style={{ lineHeight: 1, color: 'var(--primary)', flexShrink: 0 }}>
+            <PlatformIcon
+              name={currentRank.icon}
+              size={isDesktop ? 56 : isMobile ? 40 : 48}
+              strokeWidth={1.35}
+            />
+          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="small" style={{ color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4, fontSize: isMobile ? 12 : undefined }}>
               Сейчас ты
@@ -278,7 +292,9 @@ export default function ClientTasks() {
           <div style={{ fontWeight: 700, fontSize: isMobile ? 14 : 15, lineHeight: 1.35 }}>
             До «{nextRank.title}» ещё {pointsToNext} очк.
           </div>
-          <span style={{ fontSize: isMobile ? 20 : 22 }}>{nextRank.icon}</span>
+          <span style={{ color: 'var(--primary)', flexShrink: 0 }}>
+            <PlatformIcon name={nextRank.icon} size={isMobile ? 22 : 24} strokeWidth={1.5} />
+          </span>
         </div>
         <div style={{ width: '100%', height: isMobile ? 10 : 8, background: 'var(--surface-2)', borderRadius: 999, overflow: 'hidden' }}>
           <div
@@ -346,7 +362,9 @@ export default function ClientTasks() {
                 minHeight: isMobile ? 56 : undefined
               }}
             >
-              <span style={{ fontSize: isMobile ? 24 : 22 }}>{rank.icon}</span>
+              <span style={{ color: 'var(--primary)', flexShrink: 0 }}>
+                <PlatformIcon name={rank.icon} size={isMobile ? 26 : 24} strokeWidth={1.5} />
+              </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, fontSize: isMobile ? 15 : 14 }}>{rank.title}</span>
@@ -364,7 +382,11 @@ export default function ClientTasks() {
                       ты тут
                     </span>
                   )}
-                  {!isUnlocked && <span style={{ fontSize: 12 }}>🔒</span>}
+                  {!isUnlocked && (
+                    <span style={{ display: 'inline-flex', color: 'var(--text-muted)' }} aria-hidden>
+                      <PlatformIcon name="lock" size={14} strokeWidth={2} />
+                    </span>
+                  )}
                 </div>
                 <div className="small" style={{ color: 'var(--text-muted)', marginTop: 3, fontSize: isMobile ? 12 : undefined, lineHeight: 1.4 }}>
                   от {rank.pointsRequired} очк. · {rank.tagline}
@@ -398,7 +420,9 @@ export default function ClientTasks() {
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 12 : 10, minWidth: 0 }}>
-                <span style={{ fontSize: isMobile ? 26 : 24, flexShrink: 0 }}>{r.icon}</span>
+                <span style={{ flexShrink: 0, color: 'var(--primary)' }}>
+                  <PlatformIcon name={r.icon} size={isMobile ? 26 : 24} strokeWidth={1.5} />
+                </span>
                 <span style={{ fontWeight: 800, fontSize: isMobile ? 15 : 15, lineHeight: 1.3 }}>{r.title}</span>
               </div>
               <span

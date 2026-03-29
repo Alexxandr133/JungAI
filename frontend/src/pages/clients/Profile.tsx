@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { PlatformIcon } from '../../components/icons';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
@@ -302,7 +303,9 @@ export default function ClientProfileView() {
                       onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-4px)'}
                       onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
                     >
-                      <div style={{ fontSize: 32, marginBottom: 8 }}>💭</div>
+                      <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                        <PlatformIcon name="dreams" size={32} strokeWidth={1.4} />
+                      </div>
                       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--primary)' }}>{stats?.dreams || 0}</div>
                       <div className="small" style={{ color: 'var(--text-muted)' }}>Снов</div>
                     </div>

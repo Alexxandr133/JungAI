@@ -1,8 +1,12 @@
 import { Link } from 'react-router-dom';
+import { ThemeMenuButton } from '../../components/ThemeMenuButton';
 
 export default function GuestPage() {
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg)', position: 'relative' }}>
+      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+        <ThemeMenuButton />
+      </div>
       <div className="card" style={{ maxWidth: 600, padding: 48, textAlign: 'center' }}>
         <div style={{ fontSize: 64, marginBottom: 24 }}>👋</div>
         <h1 style={{ margin: 0, marginBottom: 16, fontSize: 32, fontWeight: 800 }}>

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
+import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 import '../../styles/tokens.css';
 
 type DreamBrief = { id: string; title: string; createdAt: string; userId?: string | null };
@@ -195,27 +196,33 @@ export default function ClientWorkspace() {
     })();
   }, [token, user?.id]);
 
-  const statCards = [
+  const statCards: Array<{
+    label: string;
+    value: number;
+    hint: string;
+    to: string;
+    icon: PlatformIconName;
+  }> = [
     {
       label: 'Мои сны',
       value: dreamTotal,
       hint: 'только ваши записи',
       to: '/dreams',
-      icon: '💭'
+      icon: 'dreams'
     },
     {
       label: 'Дневник',
       value: journalCount,
       hint: `за 7 дн.: ${journalThisWeek}`,
       to: '/client/journal',
-      icon: '📝'
+      icon: 'clipboard'
     },
     {
       label: 'Серия',
       value: dailyStreak,
       hint: 'дней подряд',
       to: '/client/journal',
-      icon: '🔥'
+      icon: 'flame'
     }
   ];
 
@@ -253,7 +260,9 @@ export default function ClientWorkspace() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
               <div style={{ flex: '1 1 280px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <span style={{ fontSize: 28 }}>👨‍⚕️</span>
+                  <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
+                    <PlatformIcon name="stethoscope" size={28} strokeWidth={1.5} />
+                  </span>
                   <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>Подключите психолога</h2>
                 </div>
                 <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.6, fontSize: 14 }}>
@@ -317,7 +326,9 @@ export default function ClientWorkspace() {
                 background: 'rgba(255,255,255,0.02)'
               }}
             >
-              <div style={{ fontSize: 22, marginBottom: 8 }}>{s.icon}</div>
+              <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                <PlatformIcon name={s.icon} size={22} strokeWidth={1.6} />
+              </div>
               <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
                 {s.label}
               </div>
@@ -339,7 +350,9 @@ export default function ClientWorkspace() {
               background: 'rgba(255,255,255,0.02)'
             }}
           >
-            <div style={{ fontSize: 22, marginBottom: 8 }}>🏆</div>
+            <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+              <PlatformIcon name="trophy" size={22} strokeWidth={1.6} />
+            </div>
             <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
               Уровень
             </div>
@@ -379,7 +392,10 @@ export default function ClientWorkspace() {
               }}
             >
               <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>✨</span> Мысль дня
+                <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
+                  <PlatformIcon name="sparkles" size={20} strokeWidth={1.75} />
+                </span>
+                Мысль дня
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 <Link
@@ -412,7 +428,10 @@ export default function ClientWorkspace() {
           >
             <div style={{ fontWeight: 800, marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>📅</span> Ближайшие события
+                <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
+                  <PlatformIcon name="calendar" size={20} strokeWidth={1.75} />
+                </span>
+                Ближайшие события
               </span>
               <Link to="/client/sessions" className="small" style={{ color: 'var(--primary)' }}>
                 Все
@@ -475,7 +494,9 @@ export default function ClientWorkspace() {
               background: 'linear-gradient(135deg, rgba(91,124,250,0.14), transparent)'
             }}
           >
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🌙</div>
+            <div style={{ marginBottom: 12, color: 'var(--primary)' }}>
+              <PlatformIcon name="moon" size={32} strokeWidth={1.5} />
+            </div>
             <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 8 }}>Записать сон</div>
             <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Ваш текст — ваша запись; психолог может вести отдельные материалы в работе с вами.
@@ -493,7 +514,9 @@ export default function ClientWorkspace() {
               background: 'rgba(255,255,255,0.03)'
             }}
           >
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📔</div>
+            <div style={{ marginBottom: 12, color: 'var(--primary)' }}>
+              <PlatformIcon name="book" size={32} strokeWidth={1.5} />
+            </div>
             <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 8 }}>Дневник</div>
             <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Мысли между сессиями — в одном месте.
@@ -511,7 +534,9 @@ export default function ClientWorkspace() {
               background: 'linear-gradient(135deg, rgba(124,92,255,0.12), transparent)'
             }}
           >
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🤖</div>
+            <div style={{ marginBottom: 12, color: 'var(--primary)' }}>
+              <PlatformIcon name="bot" size={32} strokeWidth={1.5} />
+            </div>
             <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 8 }}>ИИ-помощник</div>
             <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
               Отдельная страница для спокойного диалога.

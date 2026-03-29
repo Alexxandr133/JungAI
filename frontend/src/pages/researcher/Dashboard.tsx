@@ -7,6 +7,7 @@ import { RESEARCHER_WIDGET_STORAGE_KEY } from '../../components/widgets/Research
 import ResearcherWidgetRenderer from '../../components/widgets/researcher/ResearcherWidgetRenderer';
 import AddWidgetButton from '../../components/widgets/AddWidgetButton';
 import ResearcherWidgetSelectorModal from '../../components/widgets/ResearcherWidgetSelectorModal';
+import { PlatformIcon } from '../../components/icons';
 
 type DashboardData = {
   counts: {
@@ -24,7 +25,7 @@ type DashboardData = {
   };
 };
 
-export default function ResearcherDashboard() {
+export function ResearcherDashboard() {
   const { token } = useAuth();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -163,7 +164,12 @@ export default function ResearcherDashboard() {
         }}
       >
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>📊 Дашборд</h1>
+          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
+              <PlatformIcon name="dashboard" size={34} strokeWidth={1.5} />
+            </span>
+            Дашборд
+          </h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>Обзор данных для исследований</div>
         </div>
 
