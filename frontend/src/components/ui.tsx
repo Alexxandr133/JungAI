@@ -152,7 +152,7 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
         )}
       </button>
       {open && (
-        <div style={{ position: 'absolute', right: 0, top: '110%', minWidth: 220, background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.4)', padding: 8, zIndex: 2000 }}>
+        <div style={{ position: 'absolute', right: 0, top: '110%', width: 280, maxWidth: 'min(92vw, 280px)', background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.4)', padding: 8, zIndex: 2000 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'center', padding: 8 }}>
             {avatarSrc ? (
               <img 
@@ -182,8 +182,21 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
               <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 800 }}>{initial}</div>
             )}
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
-              <div className="small" style={{ color: 'var(--text-muted)' }}>{user?.email || '—'}</div>
+              <div style={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+              <div
+                className="small"
+                title={user?.email || ''}
+                style={{
+                  color: 'var(--text-muted)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '100%',
+                  display: 'block'
+                }}
+              >
+                {user?.email || '—'}
+              </div>
             </div>
           </div>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />

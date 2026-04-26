@@ -27,50 +27,36 @@ fi
 
 echo -e "${GREEN}✅ Node.js версия: $(node -v)${NC}"
 
-# 1. Backend сборка
-echo -e "\n${YELLOW}📦 Сборка backend...${NC}"
-cd backend
+# Корень монорепозитория (где лежит deploy.sh и корневой package-lock.json)
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$REPO_ROOT"
 
-# Проверка существования .env
-if [ ! -f .env ]; then
-    echo -e "${YELLOW}⚠️  Файл .env не найден. Создайте его перед деплоем.${NC}"
+# Проверка существования .env у backend
+if [ ! -f backend/.env ]; then
+    echo -e "${YELLOW}⚠️  Файл backend/.env не найден. Создайте его перед деплоем.${NC}"
     echo "См. пример в DEPLOYMENT.md"
     exit 1
 fi
 
-echo "Установка зависимостей backend..."
+# 1. Зависимости всего монорепо (express и др. оказываются в корневом node_modules)
+echo -e "\n${YELLOW}📦 Установка зависимостей (npm workspaces, корень репозитория)...${NC}"
 if [ -f package-lock.json ]; then
   npm ci --production=false
 else
+  echo -e "${YELLOW}⚠️  Нет корневого package-lock.json — npm install из корня${NC}"
   npm install
 fi
 
-echo "Сборка TypeScript..."
-npm run build
+# 2. Backend сборка
+echo -e "\n${YELLOW}📦 Сборка backend...${NC}"
+npm -w backend run build
 
-echo "Генерация Prisma клиента..."
-npm run prisma:generate
+echo "Применение миграций Prisma..."
+npm -w backend run prisma:migrate:deploy
 
-echo "Применение миграций..."
-npm run prisma:migrate:deploy
-
-cd ..
-
-# 2. Frontend сборка
+# 3. Frontend сборка
 echo -e "\n${YELLOW}📦 Сборка frontend...${NC}"
-cd frontend
-
-echo "Установка зависимостей frontend..."
-if [ -f package-lock.json ]; then
-  npm ci
-else
-  npm install
-fi
-
-echo "Сборка frontend..."
-npm run build
-
-cd ..
+npm -w frontend run build
 
 # 3. Создание директории для логов
 echo -e "\n${YELLOW}📁 Создание директорий...${NC}"

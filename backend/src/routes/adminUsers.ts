@@ -6,6 +6,19 @@ import { prisma } from '../db/prisma';
 const router = Router();
 router.use(requireAuth);
 router.use((req: AuthedRequest, res, next) => requireRole(['admin'])(req, res, next));
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isTrustedEmailDomain(email: string): boolean {
+  const domain = String(email || '').trim().toLowerCase().split('@')[1] || '';
+  return (
+    domain === 'example.com' ||
+    domain === 'jung-ai.ru' ||
+    domain === 'demo.jung' ||
+    domain.endsWith('.jung-ai.ru') ||
+    domain.endsWith('.demo.jung') ||
+    domain.includes('jung-ai')
+  );
+}
 
 /** Список пользователей (поиск, фильтр по роли) */
 router.get('/users', async (req: AuthedRequest, res) => {
@@ -204,6 +217,53 @@ router.patch('/users/:id/password', async (req: AuthedRequest, res) => {
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update password' });
+  }
+});
+
+/** Смена email */
+router.patch('/users/:id/email', async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const nextEmail = String(req.body?.email ?? '').trim().toLowerCase();
+    if (!EMAIL_REGEX.test(nextEmail)) {
+      return res.status(400).json({ error: 'Укажите корректный email' });
+    }
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+    const duplicate = await prisma.user.findFirst({
+      where: { email: nextEmail, id: { not: id } },
+      select: { id: true }
+    });
+    if (duplicate) {
+      return res.status(400).json({ error: 'На один email можно создать только 1 аккаунт' });
+    }
+
+    const trusted = isTrustedEmailDomain(nextEmail);
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        email: nextEmail,
+        ...(trusted
+          ? {
+              emailVerified: true,
+              emailVerificationCode: null,
+              emailVerificationExpiresAt: null
+            }
+          : {})
+      },
+      select: { id: true, email: true, role: true }
+    });
+
+    if (updated.role === 'client') {
+      await prisma.client.updateMany({
+        where: { email: user.email },
+        data: { email: nextEmail }
+      });
+    }
+
+    res.json({ success: true, user: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update email' });
   }
 });
 

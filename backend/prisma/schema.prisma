@@ -9,15 +9,22 @@ datasource db {
 
 model User {
   id        String   @id @default(cuid())
-  email     String   @unique
+  email     String
   password  String
   role      String
   isVerified Boolean @default(false) // Верифицирован ли психолог
+  emailVerified Boolean @default(false)
+  emailVerificationCode String?
+  emailVerificationExpiresAt DateTime?
+  passwordResetCode String?
+  passwordResetExpiresAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
   verificationRequest VerificationRequest?
   profile              Profile?
+
+  @@index([email])
 }
 
 model Profile {
@@ -52,11 +59,30 @@ model Dream {
   amplifications DreamAmplification[]
 }
 
+/**
+ * Результат ежедневной «валидации символов» (вариант 2):
+ * берем только теги `Dream.symbols`, просим ИИ склеить/нормализовать/отфильтровать,
+ * и сохраняем итог на сутки (чтобы главная у гостя была стабильной и быстрой).
+ */
+model DailyDreamSymbolValidation {
+  id            String   @id @default(cuid())
+  day           DateTime @unique // начало суток (00:00:00) в локальном времени сервера
+  sourceDreams  Int
+  rawFrequency  Json     // [{ symbol, count }] до AI
+  cleanedFrequency Json  // [{ symbol, count }] после AI
+  aiModel       String?
+  aiPromptHash  String?  // чтобы отслеживать смену промпта
+  aiResponseRaw String?  // сырой ответ модели (для дебага)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 model ParanormalCase {
   id          String   @id @default(cuid())
   type        String
   description String
   tags        Json
+  clientId    String? // ID клиента, если запись привязана к клиенту
   createdAt   DateTime @default(now())
   userId      String?
 }
@@ -367,4 +393,69 @@ model AIChatShortcut {
   prompt          String   // Промпт
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model PlatformUpdate {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  details     Json?
+  publishedAt DateTime @default(now())
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Community {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  avatarUrl   String?
+  coverUrl    String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CommunityMember {
+  id          String   @id @default(cuid())
+  communityId String
+  userId      String
+  role        String   @default("member") // owner | moderator | member
+  joinedAt    DateTime @default(now())
+
+  @@unique([communityId, userId])
+}
+
+model PublicationPost {
+  id          String   @id @default(cuid())
+  authorId    String
+  authorMode  String   @default("account")
+  communityId String?
+  title       String
+  content     String
+  imageUrl    String?
+  status      String   @default("published")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PublicationComment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PublicationReaction {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  type      String   @default("like")
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId, type])
 }

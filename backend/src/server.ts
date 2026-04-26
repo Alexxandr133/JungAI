@@ -38,6 +38,9 @@ import researcher from './routes/researcher';
 import admin from './routes/admin';
 import adminUsers from './routes/adminUsers';
 import support from './routes/support';
+import platform from './routes/platform';
+import cron from 'node-cron';
+import { runDailyDreamSymbolValidation } from './jobs/dailyDreamSymbols';
 
 const app = express();
 const httpServer = createServer(app);
@@ -141,6 +144,7 @@ app.use('/api/researcher', researcher);
 app.use('/api/admin', admin);
 app.use('/api/admin', adminUsers);
 app.use('/api', support);
+app.use('/api', platform);
 
 // Catch-all для всех остальных путей (только если это не /uploads)
 app.use((req, res, next) => {
@@ -166,4 +170,17 @@ httpServer.listen(config.port, () => {
   console.log(`Backend listening on :${config.port}`);
   // eslint-disable-next-line no-console
   console.log(`WebSocket server ready for voice rooms`);
+});
+
+// Ежедневная валидация символов (теги -> AI -> нормализация), 18:00
+// Время берется в таймзоне сервера (можно зафиксировать через переменную окружения TZ).
+cron.schedule('0 18 * * *', async () => {
+  try {
+    await runDailyDreamSymbolValidation();
+    // eslint-disable-next-line no-console
+    console.log('[Cron] Daily dream symbols validated');
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[Cron] Daily dream symbols validation failed', e);
+  }
 });

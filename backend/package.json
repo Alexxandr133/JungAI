@@ -35,6 +35,8 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "natural": "^8.1.1",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.6",
     "openai": "^6.8.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
@@ -45,6 +47,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
+    "@types/nodemailer": "^8.0.0",
     "prisma": "^6.16.3",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.5"

@@ -4,6 +4,7 @@ import fs from 'fs';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { runDailyDreamSymbolValidation } from '../jobs/dailyDreamSymbols';
 
 const router = Router();
 
@@ -218,6 +219,21 @@ router.get('/dashboard', async (req: AuthedRequest, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Не удалось загрузить статистику' });
+  }
+});
+
+// Запустить "валидацию символов" вручную (раньше 18:00)
+router.post('/dreams/validate-symbols', async (_req: AuthedRequest, res) => {
+  try {
+    const result = await runDailyDreamSymbolValidation();
+    res.json({
+      success: true,
+      day: result.day,
+      sourceDreams: result.sourceDreams,
+      cleanedFrequency: result.cleanedFrequency
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to validate dream symbols' });
   }
 });
 

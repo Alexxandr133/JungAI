@@ -104,7 +104,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
       // Находим User ID клиента по email (если клиент зарегистрирован)
       try {
         if (client.email) {
-          const clientUser = await prisma.user.findUnique({
+          const clientUser = await prisma.user.findFirst({
             where: { email: client.email }
           });
           

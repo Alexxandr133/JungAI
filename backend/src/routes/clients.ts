@@ -44,154 +44,21 @@ const uploadAvatar = multer({
 // Получить психолога клиента
 router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    console.log('[my-psychologist] Request from user:', req.user!.email, 'role:', req.user!.role);
-    
-    // Ищем Client сущность по email пользователя
-    let client = await prisma.client.findFirst({
+    const client = await prisma.client.findFirst({
       where: { email: req.user!.email },
-      select: { id: true, psychologistId: true, name: true }
+      select: { id: true, psychologistId: true }
     });
-    
-    console.log('[my-psychologist] Client found:', client ? { id: client.id, psychologistId: client.psychologistId } : 'not found');
-    
-    // Если не найдено по точному совпадению, пробуем найти по части email
-    if (!client && req.user!.email.includes('@demo.jung')) {
-      client = await prisma.client.findFirst({
-        where: { 
-          email: { contains: req.user!.email.split('@')[0] }
-        },
-        select: { id: true, psychologistId: true, name: true }
-      });
-    }
-    
-    // Принудительно создаем/обновляем демо-психолога
-    // Сначала ищем по email, чтобы избежать конфликта уникальности
-    let demoPsychologist = await prisma.user.findUnique({
-      where: { email: 'psy@example.com' },
-      select: { id: true }
-    });
-    
-    if (!demoPsychologist) {
-      // Если не найден по email, ищем по ID
-      demoPsychologist = await prisma.user.findUnique({
-        where: { id: 'u1' },
-        select: { id: true }
-      });
-      
-      if (!demoPsychologist) {
-        // Создаем нового только если не найден ни по email, ни по ID
-        demoPsychologist = await prisma.user.create({
-          data: {
-            id: 'u1',
-            email: 'psy@example.com',
-            password: 'demo',
-            role: 'psychologist',
-            isVerified: true
-          },
-          select: { id: true }
-        });
-      } else {
-        // Если найден по ID, обновляем email и роль
-        await prisma.user.update({
-          where: { id: 'u1' },
-          data: {
-            email: 'psy@example.com',
-            role: 'psychologist',
-            isVerified: true
-          }
-        });
-      }
-    } else {
-      // Если найден по email, обновляем роль и верификацию
-      await prisma.user.update({
-        where: { email: 'psy@example.com' },
-        data: {
-          role: 'psychologist',
-          isVerified: true
-        }
-      });
-    }
-    
-    // Если клиент не найден, пытаемся найти психолога по email клиента
     if (!client) {
-      // Для демо клиентов вида client.xxx@demo.jung ищем соответствующего психолога
-      if (req.user!.email.includes('@demo.jung') && req.user!.email.startsWith('client.')) {
-        const clientPrefix = req.user!.email.replace('client.', '').split('@')[0];
-        // Ищем психолога с соответствующим префиксом в email
-        const matchingPsychologist = await prisma.user.findFirst({
-          where: {
-            email: { contains: clientPrefix },
-            role: 'psychologist'
-          },
-          select: { id: true }
-        });
-        
-        if (matchingPsychologist) {
-          // Создаем Client с найденным психологом
-          client = await prisma.client.create({
-            data: {
-              name: req.user!.email.split('@')[0],
-              email: req.user!.email,
-              psychologistId: matchingPsychologist.id
-            },
-            select: { id: true, psychologistId: true, name: true }
-          });
-        } else {
-          // Если психолог не найден, создаем с демо-психологом
-          client = await prisma.client.create({
-            data: {
-              name: req.user!.email.split('@')[0],
-              email: req.user!.email,
-              psychologistId: demoPsychologist.id
-            },
-            select: { id: true, psychologistId: true, name: true }
-          });
-        }
-      } else {
-        // Для остальных клиентов создаем с демо-психологом
-        client = await prisma.client.create({
-          data: {
-            name: req.user!.email.split('@')[0],
-            email: req.user!.email,
-            psychologistId: demoPsychologist.id
-          },
-          select: { id: true, psychologistId: true, name: true }
-        });
-      }
+      return res.status(404).json({ error: 'Client not found', code: 'NO_CLIENT_PROFILE' });
     }
-    
-    // Проверяем, является ли это демо-клиентом
-    const isDemoClient = req.user!.id === 'u2' || req.user!.email === 'client@example.com';
-    
-    // Если у клиента нет психолога или это временный ID, назначаем демо-психолога
-    // НО НЕ перезаписываем реального психолога, даже для демо-клиентов
+
     if (!client.psychologistId || client.psychologistId.startsWith('temp-')) {
-      await prisma.client.update({
-        where: { id: client.id },
-        data: { psychologistId: demoPsychologist.id }
-      });
-      client.psychologistId = demoPsychologist.id;
+      return res.status(404).json({ error: 'Psychologist is not selected yet', code: 'NO_PSYCHOLOGIST' });
     }
-    
-    // Принудительно создаем комнату чата для демо-клиента и демо-психолога
-    const clientName = client.name || req.user!.email.split('@')[0];
-    if (isDemoClient) {
-      // Проверяем, существует ли уже комната с таким именем
-      const existingRoom = await prisma.chatRoom.findFirst({
-        where: { name: clientName }
-      });
-      
-      // Если комнаты нет, создаем ее
-      if (!existingRoom) {
-        await prisma.chatRoom.create({
-          data: { name: clientName }
-        });
-      }
-    }
-    
-    const psychologist = await prisma.user.findUnique({
-      where: { id: client.psychologistId },
-      include: { 
+
+    const psychologist = await prisma.user.findFirst({
+      where: { id: client.psychologistId, role: { in: ['psychologist', 'admin'] } },
+      include: {
         profile: {
           select: {
             name: true,
@@ -202,123 +69,19 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
         }
       }
     });
-    
     if (!psychologist) {
-      // Если психолог не найден, используем уже созданного демо-психолога
-      const demoPsych = await prisma.user.findUnique({
-        where: { id: demoPsychologist.id },
-        include: { 
-          profile: {
-            select: {
-              name: true,
-              avatarUrl: true,
-              bio: true,
-              specialization: true
-            }
-          }
-        }
-      });
-      
-      if (!demoPsych) {
-        // Если демо-психолог не найден, возвращаем ошибку
-        return res.status(404).json({ error: 'Psychologist not found' });
-      }
-      
-      // Обновляем клиента
-      await prisma.client.update({
-        where: { id: client.id },
-        data: { psychologistId: demoPsych.id }
-      });
-      
-      // Принудительно создаем комнату чата
-      const clientNameForRoom = client.name || req.user!.email.split('@')[0];
-      console.log(`[my-psychologist] Creating/finding chat room for client: "${clientNameForRoom}" (client.id: ${client.id})`);
-      const existingRoom = await prisma.chatRoom.findFirst({
-        where: { name: clientNameForRoom }
-      });
-      
-      if (existingRoom) {
-        console.log(`[my-psychologist] Found existing room: ${existingRoom.id} (${existingRoom.name})`);
-      } else {
-        const created = await prisma.chatRoom.create({
-          data: { name: clientNameForRoom }
-        });
-        console.log(`[my-psychologist] Created new room: ${created.id} (${created.name})`);
-      }
-      
-      return res.json({
-        id: demoPsych.id,
-        email: demoPsych.email,
-        name: demoPsych.profile?.name || demoPsych.email.split('@')[0],
-        avatarUrl: demoPsych.profile?.avatarUrl || null,
-        bio: demoPsych.profile?.bio || null,
-        specialization: demoPsych.profile?.specialization || null
-      });
+      return res.status(404).json({ error: 'Psychologist not found', code: 'NO_PSYCHOLOGIST' });
     }
-    
-    // Принудительно создаем комнату чата для демо-клиента (если еще не создана)
-    // Используем уже объявленную переменную isDemoClient из строки 80
-    if (isDemoClient) {
-      const clientNameForRoom = client.name || req.user!.email.split('@')[0];
-      const existingRoom = await prisma.chatRoom.findFirst({
-        where: { name: clientNameForRoom }
-      });
-      
-      if (!existingRoom) {
-        await prisma.chatRoom.create({
-          data: { name: clientNameForRoom }
-        });
-      }
-    }
-    
-    // Всегда возвращаем успешный ответ с данными психолога
-    const response = {
+
+    return res.json({
       id: psychologist.id,
       email: psychologist.email,
       name: psychologist.profile?.name || psychologist.email.split('@')[0],
       avatarUrl: psychologist.profile?.avatarUrl || null,
       bio: psychologist.profile?.bio || null,
       specialization: psychologist.profile?.specialization || null
-    };
-    
-    console.log('[my-psychologist] Returning psychologist:', { id: response.id, name: response.name });
-    res.json(response);
+    });
   } catch (error: any) {
-    // В случае ошибки все равно пытаемся вернуть демо-психолога
-    console.error('Error in /my-psychologist:', error);
-    try {
-      const fallbackPsych = await prisma.user.findFirst({
-        where: { 
-          email: 'psy@example.com',
-          role: 'psychologist'
-        },
-        include: { 
-          profile: {
-            select: {
-              name: true,
-              avatarUrl: true,
-              bio: true,
-              specialization: true
-            }
-          }
-        }
-      });
-      
-      if (fallbackPsych) {
-        return res.json({
-          id: fallbackPsych.id,
-          email: fallbackPsych.email,
-          name: fallbackPsych.profile?.name || fallbackPsych.email.split('@')[0],
-          avatarUrl: fallbackPsych.profile?.avatarUrl || null,
-          bio: fallbackPsych.profile?.bio || null,
-          specialization: fallbackPsych.profile?.specialization || null
-        });
-      }
-    } catch (fallbackError) {
-      console.error('Fallback error:', fallbackError);
-    }
-    
-    // Если даже fallback не сработал, возвращаем ошибку
     res.status(500).json({ error: error.message || 'Failed to get psychologist' });
   }
 });
@@ -475,7 +238,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     const items = await Promise.all(Array.from(uniqueClients.values()).map(async (client: any) => {
       if (!client.email) return client;
       
-      const user = await prisma.user.findUnique({
+      const user = await prisma.user.findFirst({
         where: { email: client.email },
         include: { profile: true }
       });
@@ -583,7 +346,7 @@ router.get('/client/profile', requireAuth, requireRole(['client', 'admin']), asy
     
     console.log(`[GET /client/profile] Client found: id=${client.id}, name="${client.name}"`);
     
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: { email: req.user!.email },
       include: {
         profile: true
@@ -673,7 +436,7 @@ router.post('/client/profile', requireAuth, requireRole(['client', 'admin']), as
     });
     
     // Обновляем или создаём профиль
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: { email: req.user!.email }
     });
     
@@ -733,7 +496,7 @@ router.post('/client/profile/avatar', requireAuth, requireRole(['client', 'admin
       return res.status(404).json({ error: 'Client not found' });
     }
     
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: { email: req.user!.email }
     });
     

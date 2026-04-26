@@ -198,13 +198,6 @@ export default function GuestWorkspace() {
       color: 'var(--surface-2)'
     },
     {
-      icon: 'messages',
-      title: 'Форум сообщества',
-      description: 'Общайтесь с другими участниками, делитесь опытом и получайте поддержку',
-      path: '/guest/community',
-      color: 'var(--surface-2)'
-    },
-    {
       icon: 'library',
       title: 'Публикации',
       description: 'Читайте статьи и исследования от психологов и исследователей',

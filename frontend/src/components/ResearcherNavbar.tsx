@@ -45,9 +45,12 @@ export function ResearcherNavbar() {
       icon: 'orbit'
     },
     {
-      label: 'Публикации',
-      path: '/publications',
-      icon: 'library'
+      label: 'Сообщества',
+      icon: 'library',
+      children: [
+        { label: 'Публикации', path: '/publications', icon: 'file' },
+        { label: 'Лента', path: '/feed', icon: 'messages' }
+      ]
     },
     {
       label: 'AI Ассистент',
@@ -59,12 +62,18 @@ export function ResearcherNavbar() {
       path: '/researcher/support',
       icon: 'wrench'
     },
+    {
+      label: 'О платформе',
+      path: '/about',
+      icon: 'info'
+    },
     ...(user?.role === 'admin' ? [{
       label: 'Администрирование',
       icon: 'settings',
       children: [
         { label: 'Пользователи', path: '/admin/users', icon: 'user' },
         { label: 'Верификация', path: '/admin/verification', icon: 'check' },
+        { label: 'О платформе', path: '/about', icon: 'info' },
       ]
     }] : []) as MenuItem[]
   ];

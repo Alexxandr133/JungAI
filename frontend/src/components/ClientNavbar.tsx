@@ -31,6 +31,7 @@ export function ClientNavbar() {
       children: [
         { label: 'Главная', path: '/client', icon: 'home' },
         { label: 'Мои сны', path: '/dreams', icon: 'dreams' },
+        { label: 'Необьяснимое', path: '/paranormal', icon: 'star' },
         { label: 'Дневник', path: '/client/journal', icon: 'journal' },
         { label: 'Сессии', path: '/client/sessions', icon: 'calendar' }
       ]
@@ -52,7 +53,6 @@ export function ClientNavbar() {
       label: 'Сообщество',
       icon: 'users',
       children: [
-        { label: 'Форум', path: '/client/community', icon: 'messages' },
         { label: 'Сообщения', path: '/chat', icon: 'inbox' }
       ]
     },
@@ -60,6 +60,11 @@ export function ClientNavbar() {
       label: 'Мой психолог',
       path: '/client/psychologists',
       icon: 'stethoscope'
+    },
+    {
+      label: 'О платформе',
+      path: '/about',
+      icon: 'info'
     }
   ];
 

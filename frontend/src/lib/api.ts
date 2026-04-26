@@ -46,10 +46,12 @@ export async function api<T = unknown>(path: string, options: { method?: HttpMet
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     let errorMessage = text || `Request failed: ${res.status}`;
+    let errorPayload: any = null;
     
     // Пытаемся извлечь сообщение из JSON ответа
     try {
       const errorJson = JSON.parse(text);
+      errorPayload = errorJson;
       if (errorJson.error) {
         errorMessage = errorJson.error;
       }
@@ -70,6 +72,7 @@ export async function api<T = unknown>(path: string, options: { method?: HttpMet
     
     const error = new Error(errorMessage);
     (error as any).status = res.status;
+    (error as any).data = errorPayload;
     throw error;
   }
   // Handle empty/204 responses safely

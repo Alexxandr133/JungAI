@@ -24,6 +24,12 @@ export const config = {
   agoraTempToken: process.env.AGORA_TEMP_TOKEN || '007eJxTYGgX6WJftaN9balw/5OuWapn61yv7646W8USprtAS7Xm5A8FBmMzUyMTAxPjpETDZBMjS/OkZLM0S1ODNNM0C8PkZANLL43AzIZARgbuqd6MjAwQCOIzMhgzMAAArc0cMQ==',
   // Frontend URL для генерации ссылок регистрации
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  smtpHost: process.env.SMTP_HOST || '',
+  smtpPort: Number(process.env.SMTP_PORT || 587),
+  smtpSecure: String(process.env.SMTP_SECURE || 'false').toLowerCase() === 'true',
+  smtpUser: process.env.SMTP_USER || '',
+  smtpPass: process.env.SMTP_PASS || '',
+  smtpFrom: process.env.SMTP_FROM || process.env.SMTP_USER || '',
   // Allow comma-separated origins, fallback to '*'
   corsOrigin: (process.env.CORS_ORIGIN || '*').includes(',')
     ? (process.env.CORS_ORIGIN || '*')

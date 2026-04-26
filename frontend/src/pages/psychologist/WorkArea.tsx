@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { api } from '../../lib/api';
@@ -58,6 +59,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const saveTimeoutRef = useRef<number | null>(null);
   const [journalEntries, setJournalEntries] = useState<Array<{ id: string; content: string; createdAt: string; updatedAt: string }>>([]);
   const [loadingJournal, setLoadingJournal] = useState(false);
+  const [clientDreams, setClientDreams] = useState<Array<{ id: string; title: string; content: string; createdAt: string; symbols?: unknown }>>([]);
+  const [loadingDreams, setLoadingDreams] = useState(false);
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const [dragOverTab, setDragOverTab] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
@@ -302,6 +305,15 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }, [activeTab, currentClientId, token, isVerified]);
 
+  // Load dreams when switching to "сны" tab
+  useEffect(() => {
+    if (activeTab === 'сны' && currentClientId && token && isVerified !== false) {
+      loadClientDreams();
+    } else {
+      setClientDreams([]);
+    }
+  }, [activeTab, currentClientId, token, isVerified]);
+
   async function loadJournalEntries() {
     if (!currentClientId || !token || isVerified === false) return;
     setLoadingJournal(true);
@@ -322,6 +334,33 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }
 
+  async function loadClientDreams() {
+    if (!currentClientId || !token || isVerified === false) return;
+    setLoadingDreams(true);
+    try {
+      const res = await api<{ items: Array<{ id: string; title: string; content: string; createdAt: string; symbols?: unknown }> }>(
+        `/api/dreams?clientId=${encodeURIComponent(currentClientId)}`,
+        { token }
+      );
+      setClientDreams(res.items || []);
+    } catch (error: any) {
+      if (error.message?.includes('Verification required') || error.status === 403) {
+        setIsVerified(false);
+      }
+      console.error('Failed to load client dreams:', error);
+      setClientDreams([]);
+    } finally {
+      setLoadingDreams(false);
+    }
+  }
+
+  function normalizeDreamSymbols(symbols: unknown): string[] {
+    if (!symbols) return [];
+    if (Array.isArray(symbols)) return symbols.map(String).filter(Boolean);
+    if (typeof symbols === 'object') return Object.keys(symbols as object);
+    return [];
+  }
+
   // Load content when switching client/tab
   useEffect(() => {
     // Не загружаем контент, если не верифицирован
@@ -333,8 +372,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       saveTimeoutRef.current = null;
     }
     
-    // Пропускаем загрузку для вкладки "Дневник клиента"
-    if (activeTab === 'Дневник клиента') return;
+    // Пропускаем загрузку для вкладок без текстового редактора
+    if (activeTab === 'Дневник клиента' || activeTab === 'сны') return;
     
     if (!currentClientId || !editorRef.current || !token) return;
     
@@ -1012,25 +1051,37 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                       onDrop={(e) => handleDrop(e, tab)}
                       onDragEnd={handleDragEnd}
                     >
-                      <button 
-                        className={active ? 'button' : 'button secondary'} 
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className={active ? 'button' : 'button secondary'}
                         onClick={() => {
                           setActiveTab(tab);
                           if (isMobileView) {
                             setShowTabContent(true);
                           }
-                        }} 
-                        style={{ 
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setActiveTab(tab);
+                            if (isMobileView) {
+                              setShowTabContent(true);
+                            }
+                          }
+                        }}
+                        style={{
                           width: '100%',
                           justifyContent: 'flex-start',
-                          padding: '10px 12px', 
+                          padding: '10px 12px',
                           fontSize: 13,
                           textAlign: 'left',
                           position: 'relative',
                           borderRadius: 8,
                           cursor: isDragged ? 'grabbing' : 'pointer',
                           border: isDragOver ? '2px dashed var(--primary)' : 'none',
-                          transition: 'all 0.2s ease'
+                          transition: 'all 0.2s ease',
+                          userSelect: 'none'
                         }}
                         onMouseEnter={(e) => {
                           if (!active) {
@@ -1080,7 +1131,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                             ×
                           </button>
                         </div>
-                      </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1204,8 +1255,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
               </div>
             )}
 
-            {/* Toolbar (скрыт для вкладки "Дневник клиента") */}
-            {activeTab !== 'Дневник клиента' && (
+            {/* Toolbar (скрыт для вкладок без редактора) */}
+            {activeTab !== 'Дневник клиента' && activeTab !== 'сны' && (
               <div style={{ 
                 display: 'flex', 
                 gap: 4, 
@@ -1291,7 +1342,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             </div>
             )}
 
-            {/* Editor or Journal Entries */}
+            {/* Editor, journal, or dream cards */}
             {activeTab === 'Дневник клиента' ? (
               <div style={{ 
                 flex: 1, 
@@ -1327,6 +1378,92 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                         <div style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap', color: 'var(--text)', fontSize: 14 }}>{entry.content}</div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+            ) : activeTab === 'сны' ? (
+              <div style={{ 
+                flex: 1, 
+                overflowY: 'auto', 
+                padding: '24px',
+                minHeight: 0
+              }}>
+                {loadingDreams ? (
+                  <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+                    <div className="small" style={{ color: 'var(--text-muted)' }}>Загрузка снов...</div>
+                  </div>
+                ) : clientDreams.length === 0 ? (
+                  <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+                    <div style={{ fontSize: 48, marginBottom: 12 }}>🌙</div>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>Снов пока нет</div>
+                    <div className="small" style={{ color: 'var(--text-muted)' }}>Клиент ещё не добавил записи сновидений</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 16, maxWidth: 900, margin: '0 auto' }}>
+                    {clientDreams.map(dream => {
+                      const symbols = normalizeDreamSymbols(dream.symbols);
+                      const preview = (dream.content || '').trim();
+                      const short =
+                        preview.length > 320 ? `${preview.slice(0, 320).trim()}…` : preview;
+                      return (
+                        <div key={dream.id} className="card" style={{ padding: 20 }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6, color: 'var(--text)' }}>
+                                {dream.title?.trim() || 'Без названия'}
+                              </div>
+                              <div className="small" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                                {new Date(dream.createdAt).toLocaleDateString('ru-RU', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
+                            </div>
+                            <Link
+                              to={`/dreams/${dream.id}`}
+                              className="button secondary"
+                              style={{ padding: '8px 14px', fontSize: 13, flexShrink: 0, textDecoration: 'none' }}
+                            >
+                              Открыть
+                            </Link>
+                          </div>
+                          {symbols.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                              {symbols.slice(0, 12).map(sym => (
+                                <span
+                                  key={sym}
+                                  style={{
+                                    fontSize: 12,
+                                    padding: '4px 10px',
+                                    borderRadius: 999,
+                                    background: 'var(--surface-2)',
+                                    color: 'var(--text-muted)',
+                                    border: '1px solid rgba(255,255,255,0.08)'
+                                  }}
+                                >
+                                  {sym}
+                                </span>
+                              ))}
+                              {symbols.length > 12 && (
+                                <span className="small" style={{ color: 'var(--text-muted)', alignSelf: 'center' }}>
+                                  +{symbols.length - 12}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {short ? (
+                            <div style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap', color: 'var(--text)', fontSize: 14 }}>
+                              {short}
+                            </div>
+                          ) : (
+                            <div className="small" style={{ color: 'var(--text-muted)' }}>Нет текста</div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

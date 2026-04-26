@@ -35,7 +35,9 @@ router.post('/support/requests', requireAuth, requireRole(['psychologist', 'rese
 router.get('/support/requests', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
   try {
     const requests = await prisma.supportRequest.findMany({
-      where: { psychologistId: req.user!.id },
+      // Только запросы в техподдержку от самого специалиста.
+      // Клиентские заявки (clientId != null) отображаются на отдельной странице /psychologist/requests.
+      where: { psychologistId: req.user!.id, clientId: null },
       orderBy: { createdAt: 'desc' },
       include: {
         client: {
@@ -225,18 +227,36 @@ router.post('/support/request', requireAuth, requireRole(['client', 'admin']), a
     
     // Временно используем SupportRequest, но с обратной логикой
     // psychologistId - это ID психолога, которому отправляется запрос
+    let chatRoomId: string | null = null;
+    if (type === 'chat') {
+      const room = await prisma.chatRoom.create({
+        data: {
+          // Имя комнаты совпадает с CRM-именем клиента, чтобы психолог видел ее в списке.
+          name: client.name
+        }
+      });
+      chatRoomId = room.id;
+      await prisma.chatMessage.create({
+        data: {
+          roomId: room.id,
+          authorId: req.user!.id,
+          content: message.trim()
+        }
+      });
+    }
+
     const request = await prisma.supportRequest.create({
       data: {
         psychologistId: psychologistId, // ID психолога, которому отправляется запрос
         title: type === 'chat' ? 'Запрос на чат' : 'Запрос на сессию',
-        description: `Клиент ${client.name || req.user!.email} хочет ${type === 'chat' ? 'начать чат' : 'записаться на сессию'}.\n\nЦель запроса: ${message}`,
+        description: `Клиент ${client.name || req.user!.email} хочет ${type === 'chat' ? 'начать чат' : 'записаться на сессию'}.\n\nЦель запроса: ${message}${chatRoomId ? `\n\n[chatRoomId:${chatRoomId}]` : ''}`,
         allowWorkAreaAccess: false,
         clientId: client.id,
         status: 'open'
       }
     });
     
-    res.json(request);
+    res.json({ ...request, chatRoomId });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Не удалось создать запрос' });
   }
@@ -250,7 +270,8 @@ router.get('/psychologist/requests', requireAuth, requireRole(['psychologist', '
     const requests = await prisma.supportRequest.findMany({
       where: { 
         psychologistId: req.user!.id,
-        clientId: { not: null }
+        clientId: { not: null },
+        status: 'open'
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -274,10 +295,15 @@ router.get('/psychologist/requests', requireAuth, requireRole(['psychologist', '
 router.post('/psychologist/requests/:id/respond', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
     const { id } = req.params;
-    const { action } = req.body; // 'accept' или 'decline'
+    const { action, declineReason } = req.body; // 'accept' или 'decline'
     
     if (!['accept', 'decline'].includes(action)) {
       return res.status(400).json({ error: 'Действие должно быть "accept" или "decline"' });
+    }
+
+    const normalizedDeclineReason = String(declineReason || '').trim();
+    if (action === 'decline' && normalizedDeclineReason.length < 5) {
+      return res.status(400).json({ error: 'Укажите причину отклонения (минимум 5 символов)' });
     }
     
     const request = await prisma.supportRequest.findUnique({
@@ -300,13 +326,28 @@ router.post('/psychologist/requests/:id/respond', requireAuth, requireRole(['psy
         data: { psychologistId: req.user!.id }
       });
     }
+
+    if (action === 'decline') {
+      // При отклонении отправляем причину прямо в чат по этой заявке.
+      const roomMatch = String(request.description || '').match(/\[chatRoomId:([^\]]+)\]/);
+      const roomId = roomMatch?.[1] || null;
+      if (roomId) {
+        await prisma.chatMessage.create({
+          data: {
+            roomId,
+            authorId: req.user!.id,
+            content: `Запрос отклонен.\nПричина: ${normalizedDeclineReason}`
+          }
+        });
+      }
+    }
     
     // Обновляем статус запроса
     const updated = await prisma.supportRequest.update({
       where: { id },
       data: {
         status: action === 'accept' ? 'resolved' : 'declined',
-        adminResponse: action === 'accept' ? 'Запрос принят' : 'Запрос отклонён',
+        adminResponse: action === 'accept' ? 'Запрос принят' : `Запрос отклонён. Причина: ${normalizedDeclineReason}`,
         respondedBy: req.user!.id,
         respondedAt: new Date()
       }
@@ -315,6 +356,41 @@ router.post('/psychologist/requests/:id/respond', requireAuth, requireRole(['psy
     res.json(updated);
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Не удалось обработать запрос' });
+  }
+});
+
+router.post('/psychologist/requests/:id/start-chat', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const request = await prisma.supportRequest.findUnique({
+      where: { id: req.params.id },
+      include: { client: true }
+    });
+    if (!request) return res.status(404).json({ error: 'Запрос не найден' });
+    if (request.psychologistId !== req.user!.id) return res.status(403).json({ error: 'Доступ запрещён' });
+    if (!request.client) return res.status(400).json({ error: 'В запросе нет клиента' });
+
+    const match = (request.description || '').match(/\[chatRoomId:([^\]]+)\]/);
+    let roomId = match?.[1] || null;
+
+    if (!roomId) {
+      const room = await prisma.chatRoom.create({ data: { name: request.client.name } });
+      roomId = room.id;
+      await prisma.chatMessage.create({
+        data: {
+          roomId,
+          authorId: req.user!.id,
+          content: 'Чат открыт по запросу клиента.'
+        }
+      });
+      await prisma.supportRequest.update({
+        where: { id: request.id },
+        data: { description: `${request.description}\n\n[chatRoomId:${roomId}]` }
+      });
+    }
+
+    res.json({ roomId });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Не удалось открыть чат' });
   }
 });
 

@@ -59,9 +59,7 @@ router.get('/public', async (req, res) => {
         specialization: profile?.specialization ? (typeof profile.specialization === 'string' ? [profile.specialization] : profile.specialization) : [],
         experience: profile?.experience ? parseInt(String(profile.experience)) || 0 : 0,
         avatarUrl: profile?.avatarUrl || null,
-        verified: true,
-        rating: 4.5 + Math.random() * 0.5, // Demo rating
-        reviewsCount: Math.floor(Math.random() * 50) + 10 // Demo reviews count
+        verified: true
       };
     });
 

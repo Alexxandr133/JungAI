@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api, getApiBaseUrl } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
@@ -11,13 +12,13 @@ import type { VerificationStatus } from '../../utils/verification';
 
 export default function ChatPage() {
   const { token, user } = useAuth();
+  const location = useLocation();
   const { appearance } = useAppearance();
   const light = appearance.colorMode === 'light';
   const isClient = user?.role === 'client';
   const isPsychologist = user?.role === 'psychologist' || user?.role === 'admin';
   const [rooms, setRooms] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
-  const [psychologist, setPsychologist] = useState<any>(null);
   const [current, setCurrent] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [content, setContent] = useState('');
@@ -31,7 +32,6 @@ export default function ChatPage() {
   const [modalQuery, setModalQuery] = useState('');
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
   const [showChatScreen, setShowChatScreen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -73,16 +73,6 @@ export default function ChatPage() {
 
   async function loadClients() {
     if (isClient) {
-      // Для клиента загружаем только его психолога
-      if (!token) return;
-      try {
-        const psych = await api<any>('/api/clients/my-psychologist', { token: token ?? undefined });
-        setPsychologist(psych);
-        // Комната будет открыта автоматически в useEffect после загрузки комнат
-      } catch (e: any) {
-        // Если психолог не найден, показываем сообщение
-        setPsychologist(null);
-      }
       return;
     }
     
@@ -192,49 +182,29 @@ export default function ChatPage() {
     setTimeout(initializeRoomViews, 500);
   }, [token, isClient, isPsychologist, isVerified]);
   
-  // После загрузки комнат и психолога автоматически открываем чат
-  useEffect(() => {
-    if (isClient && psychologist && rooms.length > 0 && !current) {
-      // КРИТИЧНО: Используем имя клиента из client.name (такое же, как создает психолог и бэкенд)
-      let clientName = user?.email?.split('@')[0] || 'Клиент';
-      
-      // Пытаемся получить имя клиента из профиля (КРИТИЧНО: используем client.name, а не profile.name)
-      api<any>('/api/client/profile', { token: token ?? undefined })
-        .then(clientProfile => {
-          // КРИТИЧНО: Приоритет client.name - это то же имя, что используется на бэкенде
-          if (clientProfile?.client?.name) {
-            clientName = clientProfile.client.name;
-          } else if (clientProfile?.profile?.name) {
-            clientName = clientProfile.profile.name;
-          }
-          
-          // Только точное совпадение имени комнаты с CRM client.name (без includes — иначе можно открыть чужой чат)
-          const clientNameLower = clientName.trim().toLowerCase();
-          const existingRoom = rooms.find(r => (r.name || '').trim().toLowerCase() === clientNameLower);
-          
-          if (existingRoom) {
-            setCurrent(existingRoom.id);
-            loadMessages(existingRoom.id);
-          } else {
-            // Если комнаты нет, создаем ее
-            ensureRoomForPsychologist();
-          }
-        })
-        .catch(() => {
-          const clientNameLower = clientName.trim().toLowerCase();
-          const existingRoom = rooms.find(r => (r.name || '').trim().toLowerCase() === clientNameLower);
-          
-          if (existingRoom) {
-            setCurrent(existingRoom.id);
-            loadMessages(existingRoom.id);
-          } else {
-            ensureRoomForPsychologist();
-          }
-        });
-    }
-  }, [rooms, psychologist, isClient, current, user, token]);
-  
   useEffect(() => { if (current) loadMessages(current); }, [current, token]);
+
+  useEffect(() => {
+    const roomId = new URLSearchParams(location.search).get('roomId');
+    if (!roomId) return;
+    if (current !== roomId) {
+      setCurrent(roomId);
+      loadMessages(roomId);
+    }
+  }, [location.search]);
+
+  async function deleteCurrentRoom() {
+    if (!current || !token) return;
+    if (!confirm('Удалить этот чат?')) return;
+    try {
+      await api(`/api/chat/rooms/${current}`, { method: 'DELETE', token: token ?? undefined });
+      setCurrent(null);
+      setMessages([]);
+      await loadRooms();
+    } catch (e: any) {
+      setError(e.message || 'Не удалось удалить чат');
+    }
+  }
 
   // Доставка новых сообщений в реальном времени (комната Socket.IO `chat:{roomId}`, не путать с голосовыми комнатами)
   useEffect(() => {
@@ -332,60 +302,6 @@ export default function ChatPage() {
       setShowClientsModal(false);
     } catch (e: any) { 
       setError(e.message || 'Failed to open chat'); 
-    }
-  }
-
-  async function ensureRoomForPsychologist() {
-    // КРИТИЧНО: Эта функция вызывается и для клиента, и для психолога
-    // Для клиента: получаем client.name из профиля
-    // Для психолога: получаем client.name выбранного клиента
-    
-    let clientName = user?.email?.split('@')[0] || 'Клиент';
-    
-    if (isClient) {
-      // Для клиента: получаем client.name из профиля (то же, что используется на бэкенде)
-      try {
-        const clientProfile = await api<any>('/api/client/profile', { token: token ?? undefined });
-        // КРИТИЧНО: Приоритет client.name - это то же имя, что используется на бэкенде
-        if (clientProfile?.client?.name) {
-          clientName = clientProfile.client.name;
-        } else if (clientProfile?.profile?.name) {
-          clientName = clientProfile.profile.name;
-        }
-      } catch (e) {
-        // Если не удалось получить профиль, используем email
-      }
-    } else if (isPsychologist) {
-      // Для психолога: эта функция не должна вызываться напрямую
-      // Психолог выбирает клиента через ensureRoomForClient
-      return;
-    }
-    
-    const roomName = clientName.trim();
-    
-    // Перезагружаем комнаты перед поиском, чтобы убедиться, что у нас актуальный список
-    const roomsList = await loadRooms();
-    
-    // Ищем существующую комнату (регистронезависимый поиск)
-    const clientNameLower = clientName.trim().toLowerCase();
-    const existingRoom = roomsList.find(r => (r.name || '').trim().toLowerCase() === clientNameLower);
-    
-    if (existingRoom) {
-      setCurrent(existingRoom.id);
-      await loadMessages(existingRoom.id);
-      return;
-    }
-    
-    // Если комнаты нет, создаем ее
-    try {
-      const created = await api<any>('/api/chat/rooms', { method: 'POST', token: token ?? undefined, body: { name: roomName } });
-      await loadRooms(); // Обновляем список комнат
-      setCurrent(created?.id || null);
-      if (created?.id) {
-        await loadMessages(created.id);
-      }
-    } catch (e: any) {
-      setError(e.message || 'Не удалось открыть чат');
     }
   }
 
@@ -489,7 +405,7 @@ export default function ChatPage() {
             minHeight: 0,
             display: isMobileView ? 'flex' : 'grid',
             flexDirection: isMobileView ? 'row' : undefined,
-            gridTemplateColumns: isMobileView ? 'none' : sidebarCollapsed ? '0 1fr' : 'minmax(260px, 320px) 1fr',
+            gridTemplateColumns: isMobileView ? 'none' : 'minmax(260px, 320px) 1fr',
             gridTemplateRows: isMobileView ? undefined : 'minmax(0, 1fr)',
             gap: 0,
             background: chat.shell,
@@ -512,7 +428,7 @@ export default function ChatPage() {
           `}</style>
           {/* Clients list (chat sidebar) - Telegram style */}
           <div style={{ 
-            display: isMobileView ? (showChatScreen ? 'none' : 'flex') : (sidebarCollapsed ? 'none' : 'flex'),
+            display: isMobileView ? (showChatScreen ? 'none' : 'flex') : 'flex',
             background: chat.sidebar, 
             borderRight: isMobileView ? 'none' : edge, 
             flexDirection: 'column',
@@ -531,95 +447,65 @@ export default function ChatPage() {
               background: chat.sidebar
             }}>
               <div style={{ width: 8, height: 8, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} />
-              <b style={{ fontSize: 16, fontWeight: 700 }}>{isClient ? 'Мой психолог' : 'Сообщения'}</b>
+              <b style={{ fontSize: 16, fontWeight: 700 }}>Сообщения</b>
             </div>
             {/* Sidebar content */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               {isClient ? (
-                psychologist ? (() => {
-                  // Используем имя клиента для поиска активной комнаты
-                  const isActive = !!current;
-                  const psychName = psychologist.name || psychologist.email?.split('@')[0] || 'Психолог';
-                  const psychAvatar = psychologist.avatarUrl;
-                  return (
-                    <div style={{ padding: '12px' }}>
-                      <button 
+                <div className="chat-scroll" style={{ 
+                  flex: 1, 
+                  overflowY: 'auto', 
+                  padding: '8px',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: `${light ? 'rgba(15,23,42,0.2)' : 'rgba(255,255,255,0.2)'} transparent`
+                }}>
+                  {(rooms || []).map(r => {
+                    const isActive = r.id === current;
+                    const label = r.displayName || r.name || 'Чат';
+                    return (
+                      <button
+                        key={r.id}
                         onClick={() => {
-                          ensureRoomForPsychologist();
-                          if (isMobileView) {
-                            setShowChatScreen(true);
-                          }
+                          setCurrent(r.id);
+                          if (isMobileView) setShowChatScreen(true);
                         }}
-                        style={{ 
-                          width: '100%', 
-                          justifyContent: 'flex-start', 
-                          padding: '12px', 
-                          fontSize: 14, 
-                          display: 'flex', 
-                          gap: 12, 
+                        style={{
+                          width: '100%',
+                          justifyContent: 'flex-start',
+                          padding: '12px',
+                          display: 'flex',
+                          gap: 12,
                           alignItems: 'center',
-                          cursor: 'pointer',
                           background: isActive ? chat.rowActive : 'transparent',
                           border: 'none',
                           borderRadius: 12,
                           color: 'var(--text)',
-                          transition: 'background 0.2s'
+                          cursor: 'pointer',
+                          transition: 'background 0.2s',
+                          marginBottom: 2
                         }}
-                        onMouseEnter={(e) => {
-                          if (!isActive) {
-                            e.currentTarget.style.background = chat.hoverRow;
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isActive) {
-                            e.currentTarget.style.background = 'transparent';
-                          }
-                        }}
+                        onMouseEnter={(e) => !isActive && (e.currentTarget.style.background = chat.hoverRow)}
+                        onMouseLeave={(e) => !isActive && (e.currentTarget.style.background = 'transparent')}
                       >
-                      {psychAvatar ? (
-                        <img 
-                          src={getAvatarUrl(psychAvatar, psychologist.id) || undefined} 
-                          alt={psychName}
-                          style={{ 
-                            width: 48, 
-                            height: 48, 
-                            borderRadius: 999, 
-                            objectFit: 'cover',
-                            border: '2px solid var(--primary)',
-                            flexShrink: 0
-                          }}
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent && !parent.querySelector('.avatar-fallback')) {
-                              const fallback = document.createElement('div');
-                              fallback.className = 'avatar-fallback';
-                              fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #f8fafc; display: grid; place-items: center; font-weight: 800; font-size: 18px; flex-shrink: 0;';
-                              fallback.textContent = psychName.charAt(0).toUpperCase();
-                              parent.appendChild(fallback);
-                            }
-                          }}
-                        />
-                      ) : (
                         <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 18, flexShrink: 0 }}>
-                          {psychName.charAt(0).toUpperCase()}
+                          {String(label).charAt(0).toUpperCase()}
                         </div>
-                      )}
-                      <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 2 }}>{psychName}</div>
-                        <div className="small" style={{ color: 'var(--text-muted)', fontSize: 13 }}>{psychologist.email || '—'}</div>
-                      </div>
-                    </button>
-                  </div>
-                  );
-                })() : (
-                  <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                    <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.5 }}>👤</div>
-                    <div style={{ fontSize: 14, marginBottom: 8 }}>Психолог не назначен</div>
-                    <div className="small" style={{ fontSize: 12, opacity: 0.7 }}>Обратитесь к администратору</div>
-                  </div>
-                )
+                        <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</div>
+                          <div className="small" style={{ color: 'var(--text-muted)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            Открыть переписку
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {!rooms?.length && (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 14, marginBottom: 8 }}>У вас пока нет чатов</div>
+                      <div className="small" style={{ fontSize: 12, opacity: 0.7 }}>Напишите специалисту через страницу психологов</div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <>
                   {/* Search */}
@@ -788,32 +674,18 @@ export default function ChatPage() {
                   >
                     ←
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setSidebarCollapsed(prev => !prev)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      border: 'none',
-                      background: light ? '#eef1f7' : 'var(--surface)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                      fontSize: 18,
-                      marginRight: 8
-                    }}
-                    title={sidebarCollapsed ? 'Показать список чатов' : 'Скрыть список чатов'}
-                  >
-                    ☰
-                  </button>
-                )}
+                ) : null}
                 <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {rooms.find(r => r.id === current)?.name || 'Чат'}
+                  {rooms.find(r => r.id === current)?.displayName || rooms.find(r => r.id === current)?.name || 'Чат'}
                 </div>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={deleteCurrentRoom}
+                  style={{ marginLeft: 'auto', padding: '6px 10px', fontSize: 12 }}
+                >
+                  Удалить чат
+                </button>
               </div>
             ) : (
               <div style={{ 
@@ -921,7 +793,7 @@ export default function ChatPage() {
                         aria-hidden={isGrouped}
                       >
                         {!isGrouped &&
-                          (rooms.find(r => r.id === current)?.name || '?').charAt(0).toUpperCase()}
+                          (rooms.find(r => r.id === current)?.displayName || rooms.find(r => r.id === current)?.name || '?').charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div style={{ 

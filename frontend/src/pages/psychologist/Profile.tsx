@@ -3,9 +3,10 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { clearVerificationCache } from '../../utils/verification';
+import { EmailChangeFlow } from '../../components/EmailChangeFlow';
 
 export default function PsychologistProfile() {
-  const { token, refreshProfile } = useAuth();
+  const { token, refreshProfile, user } = useAuth();
   
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -298,6 +299,13 @@ export default function PsychologistProfile() {
             {/* Основная информация */}
             <div className="card" style={{ padding: 32 }}>
               <h2 style={{ margin: 0, marginBottom: 24, fontSize: 22, fontWeight: 700 }}>Основная информация</h2>
+              <div className="card" style={{ padding: 14, marginBottom: 20, background: 'var(--surface-2)' }}>
+                <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>Email аккаунта</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong>{user?.email || '—'}</strong>
+                  <EmailChangeFlow />
+                </div>
+              </div>
               <form onSubmit={saveProfile} style={{ display: 'grid', gap: 20 }}>
                 <div>
                   <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>ФИО</label>

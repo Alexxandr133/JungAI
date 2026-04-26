@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
@@ -19,6 +20,7 @@ type Psychologist = {
 
 export default function ClientPsychologistsList() {
   const { token } = useAuth();
+  const navigate = useNavigate();
   const [psychologists, setPsychologists] = useState<Psychologist[]>([]);
   const [myPsychologist, setMyPsychologist] = useState<Psychologist | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,9 +58,14 @@ export default function ClientPsychologistsList() {
           setHasAttachedPsychologist(true);
         }
       } catch (e: any) {
-        // Если не удалось получить прикрепленного психолога, загружаем всех
-        console.error('Failed to load attached psychologist:', e);
-        // Если это 403, возможно проблема с правами доступа, но все равно показываем всех психологов
+        // Если психолог еще не выбран, это штатный сценарий — просто показываем общий список.
+        const noPsychologistSelected =
+          e?.status === 404 ||
+          e?.code === 'NO_PSYCHOLOGIST' ||
+          String(e?.message || '').toLowerCase().includes('not selected');
+        if (!noPsychologistSelected) {
+          console.error('Failed to load attached psychologist:', e);
+        }
         if (e.status === 403) {
           console.warn('Access denied to /my-psychologist endpoint. User may not be properly authenticated or may not have client role.');
         }
@@ -115,7 +122,7 @@ export default function ClientPsychologistsList() {
     if (!selectedPsychologist || !requestMessage.trim() || !token) return;
     
     try {
-      await api('/api/support/request', {
+      const created = await api<{ chatRoomId?: string }>('/api/support/request', {
         method: 'POST',
         token: token,
         body: {
@@ -130,6 +137,9 @@ export default function ClientPsychologistsList() {
       setShowRequestModal(false);
       setSelectedPsychologist(null);
       setRequestMessage('');
+      if (requestType === 'chat' && created?.chatRoomId) {
+        navigate(`/chat?roomId=${encodeURIComponent(created.chatRoomId)}`);
+      }
     } catch (e: any) {
       alert('Ошибка: ' + (e.message || 'Не удалось отправить запрос'));
     }
@@ -201,7 +211,17 @@ export default function ClientPsychologistsList() {
             margin: hasAttachedPsychologist ? '0 auto' : 0
           }}>
             {filtered.map(psych => (
-              <div key={psych.id} className="card card-hover-shimmer" style={{ padding: 24 }}>
+              <div
+                key={psych.id}
+                className="card card-hover-shimmer"
+                style={{
+                  padding: 24,
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.18)',
+                  cursor: 'pointer'
+                }}
+                onClick={() => navigate(`/psychologists/${psych.id}`)}
+              >
                 <div style={{ display: 'flex', alignItems: 'start', gap: 16, marginBottom: 16 }}>
                   <div 
                     onClick={hasAttachedPsychologist ? () => handleViewProfile(psych) : undefined}
@@ -258,25 +278,43 @@ export default function ClientPsychologistsList() {
                     )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, minWidth: 0 }}>
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: 18,
+                          fontWeight: 700,
+                          color: 'var(--text)',
+                          minWidth: 0,
+                          flex: 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={psych.name}
+                      >
                         {psych.name}
                       </h3>
                       {psych.verified && (
-                        <span style={{ fontSize: 16 }} title="Верифицирован">✓</span>
+                        <span
+                          title="верефицирован"
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: '#22c55e',
+                            background: 'rgba(34,197,94,0.12)',
+                            border: '1px solid rgba(34,197,94,0.35)',
+                            borderRadius: 999,
+                            padding: '2px 8px',
+                            lineHeight: 1.2,
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0
+                          }}
+                        >
+                          верефицирован
+                        </span>
                       )}
                     </div>
-                    {psych.rating && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                        <span style={{ color: '#ffd700', fontSize: 14 }}>⭐</span>
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{psych.rating}</span>
-                        {psych.reviewsCount && (
-                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                            ({psych.reviewsCount} отзывов)
-                          </span>
-                        )}
-                      </div>
-                    )}
                     {psych.experience && (
                       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
                         Опыт: {psych.experience} {psych.experience === 1 ? 'год' : psych.experience < 5 ? 'года' : 'лет'}
@@ -325,14 +363,14 @@ export default function ClientPsychologistsList() {
                 {!hasAttachedPsychologist && (
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
-                      onClick={() => handleRequestChat(psych)}
+                      onClick={(e) => { e.stopPropagation(); handleRequestChat(psych); }}
                       className="button secondary"
                       style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
                     >
                       💬 Написать
                     </button>
                     <button
-                      onClick={() => handleRequestSession(psych)}
+                      onClick={(e) => { e.stopPropagation(); handleRequestSession(psych); }}
                       className="button"
                       style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
                     >
@@ -413,28 +451,42 @@ export default function ClientPsychologistsList() {
                   )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minWidth: 0 }}>
+                    <h2
+                      style={{
+                        margin: 0,
+                        fontSize: 24,
+                        fontWeight: 700,
+                        color: 'var(--text)',
+                        minWidth: 0,
+                        flex: 1
+                      }}
+                    >
                       {selectedPsychologist.name}
                     </h2>
                     {selectedPsychologist.verified && (
-                      <span style={{ fontSize: 18 }} title="Верифицирован">✓</span>
+                      <span
+                        title="верефицирован"
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: '#22c55e',
+                          background: 'rgba(34,197,94,0.12)',
+                          border: '1px solid rgba(34,197,94,0.35)',
+                          borderRadius: 999,
+                          padding: '2px 8px',
+                          lineHeight: 1.2,
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0
+                        }}
+                      >
+                        верефицирован
+                      </span>
                     )}
                   </div>
                   {selectedPsychologist.email && (
                     <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 8 }}>
                       {selectedPsychologist.email}
-                    </div>
-                  )}
-                  {selectedPsychologist.rating && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                      <span style={{ color: '#ffd700', fontSize: 16 }}>⭐</span>
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>{selectedPsychologist.rating}</span>
-                      {selectedPsychologist.reviewsCount && (
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                          ({selectedPsychologist.reviewsCount} отзывов)
-                        </span>
-                      )}
                     </div>
                   )}
                 </div>

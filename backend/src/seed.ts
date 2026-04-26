@@ -3,6 +3,17 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+async function upsertUserByEmail(email: string, createData: any, updateData: any = {}) {
+  const existing = await prisma.user.findFirst({ where: { email } });
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: updateData,
+    });
+  }
+  return prisma.user.create({ data: { email, ...createData } });
+}
+
 async function main() {
   const password = 'demo';
   const hashed = bcrypt.hashSync(password, 10);
@@ -10,27 +21,17 @@ async function main() {
   console.log('Создание демо аккаунтов...');
 
   // 1. Создаем демо психолога
-  const demoPsychologist = await prisma.user.upsert({
-    where: { email: 'psy@example.com' },
-    update: {},
-    create: { 
-      email: 'psy@example.com', 
-      password: hashed, 
-      role: 'psychologist',
-      isVerified: false
-    },
+  const demoPsychologist = await upsertUserByEmail('psy@example.com', {
+    password: hashed,
+    role: 'psychologist',
+    isVerified: false
   });
 
   // 2. Создаем User с ролью client для входа
-  const demoClientUser = await prisma.user.upsert({
-    where: { email: 'client@example.com' },
-    update: {},
-    create: { 
-      email: 'client@example.com', 
-      password: hashed, 
-      role: 'client',
-      isVerified: false
-    },
+  const demoClientUser = await upsertUserByEmail('client@example.com', {
+    password: hashed,
+    role: 'client',
+    isVerified: false
   });
 
   // 3. Создаем Client сущность и привязываем к психологу
@@ -53,27 +54,17 @@ async function main() {
   }
 
   // 4. Создаем демо исследователя
-  const demoResearcher = await prisma.user.upsert({
-    where: { email: 'res@example.com' },
-    update: {},
-    create: { 
-      email: 'res@example.com', 
-      password: hashed, 
-      role: 'researcher',
-      isVerified: false
-    },
+  const demoResearcher = await upsertUserByEmail('res@example.com', {
+    password: hashed,
+    role: 'researcher',
+    isVerified: false
   });
 
   // 5. Создаем демо админа
-  const demoAdmin = await prisma.user.upsert({
-    where: { email: 'admin@example.com' },
-    update: {},
-    create: { 
-      email: 'admin@example.com', 
-      password: hashed, 
-      role: 'admin',
-      isVerified: true
-    },
+  const demoAdmin = await upsertUserByEmail('admin@example.com', {
+    password: hashed,
+    role: 'admin',
+    isVerified: true
   });
 
   // 6. Создаем 5 дополнительных психологов (не верифицированных)
@@ -88,18 +79,17 @@ async function main() {
   const clientAccounts = [];
   
   for (const psy of additionalPsychologists) {
-    const psychologist = await prisma.user.upsert({
-      where: { email: psy.email },
-      update: {
-        isVerified: true // Верифицируем демо-психологов
-      },
-      create: { 
-        email: psy.email, 
-        password: hashed, 
+    const psychologist = await upsertUserByEmail(
+      psy.email,
+      {
+        password: hashed,
         role: 'psychologist',
-        isVerified: true // Верифицируем демо-психологов
+        isVerified: true
       },
-    });
+      {
+        isVerified: true
+      }
+    );
 
     // Получаем короткий префикс из email психолога (например, vdovin.ser из Vdovin.Ser@demo.jung)
     const psyPrefix = psy.email.split('@')[0].toLowerCase();
@@ -108,15 +98,10 @@ async function main() {
     const clientEmail = `client.${psyPrefix}@demo.jung`;
     
     // Создаем User аккаунт для клиента (для входа)
-    await prisma.user.upsert({
-      where: { email: clientEmail },
-      update: {},
-      create: { 
-        email: clientEmail, 
-        password: hashed, 
-        role: 'client',
-        isVerified: false
-      },
+    await upsertUserByEmail(clientEmail, {
+      password: hashed,
+      role: 'client',
+      isVerified: false
     });
     
     const existingClient = await prisma.client.findFirst({

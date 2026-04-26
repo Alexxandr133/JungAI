@@ -38,11 +38,6 @@ export function GuestNavbar() {
       icon: 'chart'
     },
     {
-      label: 'Форум',
-      path: '/guest/community',
-      icon: 'messages'
-    },
-    {
       label: 'Публикации',
       path: '/guest/publications',
       icon: 'library'

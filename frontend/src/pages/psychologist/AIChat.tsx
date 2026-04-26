@@ -5,6 +5,22 @@ import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { PlatformIcon } from '../../components/icons';
 import '../../styles/tokens.css';
+import {
+  DEFAULT_PSYCHOLOGIST_AI_SETTINGS,
+  loadPsychologistAiSettings,
+  MODALITY_OPTIONS,
+  normalizeSettings,
+  savePsychologistAiSettings,
+  type PsychologistAiSettings
+} from '../../lib/psychologistAiSettings';
+import { PsychologistAiSettingsPanel } from './PsychologistAiSettingsPanel';
+import {
+  hasCompletedAiOnboarding,
+  loadPersonalityText,
+  markAiOnboardingDone,
+  savePersonalityText
+} from '../../lib/psychologistAiPersonality';
+import { PsychologistAiPersonalityModal } from './PsychologistAiPersonalityModal';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -68,7 +84,7 @@ const EMOJI_CATEGORIES = [
 ];
 
 export default function PsychologistAIChat() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -97,9 +113,48 @@ export default function PsychologistAIChat() {
   const [newShortcutEmoji, setNewShortcutEmoji] = useState('📝');
   const [newShortcutPrompt, setNewShortcutPrompt] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [aiSettings, setAiSettings] = useState<PsychologistAiSettings>(() => ({ ...DEFAULT_PSYCHOLOGIST_AI_SETTINGS }));
+  const [aiDraft, setAiDraft] = useState<PsychologistAiSettings>(() => ({ ...DEFAULT_PSYCHOLOGIST_AI_SETTINGS }));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [personalityText, setPersonalityText] = useState('');
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
+  const currentChatIdRef = useRef<string | null>(null);
+  const chatsRef = useRef<Chat[]>([]);
+
+  function scopedStorageKey(base: string): string {
+    return user?.id ? `${base}:${user.id}` : base;
+  }
+
+  useEffect(() => {
+    const s = loadPsychologistAiSettings();
+    setAiSettings(s);
+    setAiDraft(s);
+    setPersonalityText(loadPersonalityText());
+    if (!hasCompletedAiOnboarding()) {
+      setShowOnboardingModal(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    currentChatIdRef.current = currentChatId;
+  }, [currentChatId]);
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  useEffect(() => {
+    // При смене пользователя очищаем состояние до загрузки новых данных
+    setChats([]);
+    setFolders([]);
+    setShortcuts([]);
+    setCurrentChatId(null);
+    setMessages([]);
+  }, [user?.id]);
 
   useEffect(() => {
     loadChats();
@@ -109,7 +164,7 @@ export default function PsychologistAIChat() {
     if (clientModeEnabled) {
       loadClients();
     }
-  }, [clientModeEnabled]);
+  }, [clientModeEnabled, user?.id]);
 
   // Detect mobile view
   useEffect(() => {
@@ -209,7 +264,7 @@ export default function PsychologistAIChat() {
       console.error('Failed to load chats from API:', e);
       // Fallback to localStorage if API fails
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(scopedStorageKey(STORAGE_KEY));
         if (saved) {
           const parsed = JSON.parse(saved);
           const loadedChats = Array.isArray(parsed) ? parsed : [];
@@ -223,7 +278,7 @@ export default function PsychologistAIChat() {
 
   function loadFolders() {
     try {
-      const saved = localStorage.getItem(FOLDERS_STORAGE_KEY);
+      const saved = localStorage.getItem(scopedStorageKey(FOLDERS_STORAGE_KEY));
       if (saved) {
         const parsed = JSON.parse(saved);
         setFolders(Array.isArray(parsed) ? parsed : []);
@@ -236,6 +291,8 @@ export default function PsychologistAIChat() {
   async function saveChats(newChats: Chat[]) {
     if (!token) {
       setChats(newChats);
+      chatsRef.current = newChats;
+      localStorage.setItem(scopedStorageKey(STORAGE_KEY), JSON.stringify(newChats));
       return;
     }
     
@@ -264,10 +321,24 @@ export default function PsychologistAIChat() {
     );
     
     setChats(updatedChats);
+    chatsRef.current = updatedChats;
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY), JSON.stringify(updatedChats));
+
+    const currentId = currentChatIdRef.current;
+    if (currentId && !updatedChats.some(c => c.id === currentId)) {
+      const previous = newChats.find(c => c.id === currentId);
+      const replacement = previous
+        ? updatedChats.find(c => c.title === previous.title && c.createdAt === previous.createdAt)
+        : null;
+      if (replacement) {
+        setCurrentChatId(replacement.id);
+      }
+    }
   }
 
   async function saveFolders(newFolders: Folder[]) {
     setFolders(newFolders);
+    localStorage.setItem(scopedStorageKey(FOLDERS_STORAGE_KEY), JSON.stringify(newFolders));
     // Save each folder to backend
     if (!token) return;
     for (const folder of newFolders) {
@@ -288,7 +359,7 @@ export default function PsychologistAIChat() {
 
   function loadShortcuts() {
     try {
-      const saved = localStorage.getItem(SHORTCUTS_STORAGE_KEY);
+      const saved = localStorage.getItem(scopedStorageKey(SHORTCUTS_STORAGE_KEY));
       if (saved) {
         const parsed = JSON.parse(saved);
         setShortcuts(Array.isArray(parsed) ? parsed : []);
@@ -328,6 +399,7 @@ export default function PsychologistAIChat() {
 
   async function saveShortcuts(newShortcuts: Shortcut[]) {
     setShortcuts(newShortcuts);
+    localStorage.setItem(scopedStorageKey(SHORTCUTS_STORAGE_KEY), JSON.stringify(newShortcuts));
     // Save each shortcut to backend
     if (!token) return;
     for (const shortcut of newShortcuts) {
@@ -392,7 +464,9 @@ export default function PsychologistAIChat() {
         console.error('Failed to delete shortcut from backend:', e);
       }
     }
-    setShortcuts(shortcuts.filter(s => s.id !== shortcutId));
+    const nextShortcuts = shortcuts.filter(s => s.id !== shortcutId);
+    setShortcuts(nextShortcuts);
+    localStorage.setItem(scopedStorageKey(SHORTCUTS_STORAGE_KEY), JSON.stringify(nextShortcuts));
   }
 
   function startEditShortcut(shortcut: Shortcut) {
@@ -550,10 +624,12 @@ export default function PsychologistAIChat() {
     const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
     setMessages(newMessages);
     setLoading(true);
+    const chatsSnapshot = chatsRef.current;
+    let activeChatId: string | null = currentChatId;
 
     // Обновляем чат с новыми сообщениями и флагом загрузки
-    if (currentChatId) {
-      const chat = chats.find(c => c.id === currentChatId);
+    if (activeChatId) {
+      const chat = chatsSnapshot.find(c => c.id === activeChatId);
       if (chat) {
         const updatedChat = {
           ...chat,
@@ -564,8 +640,8 @@ export default function PsychologistAIChat() {
           updatedAt: new Date().toISOString(),
           isLoading: true // Сохраняем состояние загрузки
         };
-        const newChats = chats.map(c => c.id === currentChatId ? updatedChat : c);
-        saveChats(newChats);
+        const newChats = chatsSnapshot.map(c => c.id === activeChatId ? updatedChat : c);
+        await saveChats(newChats);
       }
     } else {
       // Создаем новый чат
@@ -578,8 +654,9 @@ export default function PsychologistAIChat() {
         updatedAt: new Date().toISOString(),
         isLoading: true // Сохраняем состояние загрузки
       } as Chat;
-      const newChats = [newChat, ...chats];
-      saveChats(newChats);
+      const newChats = [newChat, ...chatsSnapshot];
+      await saveChats(newChats);
+      activeChatId = newChat.id;
       setCurrentChatId(newChat.id);
     }
 
@@ -593,7 +670,12 @@ export default function PsychologistAIChat() {
             message: userMessage,
             conversationHistory: conversationHistory, // Используем правильную историю
             clientId: clientModeEnabled ? (selectedClientId || undefined) : undefined,
-            clientModeEnabled: clientModeEnabled
+            clientModeEnabled: clientModeEnabled,
+            modality: aiSettings.modality,
+            temperature: aiSettings.temperature,
+            responseStyle: aiSettings.responseStyle,
+            dreamsContextRange: aiSettings.dreamsContextRange,
+            personalization: personalityText.trim()
           }
         }
       );
@@ -602,13 +684,13 @@ export default function PsychologistAIChat() {
       setMessages(finalMessages);
 
       // Обновляем чат с финальными сообщениями и убираем флаг загрузки
-      if (currentChatId) {
-        const newChats = chats.map(c => 
-          c.id === currentChatId 
+      if (activeChatId) {
+        const newChats = chatsRef.current.map(c => 
+          c.id === activeChatId 
             ? { ...c, messages: finalMessages, updatedAt: new Date().toISOString(), isLoading: false }
             : c
         );
-        saveChats(newChats);
+        await saveChats(newChats);
       }
     } catch (error: any) {
       console.error('Chat error:', error);
@@ -619,13 +701,13 @@ export default function PsychologistAIChat() {
       const errorMessages = [...newMessages, errorMessage];
       setMessages(errorMessages);
 
-      if (currentChatId) {
-        const newChats = chats.map(c => 
-          c.id === currentChatId 
+      if (activeChatId) {
+        const newChats = chatsRef.current.map(c => 
+          c.id === activeChatId 
             ? { ...c, messages: errorMessages, updatedAt: new Date().toISOString(), isLoading: false }
             : c
         );
-        saveChats(newChats);
+        await saveChats(newChats);
       }
     } finally {
       setLoading(false);
@@ -1336,7 +1418,108 @@ export default function PsychologistAIChat() {
         )}
 
         {/* Main chat area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%', position: 'relative' }}>
+          {/* Верхняя панель: заголовок + настройки ИИ */}
+          <div
+            style={{
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '10px 16px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              background: 'var(--surface)',
+              minHeight: 48
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: isMobileView ? 14 : 15, color: 'var(--text)' }}>AI Ассистент</div>
+              <div className="small" style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {MODALITY_OPTIONS.find(m => m.id === aiSettings.modality)?.label ?? aiSettings.modality}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setAiDraft(aiSettings);
+                setSettingsOpen(true);
+              }}
+              title="Настройки ИИ"
+              style={{
+                flexShrink: 0,
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'var(--surface-2)',
+                color: 'var(--text)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                lineHeight: 0,
+                boxSizing: 'border-box'
+              }}
+            >
+              <PlatformIcon name="settings" size={20} strokeWidth={1.75} style={{ display: 'block', flexShrink: 0 }} />
+            </button>
+          </div>
+
+          <PsychologistAiPersonalityModal
+            open={showOnboardingModal}
+            variant="onboarding"
+            initialText={personalityText}
+            onClose={() => {
+              markAiOnboardingDone();
+              setShowOnboardingModal(false);
+            }}
+            onSkip={() => {
+              markAiOnboardingDone();
+              setShowOnboardingModal(false);
+            }}
+            onSave={text => {
+              const t = text.trim();
+              savePersonalityText(t);
+              setPersonalityText(t);
+              markAiOnboardingDone();
+              setShowOnboardingModal(false);
+            }}
+          />
+
+          <PsychologistAiPersonalityModal
+            open={showMemoryModal}
+            variant="memory"
+            initialText={personalityText}
+            onClose={() => setShowMemoryModal(false)}
+            onSave={text => {
+              const t = text.trim();
+              savePersonalityText(t);
+              setPersonalityText(t);
+              setShowMemoryModal(false);
+            }}
+          />
+
+          <PsychologistAiSettingsPanel
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            draft={aiDraft}
+            setDraft={setAiDraft}
+            isMobileView={isMobileView}
+            onOpenMemory={() => {
+              setSettingsOpen(false);
+              setShowMemoryModal(true);
+            }}
+            onApply={() => {
+              const next = normalizeSettings(aiDraft);
+              setAiSettings(next);
+              savePsychologistAiSettings(next);
+              setAiDraft(next);
+              setSettingsOpen(false);
+            }}
+          />
+
           {/* Mobile back button */}
           {isMobileView && currentChatId && (
             <div style={{

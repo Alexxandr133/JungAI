@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import { loadPsychologistAiSettings } from '../../lib/psychologistAiSettings';
+import { loadPersonalityText } from '../../lib/psychologistAiPersonality';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { VerificationRequired } from '../../components/VerificationRequired';
@@ -180,6 +182,7 @@ export default function AIRecommendationsPage() {
       
       // Используем AI ассистента психолога если это психолог
       if (user?.role === 'psychologist' || user?.role === 'admin') {
+        const ai = loadPsychologistAiSettings();
         const res = await api<{ reply?: string; message?: string }>('/api/ai/psychologist/chat', {
           method: 'POST',
           token: token ?? undefined,
@@ -188,7 +191,13 @@ export default function AIRecommendationsPage() {
             conversationHistory: messages.slice(-10).map(m => ({
               role: m.role,
               content: m.content
-            }))
+            })),
+            clientModeEnabled: true,
+            modality: ai.modality,
+            temperature: ai.temperature,
+            responseStyle: ai.responseStyle,
+            dreamsContextRange: ai.dreamsContextRange,
+            personalization: loadPersonalityText().trim()
           }
         });
         

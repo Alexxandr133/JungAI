@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
+import { EmailChangeFlow } from '../../components/EmailChangeFlow';
 
 export default function ClientProfile() {
-  const { refreshProfile } = useAuth();
+  const { refreshProfile, token, user } = useAuth();
   
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
@@ -19,8 +20,6 @@ export default function ClientProfile() {
   const [deleting, setDeleting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const { token } = useAuth();
 
   useEffect(() => {
     loadProfile();
@@ -255,6 +254,13 @@ export default function ClientProfile() {
             {/* Основная информация */}
             <div className="card" style={{ padding: 32 }}>
               <h2 style={{ margin: 0, marginBottom: 24, fontSize: 22, fontWeight: 700 }}>Основная информация</h2>
+              <div className="card" style={{ padding: 14, marginBottom: 20, background: 'var(--surface-2)' }}>
+                <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>Email аккаунта</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong>{user?.email || '—'}</strong>
+                  <EmailChangeFlow />
+                </div>
+              </div>
               <form onSubmit={saveProfile} style={{ display: 'grid', gap: 20 }}>
                 <div>
                   <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Имя</label>

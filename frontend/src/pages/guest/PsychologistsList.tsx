@@ -135,21 +135,18 @@ export default function PsychologistsList() {
     if (!selectedPsychologist || !requestMessage.trim()) return;
     
     if (!user) {
-      // Перенаправляем на регистрацию с сохранением данных запроса
-      navigate('/register', { 
-        state: { 
-          redirect: '/psychologists', 
-          action: requestType, 
-          psychologistId: selectedPsychologist.id,
-          requestMessage: requestMessage
-        } 
-      });
+      localStorage.setItem('pendingPsychologistContact', JSON.stringify({
+        psychologistId: selectedPsychologist.id,
+        type: requestType,
+        message: requestMessage.trim()
+      }));
+      navigate('/register');
       return;
     }
     
     try {
       // API call to create chat request or session request
-      await api('/api/support/request', {
+      const created = await api<{ chatRoomId?: string }>('/api/support/request', {
         method: 'POST',
         token: token ?? undefined,
         body: {
@@ -164,6 +161,9 @@ export default function PsychologistsList() {
       setShowRequestModal(false);
       setSelectedPsychologist(null);
       setRequestMessage('');
+      if (requestType === 'chat' && created?.chatRoomId) {
+        navigate(`/chat?roomId=${encodeURIComponent(created.chatRoomId)}`);
+      }
     } catch (e: any) {
       alert('Ошибка: ' + (e.message || 'Не удалось отправить запрос'));
     }
@@ -222,7 +222,17 @@ export default function PsychologistsList() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 24 }}>
             {filtered.map(psych => (
-              <div key={psych.id} className="card card-hover-shimmer" style={{ padding: 24 }}>
+              <div
+                key={psych.id}
+                className="card card-hover-shimmer"
+                style={{
+                  padding: 24,
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  boxShadow: '0 12px 28px rgba(0,0,0,0.18)',
+                  cursor: 'pointer'
+                }}
+                onClick={() => navigate(`/psychologists/${psych.id}`)}
+              >
                 <div style={{ display: 'flex', alignItems: 'start', gap: 16, marginBottom: 16 }}>
                   <div style={{
                     width: 80,
@@ -260,23 +270,43 @@ export default function PsychologistsList() {
                       <span>{psych.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
                     )}
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>{psych.name}</h3>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, minWidth: 0 }}>
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: 20,
+                          fontWeight: 700,
+                          minWidth: 0,
+                          flex: 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={psych.name}
+                      >
+                        {psych.name}
+                      </h3>
                       {psych.verified && (
-                        <span title="Верифицирован" style={{ fontSize: 18 }}>✓</span>
+                        <span
+                          title="верефицирован"
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: '#22c55e',
+                            background: 'rgba(34,197,94,0.12)',
+                            border: '1px solid rgba(34,197,94,0.35)',
+                            borderRadius: 999,
+                            padding: '2px 8px',
+                            lineHeight: 1.2,
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0
+                          }}
+                        >
+                          верефицирован
+                        </span>
                       )}
                     </div>
-                    {psych.rating && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <span style={{ fontWeight: 600 }}>⭐ {typeof psych.rating === 'number' ? psych.rating.toFixed(1) : psych.rating}</span>
-                        {psych.reviewsCount && (
-                          <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-                            ({psych.reviewsCount} отзывов)
-                          </span>
-                        )}
-                      </div>
-                    )}
                     {psych.experience && (
                       <div style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 4 }}>
                         Опыт: {psych.experience} лет
@@ -352,14 +382,14 @@ export default function PsychologistsList() {
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button
                     className="button"
-                    onClick={() => handleRequestChat(psych)}
+                    onClick={(e) => { e.stopPropagation(); handleRequestChat(psych); }}
                     style={{ flex: 1, padding: '10px', fontSize: 14 }}
                   >
                     💬 Написать
                   </button>
                   <button
                     className="button secondary"
-                    onClick={() => handleRequestSession(psych)}
+                    onClick={(e) => { e.stopPropagation(); handleRequestSession(psych); }}
                     style={{ flex: 1, padding: '10px', fontSize: 14 }}
                   >
                     📅 Записаться

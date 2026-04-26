@@ -3,6 +3,7 @@
  */
 export function isThemeForcedDarkPath(pathname: string): boolean {
   if (pathname.startsWith('/dreams')) return true;
+  if (pathname.startsWith('/paranormal')) return true;
   if (pathname.startsWith('/guest/dreams')) return true;
   if (pathname.startsWith('/ai/recommendations')) return true;
   if (pathname.startsWith('/client/ai')) return true;
@@ -14,6 +15,7 @@ export function isThemeForcedDarkPath(pathname: string): boolean {
 /** Фон не накладывается на эти маршруты */
 export function isWallpaperExcludedPath(pathname: string): boolean {
   if (pathname.startsWith('/dreams')) return true;
+  if (pathname.startsWith('/paranormal')) return true;
   if (pathname.startsWith('/guest/dreams')) return true;
   if (pathname.startsWith('/psychologist/work-area')) return true;
   if (pathname.startsWith('/ai/recommendations')) return true;

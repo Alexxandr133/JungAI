@@ -8,6 +8,7 @@ type AuthUser = {
   id: string;
   email: string;
   role: UserRole;
+  emailVerified?: boolean;
   avatarUrl?: string | null;
   name?: string | null;
 };

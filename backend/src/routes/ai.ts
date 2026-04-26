@@ -4,6 +4,54 @@ import { prisma } from '../db/prisma';
 import { mergeDreamKeywords } from '../utils/dreamKeywords';
 import { config } from '../config';
 import { OpenAI } from 'openai';
+import {
+  appendPersonalization,
+  appendResponseStyle,
+  buildClientModalityPrompt,
+  buildGeneralModalityPrompt,
+  clampAiTemperature,
+  inferMaxTokensFromResponseStyle,
+  normalizePsychologistModality,
+  type ResponseStyle
+} from '../utils/psychologistAiModality';
+
+type DreamsContextRange = '30d' | '90d' | '365d' | 'all';
+
+function parseDreamsContextRange(raw: unknown): DreamsContextRange {
+  const s = String(raw ?? '30d');
+  if (s === '30d' || s === '90d' || s === '365d' || s === 'all') return s;
+  return '30d';
+}
+
+/** Нижняя граница даты createdAt для фильтра снов; null — без ограничения */
+function minDateForDreamRange(range: DreamsContextRange): Date | null {
+  if (range === 'all') return null;
+  const days = range === '30d' ? 30 : range === '90d' ? 90 : 365;
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function dreamRangeLabelRu(range: DreamsContextRange): string {
+  switch (range) {
+    case '30d':
+      return 'последние 30 дней';
+    case '90d':
+      return 'последние 90 дней';
+    case '365d':
+      return 'последний год';
+    default:
+      return 'всё время';
+  }
+}
+
+function formatDreamSymbolsForPrompt(symbols: unknown): string {
+  if (symbols == null) return '';
+  if (Array.isArray(symbols)) return (symbols as string[]).map(String).filter(Boolean).join(', ');
+  if (typeof symbols === 'object') return Object.keys(symbols as object).join(', ');
+  return '';
+}
 
 const router = Router();
 
@@ -155,25 +203,40 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       return res.status(500).json({ error: 'HuggingFace API не настроен. Установите HF_TOKEN в переменных окружения.' });
     }
 
-    const { message, conversationHistory = [], clientModeEnabled = true } = req.body ?? {};
+    const {
+      message,
+      conversationHistory = [],
+      clientModeEnabled = true,
+      modality: modalityRaw,
+      temperature: temperatureRaw,
+      responseStyle: responseStyleRaw,
+      personalization: personalizationRaw,
+      psychologistProfile: psychologistProfileRaw,
+      dreamsContextRange: dreamsContextRangeRaw
+    } = req.body ?? {};
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Сообщение обязательно' });
     }
 
+    const modality = normalizePsychologistModality(modalityRaw);
+    const temperature = clampAiTemperature(temperatureRaw);
+    const responseStyle = (['concise', 'balanced', 'detailed'].includes(String(responseStyleRaw))
+      ? responseStyleRaw
+      : 'balanced') as ResponseStyle;
+    const maxTokens = inferMaxTokensFromResponseStyle(responseStyle);
+    const personalization =
+      typeof personalizationRaw === 'string' && personalizationRaw.trim()
+        ? personalizationRaw
+        : typeof psychologistProfileRaw === 'string'
+          ? psychologistProfileRaw
+          : '';
+    const dreamsContextRange = parseDreamsContextRange(dreamsContextRangeRaw);
+
     // Если режим работы с клиентами выключен, работаем в обобщенном режиме
     if (!clientModeEnabled) {
-      const systemPrompt = `Ты — ассистент психолога, специализирующийся на юнгианском анализе и работе со сновидениями. Твоя задача — помогать психологу с общими вопросами по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам.
-
-Ты работаешь в обобщенном режиме и не имеешь доступа к данным конкретных клиентов. Отвечай на общие вопросы по:
-- Юнгианской психологии и аналитической психологии
-- Архетипам и символам
-- Интерпретации сновидений
-- Техникам работы с клиентами
-- Амплификациям и работе с символами
-- Общим принципам психотерапии
-
-Отвечай на русском языке, профессионально, но доступно. Используй знания юнгианской психологии, архетипов, символики и работы со сновидениями.`;
+      let systemPrompt = appendResponseStyle(buildGeneralModalityPrompt(modality), responseStyle);
+      systemPrompt = appendPersonalization(systemPrompt, personalization);
 
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt },
@@ -190,8 +253,8 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         const chatCompletion = await hfClient.chat.completions.create({
           model: 'deepseek-ai/DeepSeek-V3:novita',
           messages: messages as any,
-          temperature: 0.7,
-          max_tokens: 2048,
+          temperature,
+          max_tokens: maxTokens,
         }, {
           timeout: 120000,
         });
@@ -287,32 +350,40 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         })
       : [];
 
-    // Получаем сны клиентов по clientId (правильный способ)
-    // Также получаем сны, записанные психологом напрямую (если есть)
-    // clientIds уже объявлен выше на строке 165
-    
-    // Проверяем, указан ли конкретный клиент в запросе
+    // Сны для контекста: период задаётся dreamsContextRange (по умолчанию 30 дней).
+    // Если выбран конкретный клиент — только его сны в периоде (полный текст каждого сна).
     const requestedClientId = req.body?.clientId as string | undefined;
-    const targetClientIds = requestedClientId && clientIds.includes(requestedClientId) 
-      ? [requestedClientId] // Если указан конкретный клиент и он принадлежит психологу
-      : clientIds; // Иначе все клиенты психолога
-    
-    const whereConditions: any[] = [];
-    
-    // Сны клиентов по clientId
-    if (targetClientIds.length > 0) {
-      whereConditions.push({ clientId: { in: targetClientIds } });
+    const targetClientIds =
+      requestedClientId && clientIds.includes(requestedClientId) ? [requestedClientId] : clientIds;
+
+    const minDate = minDateForDreamRange(dreamsContextRange);
+    const dateWhere = minDate ? { createdAt: { gte: minDate } } : {};
+
+    let dreamWhere: any;
+    if (requestedClientId && clientIds.includes(requestedClientId)) {
+      dreamWhere = {
+        clientId: requestedClientId,
+        ...dateWhere
+      };
+    } else {
+      const whereConditions: any[] = [];
+      if (targetClientIds.length > 0) {
+        whereConditions.push({ clientId: { in: targetClientIds } });
+      }
+      whereConditions.push({ userId: req.user!.id });
+      dreamWhere = {
+        AND: [
+          { OR: whereConditions.length > 0 ? whereConditions : [{ userId: req.user!.id }] },
+          ...(minDate ? [{ createdAt: { gte: minDate } }] : [])
+        ]
+      };
     }
-    
-    // Сны, записанные психологом напрямую (если психолог сам записывал сны)
-    whereConditions.push({ userId: req.user!.id });
-    
+
+    const maxDreamRows = dreamsContextRange === 'all' ? 2500 : 800;
     const allDreams = await prisma.dream.findMany({
-      where: {
-        OR: whereConditions.length > 0 ? whereConditions : [{ userId: req.user!.id }]
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100, // Последние 100 снов
+      where: dreamWhere,
+      orderBy: { createdAt: 'asc' },
+      take: maxDreamRows,
       include: {
         client: {
           select: { id: true, name: true, email: true }
@@ -320,57 +391,34 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       }
     });
 
-    // Формируем контекст о снах для промпта
+    const rangeLabel = dreamRangeLabelRu(dreamsContextRange);
     let dreamsContext = '';
     if (allDreams.length > 0) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayDreams = allDreams.filter(d => {
-        const dreamDate = new Date(d.createdAt);
-        dreamDate.setHours(0, 0, 0, 0);
-        return dreamDate.getTime() === today.getTime();
+      let truncatedNote = '';
+      if (allDreams.length === maxDreamRows) {
+        const totalMatching = await prisma.dream.count({ where: dreamWhere });
+        if (totalMatching > maxDreamRows) {
+          truncatedNote = `\nВнимание: за период в базе ${totalMatching} снов; в контекст включены первые ${maxDreamRows} (лимит). Сузьте период в настройках или уточните вопрос.\n`;
+        }
+      }
+
+      dreamsContext = `\n\nСны для анализа (период: ${rangeLabel}; в контексте: ${allDreams.length} записей`;
+      if (requestedClientId && clientIds.includes(requestedClientId)) {
+        const c = clients.find(cl => cl.id === requestedClientId);
+        dreamsContext += `; выбранный клиент: ${c?.name || requestedClientId}`;
+      }
+      dreamsContext += `). Ниже полный текст каждого сна в хронологическом порядке.${truncatedNote}`;
+
+      allDreams.forEach((dream, idx) => {
+        const clientName = dream.client?.name || 'Неизвестный клиент';
+        const sym = formatDreamSymbolsForPrompt(dream.symbols);
+        dreamsContext += `\n${idx + 1}. "${dream.title || 'Без названия'}" (клиент: ${clientName}, ${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
+        dreamsContext += `   Содержание: ${dream.content || ''}\n`;
+        if (sym) dreamsContext += `   Символы: ${sym}\n`;
       });
-
-      dreamsContext = `\n\nДоступные данные о снах пациентов:\n`;
-      dreamsContext += `Всего снов в базе: ${allDreams.length}\n`;
-      dreamsContext += `Снов за сегодня: ${todayDreams.length}\n\n`;
-      
-      if (todayDreams.length > 0) {
-        dreamsContext += `Сны за сегодня:\n`;
-        todayDreams.forEach((dream, idx) => {
-          const clientName = dream.client?.name || 'Неизвестный клиент';
-          dreamsContext += `${idx + 1}. "${dream.title}" (Клиент: ${clientName}, ${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
-          // Показываем полный контент сна, без обрезания
-          dreamsContext += `   Содержание: ${dream.content}\n`;
-          if (Array.isArray(dream.symbols) && dream.symbols.length > 0) {
-            dreamsContext += `   Символы: ${(dream.symbols as string[]).join(', ')}\n`;
-          }
-          dreamsContext += '\n';
-        });
-      }
-
-      // Добавляем последние сны (не сегодняшние)
-      const recentDreams = allDreams.filter(d => {
-        const dreamDate = new Date(d.createdAt);
-        dreamDate.setHours(0, 0, 0, 0);
-        return dreamDate.getTime() !== today.getTime();
-      }).slice(0, 10);
-
-      if (recentDreams.length > 0) {
-        dreamsContext += `Последние сны (не сегодня):\n`;
-        recentDreams.forEach((dream, idx) => {
-          const clientName = dream.client?.name || 'Неизвестный клиент';
-          dreamsContext += `${idx + 1}. "${dream.title}" (Клиент: ${clientName}, ${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
-          // Показываем полный контент сна для последних снов тоже
-          dreamsContext += `   Содержание: ${dream.content}\n`;
-          if (Array.isArray(dream.symbols) && dream.symbols.length > 0) {
-            dreamsContext += `   Символы: ${(dream.symbols as string[]).join(', ')}\n`;
-          }
-          dreamsContext += '\n';
-        });
-      }
+      dreamsContext += '\n';
     } else {
-      dreamsContext = '\n\nВ базе данных пока нет записей снов.';
+      dreamsContext = `\n\nЗа период «${rangeLabel}» записей снов для текущего контекста не найдено.\n`;
     }
 
     // Формируем контекст о клиентах
@@ -499,18 +547,9 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       documentsContext = '\n\nВ рабочей области пока нет сохраненных документов о пациентах.';
     }
 
-    // Формируем system prompt
-    const systemPrompt = `Ты — ассистент психолога, специализирующийся на юнгианском анализе и работе со сновидениями. Твоя задача — помогать психологу с амплификациями, анализом символов, выявлением архетипических паттернов и интерпретацией снов пациентов.
-
-Ты имеешь доступ к:
-1. Базе данных снов пациентов
-2. Базе данных клиентов психолога
-3. Рабочей области: заметкам о клиентах и сессиям терапии
-4. Документам рабочей области: записям о пациентах. Стандартные вкладки: ведение клиента, запрос, анамнез, ценности/кредо, раздражители, сны, записи, Дневник клиента, Синхронии. Также могут быть кастомные вкладки, созданные психологом для конкретного клиента.
-
-Можешь отвечать на вопросы о клиентах, их снах, заметках, сессиях, документах рабочей области, анализировать паттерны, предлагать интерпретации и амплификации.
-
-Отвечай на русском языке, профессионально, но доступно. Используй знания юнгианской психологии, архетипов, символики и работы со сновидениями.`;
+    // Формируем system prompt (модальность влияет на акценты, данные те же)
+    let systemPrompt = appendResponseStyle(buildClientModalityPrompt(modality), responseStyle);
+    systemPrompt = appendPersonalization(systemPrompt, personalization);
 
     const userPrompt = `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}
 
@@ -529,7 +568,8 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     console.log('Sending request to HuggingFace Router API...', { 
       model: 'deepseek-ai/DeepSeek-V3:novita',
       messagesCount: messages.length,
-      hasHfToken: !!config.hfToken
+      hasHfToken: !!config.hfToken,
+      modality
     });
 
     let assistantMessage = 'Извините, не удалось получить ответ.';
@@ -540,8 +580,8 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       const chatCompletion = await hfClient.chat.completions.create({
         model: 'deepseek-ai/DeepSeek-V3:novita',
         messages: messages as any,
-        temperature: 0.7,
-        max_tokens: 2048,
+        temperature,
+        max_tokens: maxTokens,
       }, {
         timeout: 120000, // 2 минуты таймаут
       });

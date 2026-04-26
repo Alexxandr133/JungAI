@@ -469,7 +469,7 @@ export default function ClientsList() {
 
         {/* Modal for showing registration link */}
         {showLinkModal && createdClientLink && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1001, padding: 16 }} onClick={() => { setShowLinkModal(false); setCreatedClientLink(null); }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1001, padding: 16 }}>
             <div className="card" style={{ width: 'min(600px, 94vw)', padding: 24, border: fieldBorder, boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 20 }}>
                 <div>
@@ -541,7 +541,7 @@ export default function ClientsList() {
 
         {/* Modal for adding client */}
         {showModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }} onClick={() => setShowModal(false)}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}>
             <div className="card" style={{ width: 'min(720px, 94vw)', padding: 20, border: fieldBorder, boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ fontWeight: 800 }}>Добавить клиента</div>

@@ -1,10 +1,55 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config';
-import type { UserRole } from '../middleware/auth';
+import { requireAuth, type AuthedRequest, type UserRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { sendEmailVerificationCode, sendPasswordResetCode } from '../utils/email';
 
 const router = Router();
+
+const bcrypt = require('bcryptjs');
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const TRUSTED_EMAIL_DOMAINS = ['example.com', 'jung-ai.ru', 'demo.jung'];
+
+function makeSixDigitCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function normalizeCode(input: string): string {
+  return String(input || '').replace(/\D/g, '').slice(0, 6);
+}
+
+function formatCodeForHuman(code: string): string {
+  const digits = normalizeCode(code);
+  if (digits.length <= 3) return digits;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}`;
+}
+
+function verificationExpiryDate(): Date {
+  return new Date(Date.now() + 15 * 60 * 1000);
+}
+
+function isTrustedEmailDomain(email: string): boolean {
+  const domain = String(email || '').trim().toLowerCase().split('@')[1] || '';
+  return (
+    domain === 'example.com' ||
+    domain === 'jung-ai.ru' ||
+    domain === 'demo.jung' ||
+    domain.endsWith('.jung-ai.ru') ||
+    domain.endsWith('.demo.jung') ||
+    domain.includes('jung-ai')
+  );
+}
+
+function parseStoredEmailChange(raw: string | null | undefined): { code: string; pendingEmail: string | null } {
+  const value = String(raw || '').trim();
+  if (!value) return { code: '', pendingEmail: null };
+  const parts = value.split('|');
+  if (parts.length >= 2) {
+    return { code: normalizeCode(parts[0]), pendingEmail: String(parts.slice(1).join('|') || '').trim().toLowerCase() || null };
+  }
+  return { code: normalizeCode(value), pendingEmail: null };
+}
 
 type DemoUser = {
   id: string;
@@ -22,17 +67,23 @@ const demoUsers: DemoUser[] = [
 
 router.post('/auth/login', async (req, res) => {
   const { username, password, email } = req.body ?? {};
-  const login = username || email; // Поддержка и логина, и email
-  
-  if (!login || !password) {
+  const rawLogin = username || email;
+  // Логин без учёта регистра; пробелы по краям не учитываем.
+  const login = String(rawLogin ?? '')
+    .trim()
+    .toLowerCase();
+  // Пароль с учётом регистра; ведущие пробелы не считаются частью пароля.
+  const passwordNorm = String(password ?? '').replace(/^\s+/, '');
+
+  if (!login || passwordNorm === '') {
     return res.status(400).json({ error: 'Логин и пароль обязательны' });
   }
 
   // Проверяем тестовые аккаунты (только если они уже существуют в БД)
-  const demoUser = demoUsers.find(u => u.email === login && u.password === password);
+  const demoUser = demoUsers.find(u => u.email === login && u.password === passwordNorm);
   if (demoUser) {
     // Ищем пользователя в БД, не создаем автоматически
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await (prisma as any).user.findUnique({
       where: { id: demoUser.id }
     });
     
@@ -45,14 +96,19 @@ router.post('/auth/login', async (req, res) => {
 
   // Ищем пользователя в БД по email
   // Если login не содержит @, ищем по email, который начинается с login@
-  let user = null;
+  let user = null as any;
   if (login.includes('@')) {
-    user = await prisma.user.findUnique({
-      where: { email: login }
+    user = await (prisma as any).user.findFirst({
+      where: { email: login },
+      orderBy: { createdAt: 'desc' }
     });
+    if (!user) return res.status(401).json({ error: 'Неверный логин или пароль' });
+    const isValidPassword =
+      bcrypt.compareSync(passwordNorm, user.password) || user.password === passwordNorm;
+    if (!isValidPassword) return res.status(401).json({ error: 'Неверный логин или пароль' });
   } else {
     // Ищем по email, который может быть в формате username@jungai.local
-    user = await prisma.user.findFirst({
+    user = await (prisma as any).user.findFirst({
       where: {
         OR: [
           { email: login },
@@ -66,22 +122,29 @@ router.post('/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Неверный логин или пароль' });
   }
 
-  // Проверяем пароль
-  const bcrypt = require('bcryptjs');
-  const isValidPassword = bcrypt.compareSync(password, user.password) || user.password === password; // Поддержка старых паролей
-  
-  if (!isValidPassword) {
-    return res.status(401).json({ error: 'Неверный логин или пароль' });
+  if (!login.includes('@')) {
+    const isValidPassword =
+      bcrypt.compareSync(passwordNorm, user.password) || user.password === passwordNorm;
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+  }
+
+  if (!user.emailVerified && !isTrustedEmailDomain(user.email)) {
+    return res.status(403).json({
+      error: 'Почта не подтверждена. Подтвердите email перед входом.',
+      code: 'EMAIL_NOT_VERIFIED'
+    });
   }
 
   const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, config.jwtSecret, { expiresIn: '30d' });
-  res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+  res.json({ token, user: { id: user.id, email: user.email, role: user.role, emailVerified: Boolean(user.emailVerified) } });
 });
 
 router.get('/auth/demo', async (_req, res) => {
   // Создаём всех демо-пользователей в базе данных
   for (const user of demoUsers) {
-    await prisma.user.upsert({
+    await (prisma as any).user.upsert({
       where: { id: user.id },
       update: {
         email: user.email,
@@ -114,7 +177,7 @@ router.get('/auth/me', async (req, res) => {
     // Создаём или обновляем пользователя в базе данных, если его нет
     const demoUser = demoUsers.find(u => u.id === me.id);
     if (demoUser) {
-      await prisma.user.upsert({
+      await (prisma as any).user.upsert({
         where: { id: me.id },
         update: {
           email: me.email,
@@ -131,9 +194,9 @@ router.get('/auth/me', async (req, res) => {
     }
     
     // Получаем информацию о пользователе из БД, включая isVerified
-    const user = await prisma.user.findUnique({
+    const user = await (prisma as any).user.findUnique({
       where: { id: me.id },
-      select: { id: true, email: true, role: true, isVerified: true }
+      select: { id: true, email: true, role: true, isVerified: true, emailVerified: true }
     });
     
     // Возвращаем информацию о пользователе
@@ -142,7 +205,8 @@ router.get('/auth/me', async (req, res) => {
         id: user.id, 
         email: user.email, 
         role: user.role,
-        isVerified: user.isVerified 
+        isVerified: user.isVerified,
+        emailVerified: Boolean((user as any).emailVerified)
       });
     }
     
@@ -152,7 +216,8 @@ router.get('/auth/me', async (req, res) => {
       id: me.id, 
       email: me.email, 
       role: me.role,
-      isVerified: me.role === 'admin' ? true : false
+      isVerified: me.role === 'admin' ? true : false,
+      emailVerified: true
     });
     
     // Автоматически создаём связь клиента с демо-психологом
@@ -242,16 +307,18 @@ router.post('/auth/register-client', async (req, res) => {
       return res.status(400).json({ error: 'Registration token has expired' });
     }
     
-    // Формируем email из username
-    const userEmail = email || `${username}@jungai.local`;
+    const userEmail = String(email ?? '').trim().toLowerCase();
+    if (!EMAIL_REGEX.test(userEmail)) {
+      return res.status(400).json({ error: 'Укажите реальную почту для регистрации' });
+    }
     
     // Проверяем, не зарегистрирован ли уже клиент
-    const existingUser = await prisma.user.findUnique({
+    const existingUsersCount = await (prisma as any).user.count({
       where: { email: userEmail }
     });
     
-    if (existingUser) {
-      return res.status(400).json({ error: 'Пользователь с таким логином уже существует' });
+    if (existingUsersCount >= 1) {
+      return res.status(400).json({ error: 'На один email можно создать только 1 аккаунт' });
     }
     
     // Хешируем пароль
@@ -259,11 +326,15 @@ router.post('/auth/register-client', async (req, res) => {
     const hashedPassword = bcrypt.hashSync(password, 10);
     
     // Создаём пользователя
-    const user = await prisma.user.create({
+    const trustedEmail = isTrustedEmailDomain(userEmail);
+    const user = await (prisma as any).user.create({
       data: {
         email: userEmail,
         password: hashedPassword,
-        role: 'client'
+        role: 'client',
+        emailVerified: trustedEmail,
+        emailVerificationCode: trustedEmail ? null : makeSixDigitCode(),
+        emailVerificationExpiresAt: trustedEmail ? null : verificationExpiryDate()
       }
     });
     
@@ -298,20 +369,29 @@ router.post('/auth/register-client', async (req, res) => {
       }
     });
     
-    // Генерируем JWT токен
+    if (!trustedEmail) {
+      await sendEmailVerificationCode(userEmail, formatCodeForHuman(user.emailVerificationCode!));
+      return res.json({
+        requiresEmailVerification: true,
+        email: userEmail,
+        client: {
+          id: client.id,
+          name: client.name,
+          email: userEmail
+        }
+      });
+    }
+
     const jwtToken = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       config.jwtSecret,
       { expiresIn: '30d' }
     );
-    
     res.json({
       token: jwtToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      },
+      user: { id: user.id, email: user.email, role: user.role },
+      requiresEmailVerification: false,
+      email: userEmail,
       client: {
         id: client.id,
         name: client.name,
@@ -327,10 +407,11 @@ router.post('/auth/register-client', async (req, res) => {
 // Регистрация нового пользователя
 router.post('/auth/register', async (req, res) => {
   try {
-    const { username, password, role } = req.body ?? {};
-    
-    if (!username || username.length < 3) {
-      return res.status(400).json({ error: 'Логин должен содержать минимум 3 символа' });
+    const { email, password, role, name } = req.body ?? {};
+    const normalizedEmail = String(email ?? '').trim().toLowerCase();
+
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({ error: 'Укажите корректный email' });
     }
     
     if (!password || password.length < 6) {
@@ -341,77 +422,78 @@ router.post('/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Неверная роль. Доступны: psychologist, researcher, client' });
     }
     
-    // Проверяем, не существует ли уже пользователь с таким email (используем username как email)
-    const email = `${username}@jungai.local`;
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
+    const existingUsersCount = await (prisma as any).user.count({
+      where: { email: normalizedEmail }
     });
     
-    if (existingUser) {
-      return res.status(400).json({ error: 'Пользователь с таким логином уже существует' });
+    if (existingUsersCount >= 1) {
+      return res.status(400).json({ error: 'На один email можно создать только 1 аккаунт' });
     }
     
-    // Хешируем пароль
-    const bcrypt = require('bcryptjs');
     const hashedPassword = bcrypt.hashSync(password, 10);
+    const trustedEmail = isTrustedEmailDomain(normalizedEmail);
+    const verifyCode = trustedEmail ? null : makeSixDigitCode();
+    const verifyExpiresAt = trustedEmail ? null : verificationExpiryDate();
     
-    // Создаём пользователя
-    const user = await prisma.user.create({
+    const user = await (prisma as any).user.create({
       data: {
-        email,
+        email: normalizedEmail,
         password: hashedPassword,
-        role: role as UserRole
+        role: role as UserRole,
+        emailVerified: trustedEmail,
+        emailVerificationCode: verifyCode,
+        emailVerificationExpiresAt: verifyExpiresAt
       }
     });
     
-    // Если регистрируется клиент, создаём запись Client (без психолога)
     if (role === 'client') {
-      // Проверяем, нет ли уже записи Client с таким email
       const existingClient = await prisma.client.findFirst({
-        where: { email }
+        where: { email: normalizedEmail }
       });
       
       if (!existingClient) {
-        // Создаём Client с временным psychologistId (клиент сам выберет психолога позже)
-        // Используем временный ID, который будет заменён при назначении психолога
         const tempPsychologistId = 'temp-' + user.id;
         await prisma.client.create({
           data: {
-            name: username, // Временное имя, можно будет обновить в профиле
-            email,
-            psychologistId: tempPsychologistId // Временный ID, будет заменён при назначении психолога
+            name: String(name || normalizedEmail.split('@')[0] || 'Клиент'),
+            email: normalizedEmail,
+            psychologistId: tempPsychologistId
           }
         });
       }
       
-      // Создаём профиль клиента
       await prisma.profile.upsert({
         where: { userId: user.id },
         update: {
-          name: username
+          name: String(name || normalizedEmail.split('@')[0] || 'Клиент')
         },
         create: {
           userId: user.id,
-          name: username,
+          name: String(name || normalizedEmail.split('@')[0] || 'Клиент'),
           interests: []
         }
       });
     }
-    
-    // Генерируем JWT токен
+
+    if (!trustedEmail && verifyCode) {
+      await sendEmailVerificationCode(normalizedEmail, formatCodeForHuman(verifyCode));
+      return res.json({
+        requiresEmailVerification: true,
+        email: normalizedEmail,
+        message: 'Код подтверждения отправлен на почту'
+      });
+    }
+
     const jwtToken = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       config.jwtSecret,
       { expiresIn: '30d' }
     );
-    
     res.json({
       token: jwtToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role
-      }
+      user: { id: user.id, email: user.email, role: user.role },
+      requiresEmailVerification: false,
+      email: normalizedEmail
     });
   } catch (error: any) {
     console.error('Registration error:', error);
@@ -438,7 +520,7 @@ router.get('/auth/check-registration-token/:token', async (req, res) => {
     }
     
     // Проверяем, не зарегистрирован ли уже
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await (prisma as any).user.findUnique({
       where: { email: client.email || '' }
     });
     
@@ -455,6 +537,276 @@ router.get('/auth/check-registration-token/:token', async (req, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to check token' });
+  }
+});
+
+router.post('/auth/verify-email', async (req, res) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const code = normalizeCode(String(req.body?.code ?? ''));
+    if (!EMAIL_REGEX.test(email) || code.length !== 6) {
+      return res.status(400).json({ error: 'Email и код обязательны' });
+    }
+    const user = await (prisma as any).user.findFirst({ where: { email } });
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+    if (user.emailVerified) {
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, config.jwtSecret, { expiresIn: '30d' });
+      return res.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    }
+    if (!user.emailVerificationCode || normalizeCode(user.emailVerificationCode) !== code) {
+      return res.status(400).json({ error: 'Неверный код подтверждения' });
+    }
+    if (!user.emailVerificationExpiresAt || new Date() > user.emailVerificationExpiresAt) {
+      return res.status(400).json({ error: 'Код истёк. Запросите новый код.' });
+    }
+
+    const updated = await (prisma as any).user.update({
+      where: { id: user.id },
+      data: {
+        emailVerified: true,
+        emailVerificationCode: null,
+        emailVerificationExpiresAt: null
+      }
+    });
+    const token = jwt.sign({ id: updated.id, email: updated.email, role: updated.role }, config.jwtSecret, { expiresIn: '30d' });
+    res.json({ token, user: { id: updated.id, email: updated.email, role: updated.role } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to verify email' });
+  }
+});
+
+router.post('/auth/resend-verification', async (req, res) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (!EMAIL_REGEX.test(email)) return res.status(400).json({ error: 'Укажите корректный email' });
+    const user = await (prisma as any).user.findFirst({ where: { email } });
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+    if (isTrustedEmailDomain(email)) {
+      await (prisma as any).user.update({
+        where: { id: user.id },
+        data: {
+          emailVerified: true,
+          emailVerificationCode: null,
+          emailVerificationExpiresAt: null
+        }
+      });
+      return res.json({ ok: true, message: 'Для этого домена подтверждение не требуется' });
+    }
+    if (user.emailVerified) return res.json({ ok: true, message: 'Почта уже подтверждена' });
+    const code = makeSixDigitCode();
+    await (prisma as any).user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationCode: code,
+        emailVerificationExpiresAt: verificationExpiryDate()
+      }
+    });
+    await sendEmailVerificationCode(email, formatCodeForHuman(code));
+    res.json({ ok: true, message: 'Новый код отправлен' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to resend verification code' });
+  }
+});
+
+router.post('/auth/change-email/request', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const nextEmail = String(req.body?.email ?? '').trim().toLowerCase();
+    if (!EMAIL_REGEX.test(nextEmail)) {
+      return res.status(400).json({ error: 'Укажите корректный email' });
+    }
+    if (isTrustedEmailDomain(nextEmail)) {
+      return res.status(400).json({ error: 'Укажите реальный email (не demo/example/jung)' });
+    }
+
+    const me = await (prisma as any).user.findUnique({ where: { id: userId } });
+    if (!me) return res.status(404).json({ error: 'Пользователь не найден' });
+    if (String(me.email).toLowerCase() === nextEmail) {
+      return res.status(400).json({ error: 'Этот email уже установлен' });
+    }
+
+    const sameEmailCount = await (prisma as any).user.count({ where: { email: nextEmail } });
+    if (sameEmailCount >= 1) {
+      return res.status(400).json({ error: 'На один email можно создать только 1 аккаунт' });
+    }
+
+    const code = makeSixDigitCode();
+    await (prisma as any).user.update({
+      where: { id: userId },
+      data: {
+        emailVerificationCode: `${code}|${nextEmail}`,
+        emailVerificationExpiresAt: verificationExpiryDate()
+      }
+    });
+    await sendEmailVerificationCode(nextEmail, formatCodeForHuman(code));
+    res.json({ ok: true, message: 'Код подтверждения отправлен на новую почту' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to request email change' });
+  }
+});
+
+router.post('/auth/change-email/verify', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    const code = normalizeCode(String(req.body?.code ?? ''));
+    if (code.length !== 6) return res.status(400).json({ error: 'Введите код из 6 цифр' });
+
+    const user = await (prisma as any).user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+
+    const stored = parseStoredEmailChange(user.emailVerificationCode);
+    if (!stored.pendingEmail) {
+      return res.status(400).json({ error: 'Запрос на смену email не найден. Запросите код заново.' });
+    }
+    if (stored.code !== code) return res.status(400).json({ error: 'Неверный код подтверждения' });
+    if (!user.emailVerificationExpiresAt || new Date() > user.emailVerificationExpiresAt) {
+      return res.status(400).json({ error: 'Код истёк. Запросите новый код.' });
+    }
+
+    const sameEmailCount = await (prisma as any).user.count({ where: { email: stored.pendingEmail } });
+    if (sameEmailCount >= 1) {
+      return res.status(400).json({ error: 'На один email можно создать только 1 аккаунт' });
+    }
+
+    const previousEmail = String(user.email).toLowerCase();
+    const updated = await (prisma as any).user.update({
+      where: { id: userId },
+      data: {
+        email: stored.pendingEmail,
+        emailVerified: true,
+        emailVerificationCode: null,
+        emailVerificationExpiresAt: null
+      }
+    });
+
+    if (updated.role === 'client') {
+      await (prisma as any).client.updateMany({
+        where: { email: previousEmail },
+        data: { email: stored.pendingEmail }
+      });
+    }
+
+    const token = jwt.sign({ id: updated.id, email: updated.email, role: updated.role }, config.jwtSecret, { expiresIn: '30d' });
+    res.json({ ok: true, token, user: { id: updated.id, email: updated.email, role: updated.role } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to verify email change' });
+  }
+});
+
+router.post('/auth/forgot-password', async (req, res) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const userId = String(req.body?.userId ?? '').trim();
+    if (!EMAIL_REGEX.test(email)) {
+      return res.json({ ok: true, message: 'Если почта существует, выберите аккаунт', accounts: [] });
+    }
+
+    const users = await (prisma as any).user.findMany({
+      where: { email },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, role: true, email: true, createdAt: true }
+    });
+    if (!users.length) {
+      return res.json({ ok: true, message: 'Если почта существует, выберите аккаунт', accounts: [] });
+    }
+
+    const profiles = await (prisma as any).profile.findMany({
+      where: { userId: { in: users.map((u: any) => u.id) } },
+      select: { userId: true, name: true }
+    });
+    const profileByUserId = new Map((profiles || []).map((p: any) => [p.userId, p.name]));
+
+    const accounts = users.map((u: any) => ({
+      id: u.id,
+      role: u.role,
+      email: u.email,
+      name: profileByUserId.get(u.id) || null,
+      createdAt: new Date(u.createdAt).toISOString()
+    }));
+
+    // Шаг 1: пользователь ввел email — возвращаем список аккаунтов для выбора
+    if (!userId) {
+      return res.json({
+        ok: true,
+        message: 'Выберите аккаунт для восстановления',
+        accounts
+      });
+    }
+
+    // Шаг 2: пользователь выбрал аккаунт — отправляем код
+    const user = users.find((u: any) => String(u.id) === userId);
+    if (!user) {
+      return res.status(400).json({ error: 'Выбранный аккаунт не найден для указанной почты' });
+    }
+
+    const code = makeSixDigitCode();
+    await (prisma as any).user.update({
+      where: { id: userId },
+      data: {
+        passwordResetCode: code,
+        passwordResetExpiresAt: verificationExpiryDate()
+      }
+    });
+    await sendPasswordResetCode(email, formatCodeForHuman(code));
+    res.json({
+      ok: true,
+      message: 'Код отправлен на почту',
+      account: accounts.find((a: any) => a.id === userId) || null
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to start password reset' });
+  }
+});
+
+router.post('/auth/verify-reset-code', async (req, res) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const userId = String(req.body?.userId ?? '').trim();
+    const code = normalizeCode(String(req.body?.code ?? ''));
+    if (!EMAIL_REGEX.test(email) || !userId || code.length !== 6) {
+      return res.status(400).json({ error: 'Проверьте email, аккаунт и код' });
+    }
+    const user = await (prisma as any).user.findFirst({ where: { id: userId, email } });
+    if (!user || !user.passwordResetCode || normalizeCode(user.passwordResetCode) !== code) {
+      return res.status(400).json({ error: 'Неверный email или код' });
+    }
+    if (!user.passwordResetExpiresAt || new Date() > user.passwordResetExpiresAt) {
+      return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
+    }
+    return res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to verify reset code' });
+  }
+});
+
+router.post('/auth/reset-password', async (req, res) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const userId = String(req.body?.userId ?? '').trim();
+    const code = normalizeCode(String(req.body?.code ?? ''));
+    const newPassword = String(req.body?.newPassword ?? '');
+    if (!EMAIL_REGEX.test(email) || !userId || code.length !== 6 || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Проверьте email, код и новый пароль (минимум 6 символов)' });
+    }
+    const user = await (prisma as any).user.findFirst({ where: { id: userId, email } });
+    if (!user) return res.status(400).json({ error: 'Неверный email или код' });
+    if (!user.passwordResetCode || normalizeCode(user.passwordResetCode) !== code) {
+      return res.status(400).json({ error: 'Неверный email или код' });
+    }
+    if (!user.passwordResetExpiresAt || new Date() > user.passwordResetExpiresAt) {
+      return res.status(400).json({ error: 'Код истёк. Запросите новый.' });
+    }
+    await (prisma as any).user.update({
+      where: { id: user.id },
+      data: {
+        password: bcrypt.hashSync(newPassword, 10),
+        passwordResetCode: null,
+        passwordResetExpiresAt: null
+      }
+    });
+    res.json({ ok: true, message: 'Пароль обновлён. Можно входить.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to reset password' });
   }
 });
 

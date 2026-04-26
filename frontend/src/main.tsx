@@ -16,6 +16,7 @@ import DreamsList from './pages/dreams/List'
 import DreamCreate from './pages/dreams/Create'
 import DreamFeedbackPage from './pages/dreams/Feedback'
 import DreamDetail from './pages/dreams/Detail'
+import ParanormalList from './pages/paranormal/List'
 import ClientsList from './pages/clients/List'
 import ClientDetail from './pages/clients/Detail'
 import ClientProfileView from './pages/clients/Profile'
@@ -48,9 +49,14 @@ import ResearcherDreams from './pages/researcher/Dreams'
 import ResearcherSupport from './pages/researcher/Support'
 import ResearcherAIChat from './pages/researcher/AIChat'
 import PublicationsPage from './pages/publications/Publications'
+import FeedPage from './pages/publications/Feed'
+import CommunityView from './pages/publications/CommunityView'
+import CommunityManage from './pages/publications/CommunityManage'
+import PostView from './pages/publications/PostView'
 import PsychologistProfile from './pages/psychologist/Profile'
 import PsychologistSupport from './pages/psychologist/Support'
 import PsychologistAIChat from './pages/psychologist/AIChat'
+import PsychologistRequestsPage from './pages/psychologist/Requests'
 import AdminDashboard from './pages/admin/Dashboard'
 import AdminVerification from './pages/admin/Verification'
 import AdminSupport from './pages/admin/Support'
@@ -60,11 +66,13 @@ import RegisterClient from './pages/auth/RegisterClient'
 import Register from './pages/Register'
 import GuestPage from './pages/guest/Guest'
 import GuestTests from './pages/guest/GuestTests'
-import GuestCommunity from './pages/guest/GuestCommunity'
 import GuestPublications from './pages/guest/GuestPublications'
 import GuestDreams from './pages/guest/GuestDreams'
 import PsychologistsList from './pages/guest/PsychologistsList'
+import PublicPsychologistProfile from './pages/psychologists/PublicProfile'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { ForcedEmailMigrationModal } from './components/EmailChangeFlow'
+import AboutPlatform from './pages/AboutPlatform'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -73,6 +81,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <GlobalAppearance />
         <I18nProvider>
           <AuthProvider>
+            <ForcedEmailMigrationModal />
             <ErrorBoundary>
             <Routes>
               <Route path="/" element={<App />} />
@@ -89,10 +98,19 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 }
               />
               <Route path="/guest/tests" element={<GuestTests />} />
-              <Route path="/guest/community" element={<GuestCommunity />} />
               <Route path="/guest/publications" element={<GuestPublications />} />
               <Route path="/guest/dreams" element={<GuestDreams />} />
               <Route path="/psychologists" element={<PsychologistsList />} />
+              <Route path="/psychologists/:id" element={<PublicPsychologistProfile />} />
+
+              <Route
+                path="/about"
+                element={
+                  <ProtectedRoute roles={['client', 'psychologist', 'researcher', 'admin']}>
+                    <AboutPlatform />
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/dashboard"
@@ -148,6 +166,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['psychologist', 'admin']}>
                     <PsychologistSupport />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/psychologist/requests"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'admin']}>
+                    <PsychologistRequestsPage />
                   </ProtectedRoute>
                 }
               />
@@ -258,6 +284,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/paranormal"
+                element={
+                  <ProtectedRoute roles={['client', 'psychologist', 'admin']}>
+                    <ParanormalList />
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/materials"
@@ -297,6 +331,38 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
                     <PublicationsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/feed"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
+                    <FeedPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/publications/community/:slug"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
+                    <CommunityView />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/publications/community/:id/manage"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
+                    <CommunityManage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/publications/post/:id"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
+                    <PostView />
                   </ProtectedRoute>
                 }
               />

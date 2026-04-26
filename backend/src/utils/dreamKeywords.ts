@@ -28,6 +28,7 @@ const STOP_WORDS = new Set(
 просто простой простая весьма вроде лишь только лишь чуть едва
 время раза разу разом разах минут час день ночь год лет года году
 сегодня вчера завтра сейчас потом потому поэтому зато однако либо
+вместо вместе всех дальше больше меньше
 как будто ведь вон даже едва ли ибо либо неужели ну вот
 очень весь вся все всю всем всеми весьма
 между среди около возле внутри вне снаружи
@@ -47,6 +48,13 @@ const NOUN_SURFACE_EXCEPTIONS = new Set(
 
 /** Не конвертировать в инфинитив (омонимы / ложные срабатывания) */
 const VERB_LEMMA_BLOCKLIST = new Set(['смел', 'смела', 'смели', 'смело']);
+
+/** Слова, которые технически выглядят как существительные, но для символов чаще всего шум */
+const BLOCK_SYMBOLS = new Set(
+  `
+голова головы
+`.split(/\s+/).filter(Boolean)
+);
 
 /** Существительные на -ал / похожие на глагол, но не «читал→читать» */
 const NOUN_NOT_VERB_AL = new Set(
@@ -118,7 +126,11 @@ const IRREGULAR_VERB_TO_INFINITIVE: Record<string, string> = {
   жили: 'жить',
   спал: 'спать',
   спала: 'спать',
-  спали: 'спать'
+  спали: 'спать',
+  вышел: 'выйти',
+  вышла: 'выйти',
+  вышли: 'выйти',
+  вышло: 'выйти'
 };
 
 const WORD_RE = /[\p{L}\p{M}]{3,}/gu;
@@ -127,6 +139,64 @@ const MAX_WORD_LEN = 32;
 export const MAX_SYMBOLS_PER_DREAM = 10;
 
 export type WordAgg = Map<string, { count: number; display: string }>;
+
+/**
+ * Канонизация «символов» (смысловых единиц).
+ * Важно: ключ — это НОРМАЛИЗОВАННАЯ форма (lowercase), значение — отображаемое имя символа.
+ * Это нужно, чтобы считать «сколько снов за день содержали символ», а не повторы внутри одного сна.
+ */
+const CANONICAL_SYMBOL_MAP: Record<string, string> = {
+  // силовые структуры
+  фсб: 'ФСБ',
+  фсбшник: 'ФСБ',
+  фсбшники: 'ФСБ',
+  фсбшников: 'ФСБ',
+  фсбшниками: 'ФСБ',
+  фсбшникам: 'ФСБ',
+  фсбшнике: 'ФСБ',
+  фсбшником: 'ФСБ',
+
+  полиция: 'Полиция',
+  полицейский: 'Полиция',
+  полицейские: 'Полиция',
+  мент: 'Полиция',
+  менты: 'Полиция',
+  коп: 'Полиция',
+  копы: 'Полиция',
+  копик: 'Полиция',
+  копики: 'Полиция',
+
+  // базовые смысловые действия/события (сведение глаголов к существительным)
+  обыскать: 'обыск',
+  обыскивать: 'обыск',
+  обыск: 'обыск',
+  обыскатьcя: 'обыск',
+  досмотр: 'обыск',
+  досматривать: 'обыск',
+  досмотрели: 'обыск',
+
+  бежать: 'бег',
+  побежать: 'бег',
+  бег: 'бег',
+  убегать: 'бег',
+  убежать: 'бег',
+
+  // петля/зацикливание
+  зацикливаться: 'зацикливание',
+  зацикливание: 'зацикливание',
+  петля: 'зацикливание',
+  бесконечный: 'зацикливание',
+  бесконечная: 'зацикливание',
+  бесконечной: 'зацикливание',
+
+  // выход / переход (как символ, если явно встречается)
+  выйти: 'выход',
+  выходить: 'выход',
+  выход: 'выход',
+  выхожу: 'выход',
+  выходя: 'выход',
+  выходят: 'выход'
+};
 
 /** Эвристика: прилагательные и причастия (инфинитивы глаголов оставляем как символы). */
 function isLikelyRussianAdjectiveVerbParticiple(t: string): boolean {
@@ -150,6 +220,16 @@ function isLikelyRussianAdjectiveVerbParticiple(t: string): boolean {
 function isLikelyEnglishNonNoun(t: string): boolean {
   if (t.length < 4) return false;
   if (/(ing|ful|less|ous|ive|able|ible|ed)$/.test(t) && t.length > 5) return true;
+  return false;
+}
+
+/** Эвристика: русские глаголы в настоящем/будущем времени (спряжение) */
+function looksLikeRussianConjugatedVerb(t: string): boolean {
+  if (t.length < 4) return false;
+  // частые окончания: делаем/делает/делают/делаю/делаешь, идём/идете/идут и т.п.
+  if (/(юсь|ешь|ет|ем|ём|ете|ёте|ут|ют|ишь|ит|им|ите|ат|ят)$/.test(t)) return true;
+  // повелительное: сделай/сделайте — часто мусор в символах
+  if (/(й|йте)$/.test(t) && t.length >= 5) return true;
   return false;
 }
 
@@ -259,19 +339,41 @@ function stemKey(token: string): string {
   return k;
 }
 
-function recordToken(agg: WordAgg, raw: string) {
+function normalizeTokenToKeyDisplay(raw: string): { key: string; display: string } | null {
   const k0 = symbolKey(raw);
-  if (!k0 || k0.length < 3 || k0.length > MAX_WORD_LEN || STOP_WORDS.has(k0)) return;
+  if (!k0 || k0.length < 3 || k0.length > MAX_WORD_LEN || STOP_WORDS.has(k0)) return null;
 
   const lemma = coerceRussianVerbLemma(k0);
-  if (lemma === k0 && looksLikeUnmappedPastVerb(k0)) return;
+  if (lemma === k0 && looksLikeUnmappedPastVerb(k0)) return null;
 
   if (/[а-ё]/i.test(lemma)) {
-    if (isLikelyRussianAdjectiveVerbParticiple(lemma)) return;
-  } else if (isLikelyEnglishNonNoun(k0)) return;
+    if (isLikelyRussianAdjectiveVerbParticiple(lemma)) return null;
+  } else if (isLikelyEnglishNonNoun(k0)) return null;
 
-  const key = stemKey(lemma);
-  const display = lemma !== k0 ? lemma : raw.normalize('NFKC').trim();
+  // Канонизация смысла по словарю (после лемматизации)
+  const canon = CANONICAL_SYMBOL_MAP[lemma] ?? lemma;
+  if (BLOCK_SYMBOLS.has(symbolKey(canon)) || BLOCK_SYMBOLS.has(symbolKey(lemma)) || BLOCK_SYMBOLS.has(k0)) return null;
+
+  // По умолчанию выкидываем спряжённые глаголы, если они не сведены словарём к смысловому символу.
+  // Это убирает мусор вроде «делаем/выхожу/начинают», оставляя «выход» через CANONICAL_SYMBOL_MAP.
+  if (looksLikeRussianConjugatedVerb(lemma) && !Object.prototype.hasOwnProperty.call(CANONICAL_SYMBOL_MAP, lemma)) {
+    return null;
+  }
+  // По умолчанию выкидываем «глаголы как символы», если они не сведены словарём к существительному смыслу.
+  // Это убирает мусор вроде «решить», «начать», «увидеть», оставляя «обыск/бег/…» через CANONICAL_SYMBOL_MAP.
+  if (canon === lemma && /(ть|ти|чь)$/i.test(lemma) && !Object.prototype.hasOwnProperty.call(CANONICAL_SYMBOL_MAP, lemma)) {
+    return null;
+  }
+  const key = stemKey(canon);
+  const display = CANONICAL_SYMBOL_MAP[lemma] ?? (lemma !== k0 ? lemma : raw.normalize('NFKC').trim());
+  if (!display || STOP_WORDS.has(symbolKey(display))) return null;
+  return { key, display };
+}
+
+function recordToken(agg: WordAgg, raw: string) {
+  const norm = normalizeTokenToKeyDisplay(raw);
+  if (!norm) return;
+  const { key, display } = norm;
 
   const prev = agg.get(key);
   if (!prev) {
@@ -304,6 +406,48 @@ export function topWordsFromAgg(agg: WordAgg, limit: number): Array<{ symbol: st
     .map(([, v]) => ({ symbol: v.display, count: v.count }))
     .sort((a, b) => b.count - a.count || a.symbol.localeCompare(b.symbol, 'ru'))
     .slice(0, limit);
+}
+
+/**
+ * Вариант A (объяснимый): считаем «сколько снов содержали символ» за день.
+ * Внутри одного сна один символ учитывается максимум 1 раз (дедуп).
+ */
+export function aggregateSymbolFrequencyByDreamPresence(
+  rows: Array<{ title: string; content: string }>
+): WordAgg {
+  const agg: WordAgg = new Map();
+
+  for (const row of rows) {
+    const blob = `${row.title || ''}\n${row.content || ''}`;
+    const matches = blob.match(WORD_RE);
+    if (!matches) continue;
+
+    const perDreamKeys = new Set<string>();
+    const perDreamDisplay = new Map<string, string>();
+
+    for (const raw of matches) {
+      const norm = normalizeTokenToKeyDisplay(raw);
+      if (!norm) continue;
+      if (perDreamKeys.has(norm.key)) continue;
+      perDreamKeys.add(norm.key);
+      perDreamDisplay.set(norm.key, norm.display);
+    }
+
+    for (const key of perDreamKeys) {
+      const display = perDreamDisplay.get(key) || key;
+      const prev = agg.get(key);
+      if (!prev) {
+        agg.set(key, { count: 1, display });
+      } else {
+        prev.count += 1;
+        if (displayPrecedence(symbolKey(display)) > displayPrecedence(symbolKey(prev.display))) {
+          prev.display = display;
+        }
+      }
+    }
+  }
+
+  return agg;
 }
 
 export function extractDreamSymbolCandidates(

@@ -43,11 +43,15 @@ export default function AdminUserManagement() {
   const [pwdUser, setPwdUser] = useState<AdminUserRow | null>(null);
   const [pwd1, setPwd1] = useState('');
   const [pwd2, setPwd2] = useState('');
+  const [emailUser, setEmailUser] = useState<AdminUserRow | null>(null);
+  const [emailDraft, setEmailDraft] = useState('');
 
   const [delUser, setDelUser] = useState<AdminUserRow | null>(null);
   const [transferTo, setTransferTo] = useState('');
 
   const [dragOverPsych, setDragOverPsych] = useState<string | null>(null);
+  const [validateBusy, setValidateBusy] = useState(false);
+  const [validateOk, setValidateOk] = useState<string | null>(null);
 
   const [qDebounced, setQDebounced] = useState('');
 
@@ -109,6 +113,24 @@ export default function AdminUserManagement() {
     }
   }
 
+  async function validateDreamSymbolsNow() {
+    if (!token) return;
+    setValidateBusy(true);
+    setValidateOk(null);
+    setError(null);
+    try {
+      const r = await api<{ success: boolean; sourceDreams: number }>(`/api/admin/dreams/validate-symbols`, {
+        method: 'POST',
+        token
+      });
+      setValidateOk(`Готово: обработано снов за сегодня: ${r.sourceDreams ?? 0}`);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Не удалось валидировать');
+    } finally {
+      setValidateBusy(false);
+    }
+  }
+
   const clientsByPsych = useMemo(() => {
     const m = new Map<string, CrmClient[]>();
     for (const c of clientsCrm) {
@@ -159,6 +181,28 @@ export default function AdminUserManagement() {
       setPwd2('');
     } catch (e: unknown) {
       setError((e as Error).message || 'Ошибка смены пароля');
+    }
+  }
+
+  async function submitEmail() {
+    if (!token || !emailUser) return;
+    const nextEmail = emailDraft.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      setError('Укажите корректный email');
+      return;
+    }
+    setError(null);
+    try {
+      await api(`/api/admin/users/${emailUser.id}/email`, {
+        method: 'PATCH',
+        token,
+        body: { email: nextEmail }
+      });
+      setEmailUser(null);
+      setEmailDraft('');
+      await refreshAll();
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Ошибка смены email');
     }
   }
 
@@ -258,8 +302,34 @@ export default function AdminUserManagement() {
             <button type="button" className="button secondary" onClick={() => refreshAll()} style={{ padding: '8px 16px', fontSize: 14 }}>
               Обновить
             </button>
+            <button
+              type="button"
+              className="button secondary"
+              disabled={validateBusy}
+              onClick={() => validateDreamSymbolsNow()}
+              style={{ padding: '8px 16px', fontSize: 14 }}
+              title="Запустить ежедневную валидацию символов (теги -> AI -> нормализация) раньше 18:00"
+            >
+              Валидировать сны
+            </button>
           </div>
         </div>
+
+        {validateOk && (
+          <div
+            className="card"
+            style={{
+              padding: 12,
+              marginBottom: 16,
+              background: 'rgba(16, 185, 129, 0.10)',
+              border: '1px solid rgba(16, 185, 129, 0.35)',
+              color: '#10b981',
+              borderRadius: 12
+            }}
+          >
+            {validateOk}
+          </div>
+        )}
 
         {error && (
           <div
@@ -354,6 +424,17 @@ export default function AdminUserManagement() {
                       </td>
                       <td style={{ padding: '10px 8px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="button secondary"
+                            style={{ padding: '4px 10px', fontSize: 12 }}
+                            onClick={() => {
+                              setEmailUser(u);
+                              setEmailDraft(u.email);
+                            }}
+                          >
+                            Email
+                          </button>
                           <button
                             type="button"
                             className="button secondary"
@@ -583,6 +664,54 @@ export default function AdminUserManagement() {
                 Отмена
               </button>
               <button type="button" className="button" onClick={() => submitPassword()}>
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {emailUser && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'grid',
+            placeItems: 'center',
+            zIndex: 2000,
+            padding: 16
+          }}
+          onClick={() => setEmailUser(null)}
+        >
+          <div className="card" style={{ padding: 24, maxWidth: 440, width: '100%', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Сменить email</div>
+            <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
+              Пользователь: {emailUser.email}
+            </div>
+            <input
+              type="email"
+              placeholder="Новый email"
+              value={emailDraft}
+              onChange={e => setEmailDraft(e.target.value)}
+              style={{
+                width: '100%',
+                padding: 10,
+                marginBottom: 16,
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'var(--surface)',
+                color: 'var(--text)'
+              }}
+            />
+            <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+              Для `example.com` и `jung-ai` подтверждение почты не требуется.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="button secondary" onClick={() => setEmailUser(null)}>
+                Отмена
+              </button>
+              <button type="button" className="button" onClick={() => submitEmail()}>
                 Сохранить
               </button>
             </div>

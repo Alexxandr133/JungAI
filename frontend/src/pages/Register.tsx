@@ -9,17 +9,27 @@ export default function Register() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<'psychologist' | 'researcher' | 'client'>('client');
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+
+  function formatCodeInput(v: string): string {
+    const digits = v.replace(/\D/g, '').slice(0, 6);
+    if (digits.length <= 3) return digits;
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (!username || username.length < 3) {
-      setError('Логин должен содержать минимум 3 символа');
+    const emailNorm = email.trim().toLowerCase();
+    if (!emailNorm || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm)) {
+      setError('Укажите корректный email');
       return;
     }
 
@@ -35,29 +45,79 @@ export default function Register() {
 
     setLoading(true);
     try {
-      const result = await api<{ token: string; user: any }>('/api/auth/register', {
+      const result = await api<{ requiresEmailVerification?: boolean; email?: string }>('/api/auth/register', {
         method: 'POST',
         body: {
-          username,
+          email: emailNorm,
+          name: name.trim() || undefined,
           password,
           role
         }
       });
-
-      await loginWithToken(result.token);
-      
-      // Перенаправляем в зависимости от роли
-      if (role === 'psychologist') {
-        navigate('/psychologist/profile');
-      } else if (role === 'researcher') {
-        navigate('/researcher/profile');
-      } else if (role === 'client') {
-        navigate('/client');
+      if (result.requiresEmailVerification) {
+        setPendingVerification(true);
       } else {
-        navigate('/dashboard');
+        setError('Не удалось запустить подтверждение почты');
       }
     } catch (e: any) {
       setError(e.message || 'Ошибка при регистрации');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await api<{ token: string; user: any }>('/api/auth/verify-email', {
+        method: 'POST',
+        body: {
+          email: email.trim().toLowerCase(),
+          code: verificationCode.trim()
+        }
+      });
+      await loginWithToken(result.token);
+      const pendingRaw = localStorage.getItem('pendingPsychologistContact');
+      if (pendingRaw && result.user.role === 'client') {
+        try {
+          const pending = JSON.parse(pendingRaw) as { psychologistId: string; type: 'chat' | 'session'; message: string };
+          const created = await api<{ chatRoomId?: string }>('/api/support/request', {
+            method: 'POST',
+            token: result.token,
+            body: pending
+          });
+          localStorage.removeItem('pendingPsychologistContact');
+          if (pending.type === 'chat' && created?.chatRoomId) {
+            navigate(`/chat?roomId=${encodeURIComponent(created.chatRoomId)}`);
+            return;
+          }
+        } catch {
+          localStorage.removeItem('pendingPsychologistContact');
+        }
+      }
+      if (result.user.role === 'psychologist' || result.user.role === 'admin') navigate('/psychologist/profile');
+      else if (result.user.role === 'researcher') navigate('/researcher/profile');
+      else if (result.user.role === 'client') navigate('/client');
+      else navigate('/dashboard');
+    } catch (e: any) {
+      setError(e.message || 'Не удалось подтвердить email');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendCode() {
+    setError(null);
+    setLoading(true);
+    try {
+      await api('/api/auth/resend-verification', {
+        method: 'POST',
+        body: { email: email.trim().toLowerCase() }
+      });
+    } catch (e: any) {
+      setError(e.message || 'Не удалось отправить код повторно');
     } finally {
       setLoading(false);
     }
@@ -90,6 +150,7 @@ export default function Register() {
           </div>
         )}
 
+        {!pendingVerification ? (
         <form onSubmit={handleRegister} style={{ display: 'grid', gap: 20 }}>
           <div>
             <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -108,19 +169,31 @@ export default function Register() {
 
           <div>
             <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
-              Логин *
+              Имя
             </label>
             <input
               type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Как к вам обращаться"
+              style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15 }}
+            />
+          </div>
+
+          <div>
+            <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+              Email *
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
               required
-              minLength={3}
-              placeholder="Введите логин"
+              placeholder="you@example.com"
               style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15 }}
             />
             <div className="small" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
-              Минимум 3 символа
+              На эту почту придёт код подтверждения
             </div>
           </div>
 
@@ -175,6 +248,33 @@ export default function Register() {
             </div>
           </div>
         </form>
+        ) : (
+          <form onSubmit={handleVerifyEmail} style={{ display: 'grid', gap: 20 }}>
+            <div className="small" style={{ color: 'var(--text-muted)' }}>
+              Мы отправили код подтверждения на ` {email.trim().toLowerCase()} `
+            </div>
+            <div>
+              <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+                Код подтверждения
+              </label>
+              <input
+                type="text"
+                value={verificationCode}
+                onChange={e => setVerificationCode(formatCodeInput(e.target.value))}
+                required
+                placeholder="123-456"
+                maxLength={7}
+                style={{ width: '100%', padding: '12px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15 }}
+              />
+            </div>
+            <button type="submit" className="button" disabled={loading} style={{ padding: '14px 24px', fontSize: 16, fontWeight: 600 }}>
+              {loading ? 'Проверяем...' : 'Подтвердить email'}
+            </button>
+            <button type="button" className="button secondary" disabled={loading} onClick={handleResendCode}>
+              Отправить код повторно
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

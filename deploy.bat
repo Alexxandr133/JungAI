@@ -13,44 +13,37 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo ✅ Node.js установлен
 
-REM 1. Backend сборка
-echo.
-echo 📦 Сборка backend...
-cd backend
+REM Корень монорепозитория (папка, где лежит deploy.bat)
+cd /d "%~dp0"
 
-REM Проверка существования .env
-if not exist .env (
-    echo ⚠️  Файл .env не найден. Создайте его перед деплоем.
+REM Проверка backend\.env
+if not exist backend\.env (
+    echo ⚠️  Файл backend\.env не найден. Создайте его перед деплоем.
     echo См. пример в DEPLOYMENT.md
     exit /b 1
 )
 
-echo Установка зависимостей backend...
-call npm ci
+REM 1. Зависимости всего монорепо (корневой npm ci)
+echo.
+echo 📦 Установка зависимостей (npm workspaces, корень репозитория)...
+if exist package-lock.json (
+    call npm ci
+) else (
+    echo ⚠️  Нет корневого package-lock.json — npm install из корня
+    call npm install
+)
 
-echo Сборка TypeScript...
-call npm run build
+REM 2. Backend
+echo.
+echo 📦 Сборка backend...
+call npm -w backend run build
+echo Применение миграций Prisma...
+call npm -w backend run prisma:migrate:deploy
 
-echo Генерация Prisma клиента...
-call npm run prisma:generate
-
-echo Применение миграций...
-call npm run prisma:migrate:deploy
-
-cd ..
-
-REM 2. Frontend сборка
+REM 3. Frontend
 echo.
 echo 📦 Сборка frontend...
-cd frontend
-
-echo Установка зависимостей frontend...
-call npm ci
-
-echo Сборка frontend...
-call npm run build
-
-cd ..
+call npm -w frontend run build
 
 REM 3. Создание директории для логов
 echo.

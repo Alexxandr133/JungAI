@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { api } from '../../lib/api';
+import { loadPsychologistAiSettings } from '../../lib/psychologistAiSettings';
+import { loadPersonalityText } from '../../lib/psychologistAiPersonality';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { PlatformIcon } from '../../components/icons';
 import { VerificationRequired } from '../../components/VerificationRequired';
@@ -178,6 +180,7 @@ export default function PsychologistWorkspace() {
     setChatLoading(true);
 
     try {
+      const ai = loadPsychologistAiSettings();
       const response = await api<{ message: string; conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> }>(
         '/api/ai/psychologist/chat',
         {
@@ -185,7 +188,13 @@ export default function PsychologistWorkspace() {
           token,
           body: {
             message: userMessage,
-            conversationHistory: chatMessages
+            conversationHistory: chatMessages,
+            clientModeEnabled: true,
+            modality: ai.modality,
+            temperature: ai.temperature,
+            responseStyle: ai.responseStyle,
+            dreamsContextRange: ai.dreamsContextRange,
+            personalization: loadPersonalityText().trim()
           }
         }
       );
