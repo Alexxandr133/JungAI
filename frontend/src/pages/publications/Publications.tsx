@@ -350,13 +350,13 @@ export default function PublicationsPage() {
                 <article
                   key={post.id}
                   className="card"
-                  style={{ padding: 16, cursor: 'pointer' }}
+                  style={{ padding: 16, cursor: 'pointer', overflow: 'hidden' }}
                   onClick={() => setSelectedPostId(post.id)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-                    <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, minWidth: 0 }}>
+                    <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 700 }}>{post.title}</div>
-                      <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+                      <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                         {post.authorMode === 'community' && post.community
                           ? `${post.community.name} (сообщество)`
                           : (post.author?.name || post.author?.email || 'Автор')} • {post.author?.role || 'user'} • {formatDate(post.createdAt)}
@@ -368,6 +368,7 @@ export default function PublicationsPage() {
                     {post.community?.slug && (
                       <button
                         className="button secondary"
+                        style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/publications/community/${post.community?.slug}`);
@@ -397,7 +398,7 @@ export default function PublicationsPage() {
                       />
                     </div>
                   ) : (
-                    <div style={{ lineHeight: 1.6, marginBottom: 12, direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }} dangerouslySetInnerHTML={{ __html: post.content }} />
+                    <div style={{ lineHeight: 1.6, marginBottom: 12, direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext', maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: post.content }} />
                   )}
                   <div className="small" style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <PlatformIcon name="message" size={14} strokeWidth={2} /> {post.commentsCount} комментариев • Открыть статью
@@ -449,6 +450,14 @@ export default function PublicationsPage() {
                 style={fieldStyle}
                 onChange={async (e) => setNewCommunityAvatarUrl(await fileToDataUrl(e.target.files?.[0] || null))}
               />
+              {newCommunityAvatarUrl && (
+                <div style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: 10, background: 'var(--surface-2)' }}>
+                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>Предпросмотр аватарки</div>
+                  <div style={{ width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
+                    <img src={newCommunityAvatarUrl} alt="avatar-preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                </div>
+              )}
             </div>
             <div style={{ display: 'grid', gap: 6 }}>
               <label className="small">Обложка сообщества</label>
@@ -458,6 +467,14 @@ export default function PublicationsPage() {
                 style={fieldStyle}
                 onChange={async (e) => setNewCommunityCoverUrl(await fileToDataUrl(e.target.files?.[0] || null))}
               />
+              {newCommunityCoverUrl && (
+                <div style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: 10, background: 'var(--surface-2)' }}>
+                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>Предпросмотр обложки</div>
+                  <div style={{ width: '100%', maxHeight: 160, borderRadius: 10, overflow: 'hidden', background: 'rgba(255,255,255,0.08)' }}>
+                    <img src={newCommunityCoverUrl} alt="cover-preview" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', display: 'block' }} />
+                  </div>
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="button secondary" onClick={() => setShowCommunityModal(false)}>
