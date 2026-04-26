@@ -9,14 +9,7 @@ type Props = {
 
 function isMigrationEmail(email: string): boolean {
   const domain = String(email || '').trim().toLowerCase().split('@')[1] || '';
-  return (
-    domain === 'example.com' ||
-    domain === 'demo.jung' ||
-    domain === 'jung-ai.ru' ||
-    domain.endsWith('.demo.jung') ||
-    domain.endsWith('.jung-ai.ru') ||
-    domain.includes('jung-ai')
-  );
+  return domain === 'jungai.local' || domain.endsWith('.jungai.local');
 }
 
 function formatCodeInput(v: string): string {

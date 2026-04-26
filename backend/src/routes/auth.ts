@@ -41,6 +41,11 @@ function isTrustedEmailDomain(email: string): boolean {
   );
 }
 
+function isLegacyLocalEmail(email: string): boolean {
+  const domain = String(email || '').trim().toLowerCase().split('@')[1] || '';
+  return domain === 'jungai.local' || domain.endsWith('.jungai.local');
+}
+
 function parseStoredEmailChange(raw: string | null | undefined): { code: string; pendingEmail: string | null } {
   const value = String(raw || '').trim();
   if (!value) return { code: '', pendingEmail: null };
@@ -130,7 +135,7 @@ router.post('/auth/login', async (req, res) => {
     }
   }
 
-  if (!user.emailVerified && !isTrustedEmailDomain(user.email)) {
+  if (!user.emailVerified && !isTrustedEmailDomain(user.email) && !isLegacyLocalEmail(user.email)) {
     return res.status(403).json({
       error: 'Почта не подтверждена. Подтвердите email перед входом.',
       code: 'EMAIL_NOT_VERIFIED'
@@ -605,6 +610,94 @@ router.post('/auth/resend-verification', async (req, res) => {
     res.json({ ok: true, message: 'Новый код отправлен' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to resend verification code' });
+  }
+});
+
+router.post('/auth/change-email-before-login', async (req, res) => {
+  try {
+    const rawLogin = req.body?.username ?? req.body?.email ?? '';
+    const login = String(rawLogin).trim().toLowerCase();
+    const passwordNorm = String(req.body?.password ?? '').replace(/^\s+/, '');
+    const nextEmail = String(req.body?.newEmail ?? '').trim().toLowerCase();
+
+    if (!login || !passwordNorm) {
+      return res.status(400).json({ error: 'Логин и пароль обязательны' });
+    }
+    if (!EMAIL_REGEX.test(nextEmail)) {
+      return res.status(400).json({ error: 'Укажите корректный новый email' });
+    }
+
+    let user = null as any;
+    if (login.includes('@')) {
+      user = await (prisma as any).user.findFirst({
+        where: { email: login },
+        orderBy: { createdAt: 'desc' }
+      });
+    } else {
+      user = await (prisma as any).user.findFirst({
+        where: {
+          OR: [
+            { email: login },
+            { email: { startsWith: `${login}@` } }
+          ]
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+    }
+    if (!user) return res.status(401).json({ error: 'Неверный логин или пароль' });
+
+    const isValidPassword =
+      bcrypt.compareSync(passwordNorm, user.password) || user.password === passwordNorm;
+    if (!isValidPassword) return res.status(401).json({ error: 'Неверный логин или пароль' });
+
+    if (String(user.email || '').toLowerCase() === nextEmail) {
+      return res.status(400).json({ error: 'Этот email уже установлен' });
+    }
+
+    const sameEmailCount = await (prisma as any).user.count({ where: { email: nextEmail } });
+    if (sameEmailCount >= 1) {
+      return res.status(400).json({ error: 'На один email можно создать только 1 аккаунт' });
+    }
+
+    const trustedEmail = isTrustedEmailDomain(nextEmail);
+    const verifyCode = trustedEmail ? null : makeSixDigitCode();
+
+    const updated = await (prisma as any).user.update({
+      where: { id: user.id },
+      data: {
+        email: nextEmail,
+        emailVerified: trustedEmail,
+        emailVerificationCode: verifyCode,
+        emailVerificationExpiresAt: trustedEmail ? null : verificationExpiryDate()
+      }
+    });
+
+    if (updated.role === 'client') {
+      await (prisma as any).client.updateMany({
+        where: { email: String(user.email || '').toLowerCase() },
+        data: { email: nextEmail }
+      });
+    }
+
+    if (!trustedEmail && verifyCode) {
+      await sendEmailVerificationCode(nextEmail, formatCodeForHuman(verifyCode));
+      return res.json({
+        ok: true,
+        requiresEmailVerification: true,
+        email: nextEmail,
+        message: 'Код подтверждения отправлен на новый email'
+      });
+    }
+
+    const token = jwt.sign({ id: updated.id, email: updated.email, role: updated.role }, config.jwtSecret, { expiresIn: '30d' });
+    return res.json({
+      ok: true,
+      requiresEmailVerification: false,
+      token,
+      user: { id: updated.id, email: updated.email, role: updated.role, emailVerified: true }
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to change email before login' });
   }
 });
 
