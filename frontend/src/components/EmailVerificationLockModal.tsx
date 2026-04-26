@@ -21,6 +21,7 @@ export function EmailVerificationLockModal() {
   }, [user]);
 
   if (!shouldLock || !user?.email) return null;
+  const email = user.email;
 
   async function verifyEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -31,7 +32,7 @@ export function EmailVerificationLockModal() {
       const res = await api<{ token: string }>('/api/auth/verify-email', {
         method: 'POST',
         body: {
-          email: user.email,
+          email,
           code: code.trim()
         }
       });
@@ -51,7 +52,7 @@ export function EmailVerificationLockModal() {
     try {
       await api('/api/auth/resend-verification', {
         method: 'POST',
-        body: { email: user.email }
+        body: { email }
       });
       setMessage('Код отправлен повторно');
     } catch (e: any) {
@@ -66,7 +67,7 @@ export function EmailVerificationLockModal() {
       <div className="card" style={{ width: 'min(520px, 94vw)', padding: 24, borderRadius: 16 }}>
         <h3 style={{ marginTop: 0, marginBottom: 8 }}>Подтвердите email</h3>
         <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 14 }}>
-          Вы вошли в аккаунт, но функции временно заблокированы до подтверждения почты <b>{user.email}</b>.
+          Вы вошли в аккаунт, но функции временно заблокированы до подтверждения почты <b>{email}</b>.
         </div>
         {message && <div className="card" style={{ padding: 10, marginBottom: 12, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.25)' }}>{message}</div>}
         {error && <div className="card" style={{ padding: 10, marginBottom: 12, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', color: '#ef4444' }}>{error}</div>}
