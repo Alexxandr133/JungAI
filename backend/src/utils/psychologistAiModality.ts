@@ -18,6 +18,106 @@ export const PSYCHOLOGIST_AI_MODALITIES = [
 
 export type PsychologistAiModalityId = (typeof PSYCHOLOGIST_AI_MODALITIES)[number];
 
+type ModalityPolicy = {
+  allowDreams: boolean;
+  allowSynchronicities: boolean;
+  focus: string[];
+  doNotUse: string[];
+};
+
+const MODALITY_POLICY: Record<PsychologistAiModalityId, ModalityPolicy> = {
+  jungian_analytical: {
+    allowDreams: true,
+    allowSynchronicities: true,
+    focus: ['архетипы', 'символы', 'амплификация', 'компенсация', 'индивидуация'],
+    doNotUse: []
+  },
+  psychoanalysis: {
+    allowDreams: true,
+    allowSynchronicities: false,
+    focus: ['бессознательные конфликты', 'защиты', 'перенос/контрперенос', 'сопротивление'],
+    doNotUse: ['юнгианские архетипы', 'синхронии как диагностический материал']
+  },
+  existential: {
+    allowDreams: false,
+    allowSynchronicities: false,
+    focus: ['смысл', 'выбор', 'ответственность', 'экзистенциальная тревога', 'ценности'],
+    doNotUse: ['интерпретация снов', 'архетипическая символика', 'метафизические объяснения']
+  },
+  transpersonal: {
+    allowDreams: true,
+    allowSynchronicities: true,
+    focus: ['интеграция духовного опыта', 'кризисы развития', 'ресурсные практики осознанности'],
+    doNotUse: ['жесткие патологизирующие выводы без достаточных данных']
+  },
+  transactional_analysis: {
+    allowDreams: false,
+    allowSynchronicities: false,
+    focus: ['состояния Я', 'транзакции', 'игры', 'сценарии', 'контракт'],
+    doNotUse: ['интерпретация снов', 'архетипическая интерпретация']
+  },
+  symbol_drama: {
+    allowDreams: true,
+    allowSynchronicities: false,
+    focus: ['образы', 'мотивы', 'динамика воображения', 'эмоциональные реакции'],
+    doNotUse: ['синхронии как фактологические доказательства']
+  },
+  systemic_family: {
+    allowDreams: false,
+    allowSynchronicities: false,
+    focus: ['паттерны взаимодействия', 'границы', 'правила системы', 'циркулярные гипотезы'],
+    doNotUse: ['интерпретация снов как центральный инструмент']
+  },
+  psychosynthesis: {
+    allowDreams: false,
+    allowSynchronicities: false,
+    focus: ['субличности', 'воля', 'дезидентификация', 'интеграция частей'],
+    doNotUse: ['юнгианская архетипизация как основной метод']
+  },
+  religious_oriented: {
+    allowDreams: false,
+    allowSynchronicities: true,
+    focus: ['религиозные ценности', 'этика', 'поддерживающие смыслы'],
+    doNotUse: ['психологические выводы, противоречащие выбранной конфессиональной рамке']
+  },
+  cbt: {
+    allowDreams: false,
+    allowSynchronicities: false,
+    focus: ['автоматические мысли', 'убеждения', 'искажения', 'поведенческие эксперименты', 'домашние задания'],
+    doNotUse: ['юнгианство', 'архетипы', 'интерпретация снов', 'синхронии']
+  },
+  spiritual_oriented: {
+    allowDreams: false,
+    allowSynchronicities: true,
+    focus: ['духовные ценности', 'смыслы', 'осознанность', 'ресурсы'],
+    doNotUse: ['догматичные интерпретации переживаний']
+  },
+  art_therapy: {
+    allowDreams: true,
+    allowSynchronicities: false,
+    focus: ['образное выражение', 'проективные техники', 'символика творчества'],
+    doNotUse: ['синхронии как диагностическое ядро']
+  },
+  gestalt: {
+    allowDreams: true,
+    allowSynchronicities: false,
+    focus: ['здесь-и-сейчас', 'контакт', 'прерывания контакта', 'эксперимент'],
+    doNotUse: ['длинные каузальные интерпретации без феноменологического основания']
+  }
+};
+
+function modalityBoundaries(modality: PsychologistAiModalityId): string {
+  const p = MODALITY_POLICY[modality];
+  const dreamsRule = p.allowDreams
+    ? 'Сны можно использовать как один из источников гипотез в рамках выбранной модальности.'
+    : 'Сны НЕ использовать: не интерпретировать и не опираться на них в выводах.';
+  const synchRule = p.allowSynchronicities
+    ? 'Синхронии можно учитывать как субъективный материал клиента, без мистических утверждений как факта.'
+    : 'Синхронии НЕ использовать как материал анализа.';
+  const dont = p.doNotUse.length ? `\nЗапрещено: ${p.doNotUse.join('; ')}.` : '';
+  return `Границы модальности:\n- Работай СТРОГО в рамках выбранного подхода.\n- Фокус: ${p.focus.join(', ')}.\n- ${dreamsRule}\n- ${synchRule}${dont}\n- Если данных недостаточно, прямо так и скажи: "Недостаточно данных для вывода", и предложи уточняющие вопросы.\n- Не смешивай техники других школ без явного запроса психолога.`;
+}
+
 const GENERAL: Record<PsychologistAiModalityId, string> = {
   jungian_analytical: `Ты — ассистент психолога, специализирующийся на юнгианском анализе и работе со сновидениями. Твоя задача — помогать психологу с общими вопросами по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам.
 
@@ -127,11 +227,16 @@ export function normalizePsychologistModality(raw: unknown): PsychologistAiModal
 }
 
 export function buildGeneralModalityPrompt(modality: PsychologistAiModalityId): string {
-  return GENERAL[modality] ?? GENERAL.jungian_analytical;
+  const base = GENERAL[modality] ?? GENERAL.jungian_analytical;
+  return `${base}\n\n${modalityBoundaries(modality)}`;
 }
 
 export function buildClientModalityPrompt(modality: PsychologistAiModalityId): string {
-  return (CLIENT_INTRO[modality] ?? CLIENT_INTRO.jungian_analytical) + CLIENT_SUFFIX;
+  return `${CLIENT_INTRO[modality] ?? CLIENT_INTRO.jungian_analytical}${CLIENT_SUFFIX}\n\n${modalityBoundaries(modality)}`;
+}
+
+export function getModalityPolicy(modality: PsychologistAiModalityId): ModalityPolicy {
+  return MODALITY_POLICY[modality] ?? MODALITY_POLICY.jungian_analytical;
 }
 
 export type ResponseStyle = 'concise' | 'balanced' | 'detailed';

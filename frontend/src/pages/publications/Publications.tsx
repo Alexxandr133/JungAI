@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlignCenter, AlignLeft, AlignRight, List, ListOrdered, Redo2, Undo2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
@@ -51,6 +52,34 @@ function formatDate(iso: string) {
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' });
 }
 
+function sanitizePastedRichHtml(html: string): string {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    doc.body.querySelectorAll('*').forEach((el) => {
+      const node = el as HTMLElement;
+      node.style.removeProperty('background');
+      node.style.removeProperty('background-color');
+      node.style.removeProperty('color');
+      const style = node.getAttribute('style') || '';
+      const cleaned = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((rule) => {
+          const key = rule.split(':')[0]?.trim().toLowerCase();
+          return key !== 'background' && key !== 'background-color' && key !== 'color';
+        })
+        .join('; ');
+      if (cleaned) node.setAttribute('style', cleaned);
+      else node.removeAttribute('style');
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
+}
+
 export default function PublicationsPage() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
@@ -73,7 +102,10 @@ export default function PublicationsPage() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [fontSizePx, setFontSizePx] = useState(16);
+  const [textColor, setTextColor] = useState('#1f2937');
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const savedRangeRef = useRef<Range | null>(null);
 
   async function loadFeed() {
     if (!token) return;
@@ -184,8 +216,118 @@ export default function PublicationsPage() {
     await loadFeed();
   }
 
+  function saveSelectionRange() {
+    const root = editorRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return;
+    savedRangeRef.current = range.cloneRange();
+  }
+
+  function restoreSelectionRange() {
+    const selection = window.getSelection();
+    if (!selection || !savedRangeRef.current) return;
+    selection.removeAllRanges();
+    selection.addRange(savedRangeRef.current);
+  }
+
+  function placeCaretAfter(node: Node) {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    savedRangeRef.current = range.cloneRange();
+  }
+
   function applyEditorCommand(command: string, value?: string) {
+    if (command !== 'undo' && command !== 'redo') {
+      editorRef.current?.focus();
+      restoreSelectionRange();
+    }
     document.execCommand(command, false, value);
+    if (editorRef.current) {
+      setEditorHtml(editorRef.current.innerHTML);
+      saveSelectionRange();
+    }
+  }
+
+  function applyFontSize(nextPx: number) {
+    setFontSizePx(nextPx);
+    const root = editorRef.current;
+    if (!root) return;
+    root.focus();
+    restoreSelectionRange();
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+
+    if (!root.contains(range.commonAncestorContainer)) return;
+
+    if (range.collapsed) {
+      // Если нет выделения, сохраняем стандартное поведение для следующего ввода.
+      document.execCommand('styleWithCSS', false, 'true');
+      document.execCommand('fontSize', false, '7');
+      root.querySelectorAll('font[size="7"]').forEach((node) => {
+        const span = document.createElement('span');
+        span.style.fontSize = `${nextPx}px`;
+        span.innerHTML = node.innerHTML || '&#8203;';
+        node.replaceWith(span);
+      });
+      saveSelectionRange();
+      setEditorHtml(root.innerHTML);
+      return;
+    }
+
+    const selected = range.extractContents();
+    const span = document.createElement('span');
+    span.style.fontSize = `${nextPx}px`;
+    span.appendChild(selected);
+    // Убираем вложенные font-size, чтобы новый размер применялся гарантированно.
+    span.querySelectorAll<HTMLElement>('[style*="font-size"]').forEach((el) => {
+      el.style.removeProperty('font-size');
+      if (!el.getAttribute('style')?.trim()) el.removeAttribute('style');
+    });
+    range.insertNode(span);
+
+    placeCaretAfter(span);
+    setEditorHtml(root.innerHTML);
+  }
+
+  function applyHeading(tag: 'p' | 'h2' | 'h3' | 'blockquote') {
+    applyEditorCommand('formatBlock', tag);
+  }
+
+  function applyTextColor(nextColor: string) {
+    setTextColor(nextColor);
+    applyEditorCommand('foreColor', nextColor);
+  }
+
+  function insertLink() {
+    const url = window.prompt('Вставьте ссылку (https://...)');
+    if (!url) return;
+    const normalized = /^(https?:)?\/\//i.test(url) ? url : `https://${url}`;
+    applyEditorCommand('createLink', normalized);
+  }
+
+  function clearFormatting() {
+    applyEditorCommand('removeFormat');
+    applyEditorCommand('unlink');
+  }
+
+  function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    if (html) {
+      document.execCommand('insertHTML', false, sanitizePastedRichHtml(html));
+      return;
+    }
+    document.execCommand('insertText', false, text || '');
   }
 
   return (
@@ -312,23 +454,92 @@ export default function PublicationsPage() {
                     ))}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button className="button secondary" type="button" onClick={() => applyEditorCommand('bold')}>Ж</button>
-                  <button className="button secondary" type="button" onClick={() => applyEditorCommand('italic')}>К</button>
-                  <button className="button secondary" type="button" onClick={() => applyEditorCommand('underline')}>Ч</button>
-                  <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertUnorderedList')}>Список</button>
-                  <button className="button secondary" type="button" onClick={() => applyEditorCommand('formatBlock', 'h2')}>H2</button>
+                <div
+                  style={{
+                    border: '1px solid rgba(148,163,184,0.28)',
+                    borderRadius: 12,
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                    padding: 10,
+                    display: 'grid',
+                    gap: 8
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select
+                      value={fontSizePx}
+                      onChange={(e) => applyFontSize(Number(e.target.value))}
+                      style={{ ...fieldStyle, width: 110, padding: '8px 10px', borderRadius: 10 }}
+                      title="Размер текста"
+                    >
+                      {[12, 14, 16, 18, 20, 24, 28, 32].map((size) => (
+                        <option key={size} value={size}>{size}px</option>
+                      ))}
+                    </select>
+                    <input
+                      type="color"
+                      value={textColor}
+                      onChange={(e) => applyTextColor(e.target.value)}
+                      title="Цвет текста"
+                      style={{ width: 40, height: 36, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                    />
+                    <button className="button secondary" type="button" onClick={() => applyHeading('p')}>P</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('h2')}>H2</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('h3')}>H3</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('blockquote')}>Цитата</button>
+                    <button className="button secondary" type="button" onClick={insertLink}>Ссылка</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('bold')}><b>B</b></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('italic')}><i>I</i></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('underline')}><u>U</u></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('strikeThrough')}><s>S</s></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertUnorderedList')} title="Маркированный список" aria-label="Маркированный список">
+                      <List size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertOrderedList')} title="Нумерованный список" aria-label="Нумерованный список">
+                      <ListOrdered size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyLeft')} title="Выровнять по левому краю" aria-label="Выровнять по левому краю">
+                      <AlignLeft size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyCenter')} title="Выровнять по центру" aria-label="Выровнять по центру">
+                      <AlignCenter size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyRight')} title="Выровнять по правому краю" aria-label="Выровнять по правому краю">
+                      <AlignRight size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('undo')} title="Отменить" aria-label="Отменить">
+                      <Undo2 size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('redo')} title="Повторить" aria-label="Повторить">
+                      <Redo2 size={16} strokeWidth={2} />
+                    </button>
+                    <button className="button secondary" type="button" onClick={clearFormatting}>Очистить формат</button>
+                  </div>
                 </div>
                 <div
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
+                  onPaste={handleEditorPaste}
+                  onMouseUp={saveSelectionRange}
+                  onKeyUp={saveSelectionRange}
                   onInput={(e) => setEditorHtml((e.target as HTMLDivElement).innerHTML)}
-                  style={{ ...fieldStyle, minHeight: 220, lineHeight: 1.6, direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }}
+                  style={{
+                    ...fieldStyle,
+                    minHeight: 260,
+                    lineHeight: 1.7,
+                    direction: 'ltr',
+                    textAlign: 'left',
+                    unicodeBidi: 'plaintext',
+                    border: '1px solid rgba(148,163,184,0.35)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                    padding: '14px 16px'
+                  }}
                 />
                 {!editorHtml.trim() && (
                   <div className="small" style={{ color: 'var(--text-muted)', marginTop: -6 }}>
-                    Поделитесь опытом, методикой или кейсом...
+                    Поделитесь опытом, методикой или кейсом. Пример: начните с H2, добавьте список шагов, выделите ключевые мысли жирным и вставьте ссылку на источник.
                   </div>
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>

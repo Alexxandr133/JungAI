@@ -21,7 +21,7 @@ export type AppearanceState = {
 };
 
 const DEFAULTS: AppearanceState = {
-  colorMode: 'dark',
+  colorMode: 'light',
   lightCardVariant: 'soft',
   wallpaper: '',
   textScale: 1
@@ -39,7 +39,7 @@ function loadStored(): AppearanceState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     const p = JSON.parse(raw) as Partial<AppearanceState>;
-    let colorMode: ColorMode = p.colorMode === 'light' ? 'light' : 'dark';
+    let colorMode: ColorMode = p.colorMode === 'dark' ? 'dark' : 'light';
     const wallpaper = typeof p.wallpaper === 'string' ? p.wallpaper : '';
     // С фоном-обоями только тёмная тема
     if (wallpaper && colorMode === 'light') {

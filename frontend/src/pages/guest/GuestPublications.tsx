@@ -67,7 +67,9 @@ export default function GuestPublications() {
               <article key={post.id} className="card" style={{ padding: 16, cursor: 'pointer' }} onClick={() => setSelectedPostId(post.id)}>
                 <div style={{ fontWeight: 700 }}>{post.title}</div>
                 <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
-                  {(post.author?.name || post.author?.email || 'Автор')} • {post.author?.role || 'user'}
+                  {post.authorMode === 'community' && post.community?.name
+                    ? `${post.community.name} • сообщество`
+                    : `${post.author?.name || post.author?.email || 'Автор'} • ${post.author?.role || 'user'}`}
                 </div>
                 {post.imageUrl && (
                   <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden' }}>

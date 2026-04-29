@@ -42,6 +42,62 @@ async function getUsersMap(userIds: string[]) {
   );
 }
 
+let ensuredPublicationCommentReactionsTable = false;
+async function ensurePublicationCommentReactionsTable() {
+  if (ensuredPublicationCommentReactionsTable) return;
+  await (prisma as any).$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "PublicationCommentReaction" (
+      "id" TEXT PRIMARY KEY,
+      "commentId" TEXT NOT NULL,
+      "userId" TEXT NOT NULL,
+      "type" TEXT NOT NULL DEFAULT 'like',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await (prisma as any).$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "PublicationCommentReaction_commentId_userId_type_key"
+    ON "PublicationCommentReaction"("commentId", "userId", "type");
+  `);
+  ensuredPublicationCommentReactionsTable = true;
+}
+
+async function getCommentReactionsCountMap(commentIds: string[]) {
+  if (!commentIds.length) return new Map<string, number>();
+  const placeholders = commentIds.map(() => '?').join(',');
+  const rows = await (prisma as any).$queryRawUnsafe(
+    `SELECT commentId, COUNT(*) as cnt
+     FROM "PublicationCommentReaction"
+     WHERE type = 'like' AND commentId IN (${placeholders})
+     GROUP BY commentId`,
+    ...commentIds
+  );
+  return new Map((rows || []).map((r: any) => [String(r.commentId), Number(r.cnt || 0)]));
+}
+
+async function getMyCommentReactionSet(commentIds: string[], userId?: string) {
+  if (!userId || !commentIds.length) return new Set<string>();
+  const placeholders = commentIds.map(() => '?').join(',');
+  const rows = await (prisma as any).$queryRawUnsafe(
+    `SELECT commentId
+     FROM "PublicationCommentReaction"
+     WHERE type = 'like' AND userId = ? AND commentId IN (${placeholders})`,
+    userId,
+    ...commentIds
+  );
+  return new Set((rows || []).map((r: any) => String(r.commentId)));
+}
+
+async function deleteCommentReactionsByPostIds(postIds: string[]) {
+  if (!postIds.length) return;
+  await ensurePublicationCommentReactionsTable();
+  const placeholders = postIds.map(() => '?').join(',');
+  await (prisma as any).$executeRawUnsafe(
+    `DELETE FROM "PublicationCommentReaction"
+     WHERE commentId IN (SELECT id FROM "PublicationComment" WHERE postId IN (${placeholders}))`,
+    ...postIds
+  );
+}
+
 let legacyCleanupStarted = false;
 async function cleanupLegacySeedCommunitiesOnce() {
   if (legacyCleanupStarted) return;
@@ -60,6 +116,7 @@ async function cleanupLegacySeedCommunitiesOnce() {
     });
     const postIds = posts.map((p: any) => p.id);
     if (postIds.length) {
+      await deleteCommentReactionsByPostIds(postIds);
       await (prisma as any).publicationComment.deleteMany({ where: { postId: { in: postIds } } });
       await (prisma as any).publicationReaction.deleteMany({ where: { postId: { in: postIds } } });
     }
@@ -71,7 +128,7 @@ async function cleanupLegacySeedCommunitiesOnce() {
   }
 }
 
-async function buildFeed(params: { communityId?: string; authorId?: string }) {
+async function buildFeed(params: { communityId?: string; authorId?: string; viewerUserId?: string }) {
   const where: any = { status: 'published' };
   if (params.communityId) where.communityId = params.communityId;
   if (params.authorId) where.authorId = params.authorId;
@@ -97,13 +154,21 @@ async function buildFeed(params: { communityId?: string; authorId?: string }) {
     : [];
   const commentsCountMap = new Map((comments || []).map((x: any) => [x.postId, x._count._all]));
   const reactionsCountMap = new Map((reactions || []).map((x: any) => [x.postId, x._count._all]));
+  const myReactions = params.viewerUserId && postIds.length
+    ? await (prisma as any).publicationReaction.findMany({
+        where: { postId: { in: postIds }, userId: params.viewerUserId, type: 'like' },
+        select: { postId: true }
+      })
+    : [];
+  const myReactionsSet = new Set((myReactions || []).map((r: any) => r.postId));
 
   return posts.map((p: any) => ({
     ...p,
     author: usersMap.get(p.authorId) || null,
     community: p.communityId ? communityMap.get(p.communityId) || null : null,
     commentsCount: commentsCountMap.get(p.id) || 0,
-    reactionsCount: reactionsCountMap.get(p.id) || 0
+    reactionsCount: reactionsCountMap.get(p.id) || 0,
+    likedByMe: myReactionsSet.has(p.id)
   }));
 }
 
@@ -122,7 +187,8 @@ async function getCommunityMembers(communityId: string) {
   }));
 }
 
-async function getPublicPostDetails(postId: string) {
+async function getPublicPostDetails(postId: string, viewerUserId?: string) {
+  await ensurePublicationCommentReactionsTable();
   const post = await (prisma as any).publicationPost.findUnique({ where: { id: postId } });
   if (!post || post.status !== 'published') return null;
   const usersMap = await getUsersMap([post.authorId]);
@@ -135,10 +201,19 @@ async function getPublicPostDetails(postId: string) {
         select: { id: true, slug: true, name: true, avatarUrl: true, coverUrl: true }
       })
     : null;
+  const commentIds = comments.map((c: any) => c.id);
+  const commentReactionsCountMap = await getCommentReactionsCountMap(commentIds);
+  const myCommentReactionSet = await getMyCommentReactionSet(commentIds, viewerUserId);
+
   return {
     ...post,
     author: usersMap.get(post.authorId) || null,
-    comments: comments.map((c: any) => ({ ...c, author: commentsUsersMap.get(c.authorId) || null })),
+    comments: comments.map((c: any) => ({
+      ...c,
+      author: commentsUsersMap.get(c.authorId) || null,
+      reactionsCount: commentReactionsCountMap.get(c.id) || 0,
+      likedByMe: myCommentReactionSet.has(c.id)
+    })),
     community,
     reactionsCount,
     likedByMe: false
@@ -320,6 +395,7 @@ router.delete('/communities/:id', requireAuth, async (req: AuthedRequest, res) =
     });
     const postIds = posts.map((p: any) => p.id);
     if (postIds.length) {
+      await deleteCommentReactionsByPostIds(postIds);
       await (prisma as any).publicationComment.deleteMany({ where: { postId: { in: postIds } } });
       await (prisma as any).publicationReaction.deleteMany({ where: { postId: { in: postIds } } });
     }
@@ -336,7 +412,7 @@ router.get('/publications/feed', requireAuth, async (req, res) => {
   try {
     const communityId = req.query.communityId ? String(req.query.communityId) : undefined;
     const authorId = req.query.authorId ? String(req.query.authorId) : undefined;
-    const items = await buildFeed({ communityId, authorId });
+    const items = await buildFeed({ communityId, authorId, viewerUserId: (req as AuthedRequest).user?.id });
     res.json({ items });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load feed' });
@@ -346,7 +422,7 @@ router.get('/publications/feed', requireAuth, async (req, res) => {
 router.get('/publications/discovery', requireAuth, async (_req, res) => {
   try {
     await cleanupLegacySeedCommunitiesOnce();
-    const items = await buildFeed({});
+    const items = await buildFeed({ viewerUserId: (_req as AuthedRequest).user?.id });
     const communities = await (prisma as any).community.findMany({
       orderBy: { createdAt: 'desc' },
       select: { id: true, slug: true, name: true, description: true, avatarUrl: true }
@@ -518,6 +594,7 @@ router.delete('/publications/posts/:id', requireAuth, async (req: AuthedRequest,
     const post = await (prisma as any).publicationPost.findUnique({ where: { id } });
     if (!post) return res.status(404).json({ error: 'Post not found' });
     if (post.authorId !== req.user!.id && req.user!.role !== 'admin') return res.status(403).json({ error: 'Нет доступа' });
+    await deleteCommentReactionsByPostIds([id]);
     await (prisma as any).publicationComment.deleteMany({ where: { postId: id } });
     await (prisma as any).publicationReaction.deleteMany({ where: { postId: id } });
     await (prisma as any).publicationPost.delete({ where: { id } });
@@ -530,7 +607,7 @@ router.delete('/publications/posts/:id', requireAuth, async (req: AuthedRequest,
 router.get('/publications/posts/:id', requireAuth, async (req: AuthedRequest, res) => {
   try {
     const id = String(req.params.id || '');
-    const item = await getPublicPostDetails(id);
+    const item = await getPublicPostDetails(id, req.user!.id);
     if (!item) return res.status(404).json({ error: 'Post not found' });
     const myReaction = await (prisma as any).publicationReaction.findFirst({
       where: { postId: id, userId: req.user!.id, type: 'like' }
@@ -564,6 +641,51 @@ router.post('/publications/posts/:id/comments', requireAuth, async (req: AuthedR
   }
 });
 
+router.post('/publications/comments/:id/reactions', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    await ensurePublicationCommentReactionsTable();
+    const id = String(req.params.id || '');
+    const type = String(req.body?.type || 'like').trim() || 'like';
+    const comment = await (prisma as any).publicationComment.findUnique({ where: { id } });
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+    const existingRows = await (prisma as any).$queryRawUnsafe(
+      `SELECT id FROM "PublicationCommentReaction" WHERE commentId = ? AND userId = ? AND type = ? LIMIT 1`,
+      id,
+      req.user!.id,
+      type
+    );
+    const existing = (existingRows || [])[0] as any;
+    if (existing?.id) {
+      await (prisma as any).$executeRawUnsafe(`DELETE FROM "PublicationCommentReaction" WHERE id = ?`, String(existing.id));
+      const countRows = await (prisma as any).$queryRawUnsafe(
+        `SELECT COUNT(*) as cnt FROM "PublicationCommentReaction" WHERE commentId = ? AND type = ?`,
+        id,
+        type
+      );
+      const count = Number((countRows || [])[0]?.cnt || 0);
+      return res.json({ active: false, reactionsCount: count });
+    }
+
+    await (prisma as any).$executeRawUnsafe(
+      `INSERT INTO "PublicationCommentReaction"(id, commentId, userId, type) VALUES (?, ?, ?, ?)`,
+      `pcr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id,
+      req.user!.id,
+      type
+    );
+    const countRows = await (prisma as any).$queryRawUnsafe(
+      `SELECT COUNT(*) as cnt FROM "PublicationCommentReaction" WHERE commentId = ? AND type = ?`,
+      id,
+      type
+    );
+    const count = Number((countRows || [])[0]?.cnt || 0);
+    res.json({ active: true, reactionsCount: count });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to toggle comment reaction' });
+  }
+});
+
 router.post('/publications/posts/:id/reactions', requireAuth, async (req: AuthedRequest, res) => {
   try {
     const id = String(req.params.id || '');
@@ -592,7 +714,7 @@ router.post('/publications/posts/:id/reactions', requireAuth, async (req: Authed
 // Legacy compatibility endpoints
 router.get('/community/feed', requireAuth, async (req, res) => {
   try {
-    const items = await buildFeed({});
+    const items = await buildFeed({ viewerUserId: (req as AuthedRequest).user?.id });
     res.json({ feed: items });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load feed' });

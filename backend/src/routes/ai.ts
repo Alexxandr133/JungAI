@@ -10,6 +10,7 @@ import {
   buildClientModalityPrompt,
   buildGeneralModalityPrompt,
   clampAiTemperature,
+  getModalityPolicy,
   inferMaxTokensFromResponseStyle,
   normalizePsychologistModality,
   type ResponseStyle
@@ -220,6 +221,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     }
 
     const modality = normalizePsychologistModality(modalityRaw);
+    const modalityPolicy = getModalityPolicy(modality);
     const temperature = clampAiTemperature(temperatureRaw);
     const responseStyle = (['concise', 'balanced', 'detailed'].includes(String(responseStyleRaw))
       ? responseStyleRaw
@@ -380,16 +382,18 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     }
 
     const maxDreamRows = dreamsContextRange === 'all' ? 2500 : 800;
-    const allDreams = await prisma.dream.findMany({
-      where: dreamWhere,
-      orderBy: { createdAt: 'asc' },
-      take: maxDreamRows,
-      include: {
-        client: {
-          select: { id: true, name: true, email: true }
-        }
-      }
-    });
+    const allDreams = modalityPolicy.allowDreams
+      ? await prisma.dream.findMany({
+          where: dreamWhere,
+          orderBy: { createdAt: 'asc' },
+          take: maxDreamRows,
+          include: {
+            client: {
+              select: { id: true, name: true, email: true }
+            }
+          }
+        })
+      : [];
 
     const rangeLabel = dreamRangeLabelRu(dreamsContextRange);
     let dreamsContext = '';
@@ -417,8 +421,10 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         if (sym) dreamsContext += `   Символы: ${sym}\n`;
       });
       dreamsContext += '\n';
-    } else {
+    } else if (modalityPolicy.allowDreams) {
       dreamsContext = `\n\nЗа период «${rangeLabel}» записей снов для текущего контекста не найдено.\n`;
+    } else {
+      dreamsContext = '\n\nСны исключены из контекста для текущей модальности.\n';
     }
 
     // Формируем контекст о клиентах
@@ -520,6 +526,12 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
           const tabsToShow = clientTabsList.length > 0 ? clientTabsList : clientDocs.map(d => d.tabName);
           
           tabsToShow.forEach((tabName) => {
+            const normalizedTab = String(tabName || '').trim().toLowerCase();
+            const isDreamTab = normalizedTab === 'сны';
+            const isSynchTab = normalizedTab === 'синхронии';
+            if (isDreamTab && !modalityPolicy.allowDreams) return;
+            if (isSynchTab && !modalityPolicy.allowSynchronicities) return;
+
             const doc = clientDocs.find(d => d.tabName === tabName);
             
             if (doc) {
