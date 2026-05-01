@@ -5,10 +5,10 @@ import { randomBytes } from 'crypto';
 import { notifyEventDeleted } from '../websocket/voiceRoom';
 import { io } from '../server';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
+import { AccessToken } from 'livekit-server-sdk';
+import { config } from '../config';
 
 const router = Router();
-
-import { config } from '../config';
 
 // Agora App ID и App Certificate
 const AGORA_APP_ID = config.agoraAppId;
@@ -23,11 +23,33 @@ function generateRoomId(): string {
 function generateRoomUrl(roomId: string): string {
   return `${config.frontendUrl}/room/${roomId}`;
 }
+function isGuestAccessibleType(eventType: string | null | undefined): boolean {
+  return eventType === 'video' || eventType === 'call';
+}
 
-router.get('/events', requireAuth, async (_req, res) => {
-  const now = new Date();
+async function canUserAccessEvent(event: any, user: { id: string; role: string; email: string }): Promise<boolean> {
+  if (!event) return false;
+  if (user.role === 'admin') return true;
+  if (event.createdBy === user.id) return true;
+  if (event.type !== 'session') return true;
+  const eventClientId = (event as any).clientId as string | null | undefined;
+  if (!eventClientId) return false;
+  const client = await prisma.client.findUnique({
+    where: { id: eventClientId },
+    select: { id: true, psychologistId: true, email: true }
+  });
+  if (!client) return false;
+  if (client.psychologistId === user.id) return true;
+  return Boolean(client.email && user.email && client.email.toLowerCase() === user.email.toLowerCase());
+}
+
+router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
+  const where: any = {};
+  if (req.user?.role === 'psychologist' || req.user?.role === 'researcher') {
+    where.createdBy = req.user.id;
+  }
   const items = await prisma.event.findMany({
-    where: { startsAt: { gte: now } },
+    where,
     orderBy: { startsAt: 'asc' },
     include: {
       voiceRoom: true
@@ -275,10 +297,143 @@ router.get('/events/by-room/:roomId', requireAuth, async (req: AuthedRequest, re
       return res.status(404).json({ error: 'Room or event not found' });
     }
 
+    const allowed = await canUserAccessEvent(voiceRoom.event as any, req.user!);
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
     res.json({ event: voiceRoom.event, voiceRoom });
   } catch (e: any) {
     console.error('Error getting event by roomId:', e);
     res.status(500).json({ error: e.message || 'Failed to get event' });
+  }
+});
+
+router.get('/events/public-room/:roomId', async (req, res) => {
+  const roomId = String(req.params.roomId || '');
+  try {
+    const voiceRoom = await prisma.voiceRoom.findUnique({
+      where: { roomId },
+      include: { event: true }
+    });
+    if (!voiceRoom || !voiceRoom.event) {
+      return res.status(404).json({ error: 'Room or event not found' });
+    }
+    if (!isGuestAccessibleType((voiceRoom.event as any).type)) {
+      return res.status(403).json({ error: 'Guest access is allowed only for video meetings' });
+    }
+    res.json({
+      event: voiceRoom.event,
+      voiceRoom
+    });
+  } catch (e: any) {
+    console.error('Error getting public event by roomId:', e);
+    res.status(500).json({ error: e.message || 'Failed to get event' });
+  }
+});
+
+router.get('/events/room/:roomId/livekit-token', requireAuth, async (req: AuthedRequest, res) => {
+  const roomId = String(req.params.roomId || '');
+  try {
+    if (!config.livekitUrl || !config.livekitApiKey || !config.livekitApiSecret) {
+      return res.status(500).json({ error: 'LiveKit is not configured. Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET.' });
+    }
+
+    const voiceRoom = await prisma.voiceRoom.findUnique({
+      where: { roomId },
+      include: { event: true }
+    });
+    if (!voiceRoom || !voiceRoom.event) {
+      return res.status(404).json({ error: 'Room or event not found' });
+    }
+
+    const allowed = await canUserAccessEvent(voiceRoom.event as any, req.user!);
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
+    const identity = req.user!.id;
+    const profile = await (prisma as any).profile.findUnique({
+      where: { userId: identity },
+      select: { name: true, avatarUrl: true }
+    });
+    const displayName = profile?.name || req.user!.email || `user-${identity.slice(0, 8)}`;
+    const at = new AccessToken(config.livekitApiKey, config.livekitApiSecret, {
+      identity,
+      name: displayName,
+      metadata: JSON.stringify({
+        userId: identity,
+        displayName,
+        avatarUrl: profile?.avatarUrl || null
+      }),
+      ttl: `${Math.max(300, config.livekitTokenTtlSec)}s`
+    });
+    at.addGrant({
+      room: roomId,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true
+    });
+
+    const token = await at.toJwt();
+    res.json({
+      token,
+      url: config.livekitUrl,
+      roomName: roomId,
+      identity,
+      name: displayName
+    });
+  } catch (e: any) {
+    console.error('Error generating LiveKit token:', e);
+    res.status(500).json({ error: e.message || 'Failed to generate LiveKit token' });
+  }
+});
+
+router.post('/events/room/:roomId/guest-livekit-token', async (req, res) => {
+  const roomId = String(req.params.roomId || '');
+  const requestedName = String(req.body?.displayName || '').trim();
+  const displayName = requestedName.slice(0, 60) || 'Гость';
+
+  try {
+    if (!config.livekitUrl || !config.livekitApiKey || !config.livekitApiSecret) {
+      return res.status(500).json({ error: 'LiveKit is not configured. Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET.' });
+    }
+
+    const voiceRoom = await prisma.voiceRoom.findUnique({
+      where: { roomId },
+      include: { event: true }
+    });
+    if (!voiceRoom || !voiceRoom.event) {
+      return res.status(404).json({ error: 'Room or event not found' });
+    }
+    if (!isGuestAccessibleType((voiceRoom.event as any).type)) {
+      return res.status(403).json({ error: 'Guest access is allowed only for video meetings' });
+    }
+
+    const identity = `guest-${randomBytes(8).toString('hex')}`;
+    const at = new AccessToken(config.livekitApiKey, config.livekitApiSecret, {
+      identity,
+      name: displayName,
+      metadata: JSON.stringify({
+        isGuest: true,
+        displayName
+      }),
+      ttl: `${Math.max(300, config.livekitTokenTtlSec)}s`
+    });
+    at.addGrant({
+      room: roomId,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true
+    });
+
+    const token = await at.toJwt();
+    res.json({
+      token,
+      url: config.livekitUrl,
+      roomName: roomId,
+      identity,
+      name: displayName
+    });
+  } catch (e: any) {
+    console.error('Error generating guest LiveKit token:', e);
+    res.status(500).json({ error: e.message || 'Failed to generate guest LiveKit token' });
   }
 });
 

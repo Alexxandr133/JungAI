@@ -509,13 +509,9 @@ router.post('/publications/posts', requireAuth, async (req: AuthedRequest, res) 
     if (communityId) {
       const c = await (prisma as any).community.findUnique({ where: { id: communityId } });
       if (!c) return res.status(404).json({ error: 'Сообщество не найдено' });
-      if (authorMode === 'community') {
-        const membership = await (prisma as any).communityMember.findFirst({
-          where: { communityId, userId: req.user!.id }
-        });
-        if (!membership && req.user!.role !== 'admin') {
-          return res.status(403).json({ error: 'Нельзя публиковать от лица этого сообщества' });
-        }
+      // Публиковать в сообщество может только владелец этого сообщества (или admin).
+      if (c.ownerId !== req.user!.id && req.user!.role !== 'admin') {
+        return res.status(403).json({ error: 'Можно публиковать только в сообщество, которое принадлежит вам' });
       }
     } else if (authorMode === 'community') {
       return res.status(400).json({ error: 'Для публикации от лица сообщества выберите сообщество' });

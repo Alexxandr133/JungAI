@@ -144,7 +144,11 @@ export default function ClientWorkspace() {
 
         const now = Date.now();
         const upcoming = (events.items || [])
-          .filter(ev => new Date(ev.startsAt).getTime() >= now - 3600000)
+          .filter(ev => {
+            if (new Date(ev.startsAt).getTime() < now - 3600000) return false;
+            // В "Ближайших событиях" показываем только подтвержденные сессии.
+            return ev.sessionStatus === 'accepted';
+          })
           .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
           .slice(0, 3);
         setUpcomingEvents(upcoming);

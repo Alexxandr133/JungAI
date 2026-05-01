@@ -1,0 +1,14 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: jingai-livekit
+    restart: unless-stopped
+    command: >
+      --dev
+      --bind 0.0.0.0
+      --port 7880
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_KEYS:-devkey:supersecret}"
+    ports:
+      - "7880:7880"
+      - "7881:7881/udp"

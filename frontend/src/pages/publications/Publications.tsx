@@ -106,6 +106,7 @@ export default function PublicationsPage() {
   const [textColor, setTextColor] = useState('#1f2937');
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  const publishableCommunities = communities.filter((c) => c.ownerId === user?.id);
 
   async function loadFeed() {
     if (!token) return;
@@ -125,6 +126,15 @@ export default function PublicationsPage() {
   useEffect(() => {
     loadFeed().catch(() => undefined);
   }, [token]);
+  useEffect(() => {
+    if (authorMode !== 'community') return;
+    if (!postCommunityId) return;
+    const hasSelected = publishableCommunities.some((c) => c.id === postCommunityId);
+    if (!hasSelected) {
+      setAuthorMode('account');
+      setPostCommunityId('');
+    }
+  }, [authorMode, postCommunityId, publishableCommunities]);
 
   async function fileToDataUrl(file: File | null): Promise<string> {
     if (!file) return '';
@@ -442,7 +452,7 @@ export default function PublicationsPage() {
                     <button className={authorMode === 'account' ? 'button' : 'button secondary'} type="button" onClick={() => { setAuthorMode('account'); setPostCommunityId(''); }}>
                       Аккаунта
                     </button>
-                    {communities.map((c) => (
+                    {publishableCommunities.map((c) => (
                       <button
                         key={c.id}
                         className={authorMode === 'community' && postCommunityId === c.id ? 'button' : 'button secondary'}

@@ -483,11 +483,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
               <Route
                 path="/room/:roomId"
-                element={
-                  <ProtectedRoute>
-                    <VoiceRoom />
-                  </ProtectedRoute>
-                }
+                element={<VoiceRoom />}
               />
 
               <Route

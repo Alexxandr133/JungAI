@@ -1,7 +1,24 @@
-import { useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { useAppearance } from '../../context/AppearanceContext';
+import { api, getApiBaseUrl } from '../../lib/api';
+import '@livekit/components-styles';
+import {
+  DisconnectButton,
+  LiveKitRoom,
+  ParticipantTile,
+  RoomAudioRenderer,
+  TrackToggle,
+  type TrackReferenceOrPlaceholder,
+  useAudioPlayback,
+  useChat,
+  useParticipants,
+  useTracks
+} from '@livekit/components-react';
+import { Track } from 'livekit-client';
+import { PlatformIcon } from '../../components/icons';
+import { CalendarClock, SendHorizontal, Video } from 'lucide-react';
 
 interface EventData {
   id: string;
@@ -12,22 +29,386 @@ interface EventData {
   type: string;
 }
 
+interface LiveKitTokenResponse {
+  token: string;
+  url: string;
+  roomName: string;
+  identity: string;
+  name: string;
+}
+
+function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
+  const { appearance } = useAppearance();
+  const isLight = appearance.colorMode === 'light';
+  const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>('chat');
+  const [chatText, setChatText] = useState('');
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const { chatMessages, send, isSending } = useChat();
+  const participants = useParticipants();
+  const { canPlayAudio, startAudio } = useAudioPlayback();
+  const cameraTracks = useTracks(
+    [
+      { source: Track.Source.Camera, withPlaceholder: true }
+    ],
+    { onlySubscribed: false }
+  );
+  const screenTracks = useTracks([{ source: Track.Source.ScreenShare, withPlaceholder: false }], { onlySubscribed: false });
+
+  async function submitChat(e: FormEvent) {
+    e.preventDefault();
+    const text = chatText.trim();
+    if (!text) return;
+    await send(text);
+    setChatText('');
+    if (chatInputRef.current) {
+      chatInputRef.current.style.height = '40px';
+    }
+  }
+
+  const panelBg = isLight ? 'rgba(241,245,249,0.92)' : 'rgba(3,7,18,0.55)';
+  const panelStrong = isLight ? '#e5e7eb' : 'rgba(15,23,42,0.72)';
+  const border = isLight ? '1px solid rgba(15,23,42,0.14)' : '1px solid rgba(255,255,255,0.1)';
+  const softText = isLight ? '#475569' : '#94a3b8';
+  const mainText = isLight ? '#0f172a' : '#e5e7eb';
+  const controlOffBg = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.12)';
+  const controlOnBg = '#2563eb';
+  const hasScreenShare = screenTracks.length > 0;
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 900 : false));
+
+  useEffect(() => {
+    function onResize() {
+      setIsMobile(window.innerWidth <= 900);
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const uniqueCameraTracks = (() => {
+    const byIdentity = new Map<string, TrackReferenceOrPlaceholder>();
+    for (const tr of cameraTracks) {
+      const id = tr.participant.identity;
+      if (!byIdentity.has(id)) byIdentity.set(id, tr);
+    }
+    return Array.from(byIdentity.values()).sort((a, b) => {
+      const sa = a.participant.isSpeaking ? 1 : 0;
+      const sb = b.participant.isSpeaking ? 1 : 0;
+      return sb - sa;
+    });
+  })();
+
+  const maxTiles = 9;
+  const visibleCameraTracks = uniqueCameraTracks.slice(0, maxTiles);
+  const extraParticipants = participants.length > maxTiles ? participants.slice(maxTiles) : [];
+
+  const getParticipantMeta = (p: any) => {
+    let avatarUrl = '';
+    let displayName = p.name || p.identity || 'Участник';
+    try {
+      const meta = p.metadata ? JSON.parse(p.metadata) : null;
+      avatarUrl = meta?.avatarUrl || '';
+      displayName = meta?.displayName || displayName;
+    } catch {
+      // ignore invalid metadata
+    }
+    if (avatarUrl && avatarUrl.startsWith('/')) {
+      avatarUrl = `${getApiBaseUrl()}${avatarUrl}`;
+    }
+    return { avatarUrl, displayName };
+  };
+
+  const getConnectionQualityLabel = (p: any) => {
+    const q = String(p?.connectionQuality || '').toLowerCase();
+    if (q.includes('excellent')) return 'Качество связи: отличное';
+    if (q.includes('good')) return 'Качество связи: хорошее';
+    if (q.includes('poor')) return 'Качество связи: слабое';
+    return 'Качество связи: неизвестно';
+  };
+
+  function renderParticipantMainTile(trackRef: TrackReferenceOrPlaceholder, key: string) {
+    const { avatarUrl, displayName } = getParticipantMeta(trackRef.participant);
+    const hasVideoTrack = Boolean((trackRef as any)?.publication?.track);
+
+    if (hasVideoTrack) {
+      return (
+        <div key={key} style={{ position: 'relative' }}>
+          <ParticipantTile
+            trackRef={trackRef}
+            style={{ borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}
+            title={getConnectionQualityLabel(trackRef.participant)}
+          />
+          <div style={{ position: 'absolute', left: 8, bottom: 8, display: 'flex', alignItems: 'center', gap: 6, padding: '3px 7px', borderRadius: 999, background: 'rgba(0,0,0,0.45)', color: '#fff' }}>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', overflow: 'hidden', background: '#334155', display: 'grid', placeItems: 'center' }}>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={displayName}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
+                  onContextMenu={(e) => e.preventDefault()}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+                />
+              ) : <PlatformIcon name="user" size={11} color="#cbd5e1" />}
+            </div>
+            <span className="small">{displayName}</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={key} style={{ borderRadius: 10, overflow: 'hidden', position: 'relative', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}>
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={displayName}
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+          />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: isLight ? '#475569' : '#94a3b8' }}>
+            <PlatformIcon name="user" size={92} />
+          </div>
+        )}
+        <div style={{ position: 'absolute', left: 10, right: 10, bottom: 10, padding: '6px 10px', borderRadius: 8, background: 'rgba(0,0,0,0.45)', color: '#fff', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {displayName}
+        </div>
+      </div>
+    );
+  }
+
+  const chatOpen = sidebarMode === 'chat';
+  const participantsOpen = sidebarMode === 'participants';
+
+  return (
+    <div style={{ height: '100%', display: 'grid', gridTemplateColumns: !isMobile && sidebarMode ? 'minmax(0,1fr) 320px' : 'minmax(0,1fr)', minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+      <section style={{ minWidth: 0, minHeight: 0, padding: 12, display: 'grid', gridTemplateRows: 'auto minmax(0,1fr) auto', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: panelBg, border }}>
+          <div className="small" style={{ color: softText }}>Участников в комнате: {participants.length}</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setSidebarMode((m) => (m === 'chat' ? null : 'chat'))}
+              style={{ padding: '8px 10px', minWidth: 42, background: chatOpen ? controlOnBg : controlOffBg, color: chatOpen ? '#fff' : mainText, border: 'none' }}
+              title="Чат"
+            >
+              <PlatformIcon name="message" size={16} />
+            </button>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setSidebarMode((m) => (m === 'participants' ? null : 'participants'))}
+              style={{ padding: '8px 10px', minWidth: 42, background: participantsOpen ? controlOnBg : controlOffBg, color: participantsOpen ? '#fff' : mainText, border: 'none' }}
+              title="Участники"
+            >
+              <PlatformIcon name="users" size={16} />
+            </button>
+          </div>
+          {!canPlayAudio && (
+            <button className="button secondary" onClick={() => startAudio()} style={{ padding: '8px 10px' }}>
+              Включить звук в браузере
+            </button>
+          )}
+        </div>
+        <div style={{ minHeight: 0, borderRadius: 12, overflow: 'hidden', border, background: panelStrong, position: 'relative' }}>
+          {hasScreenShare ? (
+            <div style={{ width: '100%', height: '100%', padding: 10 }}>
+              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                <ParticipantTile
+                  trackRef={screenTracks[0]}
+                  style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}
+                title={getConnectionQualityLabel(screenTracks[0].participant)}
+                />
+                {(() => {
+                  const { avatarUrl, displayName } = getParticipantMeta(screenTracks[0].participant);
+                  return (
+                    <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 999, background: 'rgba(0,0,0,0.45)', color: '#fff' }}>
+                      <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', background: '#334155', display: 'grid', placeItems: 'center' }}>
+                        {avatarUrl ? (
+                          <img
+                            src={avatarUrl}
+                            alt={displayName}
+                            draggable={false}
+                            onDragStart={(e) => e.preventDefault()}
+                            onContextMenu={(e) => e.preventDefault()}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+                          />
+                        ) : <PlatformIcon name="user" size={12} color="#cbd5e1" />}
+                      </div>
+                      <span className="small">{displayName}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                height: '100%',
+                display: 'grid',
+                gridTemplateColumns:
+                  visibleCameraTracks.length <= 1 ? '1fr' :
+                  visibleCameraTracks.length <= 4 ? 'repeat(2, 1fr)' :
+                  'repeat(3, 1fr)',
+                gridAutoRows: 'minmax(160px, 1fr)',
+                gap: 10,
+                padding: 10
+              }}
+            >
+              {visibleCameraTracks.map((trackRef, idx) => (
+                renderParticipantMainTile(trackRef, `${trackRef.participant.identity}-${idx}`)
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TrackToggle
+            source={Track.Source.Microphone}
+            showIcon
+            className="button"
+            style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
+          >
+            Микрофон
+          </TrackToggle>
+          <TrackToggle
+            source={Track.Source.Camera}
+            showIcon
+            className="button"
+            style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
+          >
+            Камера
+          </TrackToggle>
+          <TrackToggle
+            source={Track.Source.ScreenShare}
+            showIcon
+            className="button"
+            style={{ background: controlOnBg, color: '#fff', border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: '0 2px 10px rgba(37,99,235,0.45)' }}
+          >
+            Экран
+          </TrackToggle>
+          <DisconnectButton
+            className="button danger"
+            style={{ marginLeft: 'auto', borderRadius: 999, padding: '10px 16px', boxShadow: '0 2px 10px rgba(220,38,38,0.35)' }}
+            onClick={onLeave}
+          >
+            Покинуть встречу
+          </DisconnectButton>
+        </div>
+      </section>
+      {sidebarMode && (
+        <aside
+          style={
+            isMobile
+              ? {
+                  position: 'absolute',
+                  inset: '56px 8px 8px 8px',
+                  minHeight: 0,
+                  display: 'grid',
+                  gridTemplateRows: 'auto minmax(0,1fr) auto',
+                  background: panelBg,
+                  border,
+                  borderRadius: 12,
+                  zIndex: 20,
+                  overflow: 'hidden'
+                }
+              : { borderLeft: border, minHeight: 0, display: 'grid', gridTemplateRows: chatOpen ? 'auto minmax(0,1fr) auto' : 'auto minmax(0,1fr)', background: panelBg }
+          }
+        >
+          <div style={{ padding: 12, fontWeight: 700, color: mainText, borderBottom: border }}>
+            {chatOpen ? 'Чат встречи' : 'Участники'}
+          </div>
+          {chatOpen ? (
+            <>
+              <div style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {chatMessages.length === 0 && (
+                  <div className="small" style={{ color: softText }}>Сообщений пока нет</div>
+                )}
+                {chatMessages.map((msg: any, i: number) => (
+                  <div key={`${msg.timestamp || i}-${i}`} style={{ padding: '2px 0' }}>
+                    <div className="small" style={{ color: '#60a5fa', marginBottom: 2 }}>{msg.from?.name || msg.from?.identity || 'Участник'}</div>
+                    <div style={{ lineHeight: 1.5, color: mainText, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                      {msg.message}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={submitChat} style={{ padding: 10, borderTop: border, display: 'flex', gap: 8 }}>
+                <textarea
+                  ref={chatInputRef}
+                  value={chatText}
+                  onChange={(e) => {
+                    setChatText(e.target.value);
+                    const el = e.target as HTMLTextAreaElement;
+                    el.style.height = '40px';
+                    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+                  }}
+                  placeholder="Напишите сообщение..."
+                  rows={1}
+                  style={{ width: '100%', minHeight: 40, maxHeight: 180, padding: '10px 12px', borderRadius: 10, border, background: isLight ? '#fff' : 'rgba(15,23,42,0.7)', color: mainText, resize: 'none', overflowY: 'auto', overflowX: 'hidden' }}
+                />
+                <button className="button" title="Отправить" aria-label="Отправить" disabled={isSending || !chatText.trim()} style={{ width: 40, height: 40, padding: 0, display: 'grid', placeItems: 'center' }}>
+                  <SendHorizontal size={16} />
+                </button>
+              </form>
+            </>
+          ) : (
+            <div style={{ minHeight: 0, overflowY: 'auto', padding: 10, display: 'grid', gap: 8 }}>
+              {participants.map((p: any) => {
+                const { avatarUrl, displayName } = getParticipantMeta(p);
+                return (
+                  <div key={p.identity} style={{ display: 'flex', alignItems: 'center', gap: 6, border, borderRadius: 6, padding: '3px 6px', background: isLight ? '#fff' : 'rgba(15,23,42,0.6)' }} title={getConnectionQualityLabel(p)}>
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', background: isLight ? '#cbd5e1' : '#334155', display: 'grid', placeItems: 'center', color: mainText, fontSize: 11, fontWeight: 700 }}>
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={displayName}
+                          draggable={false}
+                          onDragStart={(e) => e.preventDefault()}
+                          onContextMenu={(e) => e.preventDefault()}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+                        />
+                      ) : (
+                        <PlatformIcon name="user" size={11} />
+                      )}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: mainText, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {extraParticipants.length > 0 && (
+                <div className="small" style={{ color: softText }}>Еще участников вне основной сетки: {extraParticipants.length}</div>
+              )}
+            </div>
+          )}
+        </aside>
+      )}
+    </div>
+  );
+}
+
 export default function VoiceRoom() {
   const { roomId } = useParams<{ roomId: string }>();
   const { token, user } = useAuth();
+  const { appearance } = useAppearance();
   const navigate = useNavigate();
+  const isLight = appearance.colorMode === 'light';
   
   const [event, setEvent] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [participants, setParticipants] = useState<Array<{ id: string; name: string }>>([]);
+  const [livekitToken, setLivekitToken] = useState<string>('');
+  const [livekitUrl, setLivekitUrl] = useState<string>('');
+  const [guestDisplayName, setGuestDisplayName] = useState('');
+  const isGuestMode = !token;
 
   useEffect(() => {
-    if (!roomId || !token) {
-      setError('Room ID or authentication token missing');
+    if (!roomId) {
+      setError('Room ID missing');
       setLoading(false);
       return;
     }
@@ -37,18 +418,11 @@ export default function VoiceRoom() {
 
   async function loadEventData() {
     try {
-      const res = await api<{ event: EventData; voiceRoom: any }>(`/api/events/by-room/${roomId}`, { token: token ?? undefined });
+      const endpoint = token ? `/api/events/by-room/${roomId}` : `/api/events/public-room/${roomId}`;
+      const res = await api<{ event: EventData; voiceRoom: any }>(endpoint, { token: token ?? undefined });
       setEvent(res.event);
       setLoading(false);
       
-      // Имитируем подключение других участников
-      setTimeout(() => {
-        setParticipants([
-          { id: '1', name: user?.email || 'Вы' },
-          { id: '2', name: 'Психолог' }
-        ]);
-        setJoined(true);
-      }, 1000);
     } catch (e: any) {
       console.error('Failed to load room data:', e);
       setError(e.message || 'Не удалось загрузить данные комнаты');
@@ -56,31 +430,45 @@ export default function VoiceRoom() {
     }
   }
 
-  function handleJoin() {
-    setJoined(true);
-    setParticipants([
-      { id: '1', name: user?.email || 'Вы' },
-      { id: '2', name: 'Психолог' }
-    ]);
-  }
-
-  function toggleVideo() {
-    setIsVideoEnabled(!isVideoEnabled);
-  }
-
-  function toggleAudio() {
-    setIsAudioEnabled(!isAudioEnabled);
+  async function handleJoin() {
+    if (!roomId) return;
+    if (!token && !guestDisplayName.trim()) {
+      setError('Введите имя для входа в комнату');
+      return;
+    }
+    try {
+      const res = token
+        ? await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/livekit-token`, { token })
+        : await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
+            method: 'POST',
+            body: { displayName: guestDisplayName.trim() }
+          });
+      setLivekitToken(res.token);
+      setLivekitUrl(res.url);
+      setJoined(true);
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось подключиться к видеокомнате');
+    }
   }
 
   function handleLeave() {
     setJoined(false);
-    setParticipants([]);
+    setLivekitToken('');
+    if (isGuestMode) {
+      navigate('/');
+      return;
+    }
+    if (user?.role === 'client') {
+      navigate('/client/sessions');
+      return;
+    }
     navigate('/events');
   }
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0b0f1a', color: '#fff' }}>
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: isLight ? '#f8fafc' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
           <div>Загрузка комнаты...</div>
@@ -91,12 +479,12 @@ export default function VoiceRoom() {
 
   if (error || !event) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0b0f1a', color: '#fff' }}>
+      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: isLight ? '#f8fafc' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff' }}>
         <div style={{ textAlign: 'center', padding: 48 }}>
           <div style={{ fontSize: 64, marginBottom: 24 }}>⚠️</div>
           <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Ошибка</div>
           <div style={{ color: '#888', marginBottom: 24 }}>{error || 'Комната не найдена'}</div>
-          <button className="button" onClick={() => navigate('/events')} style={{ padding: '12px 24px' }}>
+          <button className="button" onClick={() => navigate(token ? '/events' : '/')} style={{ padding: '12px 24px' }}>
             Вернуться к событиям
           </button>
         </div>
@@ -104,18 +492,12 @@ export default function VoiceRoom() {
     );
   }
 
-  const totalParticipants = participants.length;
-  const gridCols = totalParticipants <= 1 ? 1 : totalParticipants <= 4 ? 2 : totalParticipants <= 9 ? 3 : 4;
-
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#0b0f1a', color: '#fff' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: isLight ? '#f8fafc' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '16px 24px', borderBottom: isLight ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{event.title}</div>
-          <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>
-            {joined ? `Участников: ${totalParticipants}` : 'Подготовка к подключению...'}
-          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {event.type === 'session' && (
@@ -126,243 +508,84 @@ export default function VoiceRoom() {
         </div>
       </div>
 
-      {/* Video Grid */}
-      <div style={{ flex: 1, padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {!joined ? (
-          <div style={{ textAlign: 'center', maxWidth: 500 }}>
-            <div style={{ fontSize: 64, marginBottom: 24 }}>🎤</div>
-            <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Готовы присоединиться?</div>
-            <div style={{ color: '#888', marginBottom: 32, fontSize: 16 }}>
-              Нажмите кнопку ниже, чтобы подключиться к встрече
-            </div>
-            <button 
-              className="button" 
-              onClick={handleJoin}
-              style={{ 
-                padding: '16px 32px', 
-                fontSize: 18, 
-                background: 'linear-gradient(135deg, #3b82f6, #2563eb)', 
-                borderRadius: 12,
-                border: 'none',
-                color: '#fff',
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              ▶ Присоединиться к встрече
-            </button>
-          </div>
-        ) : (
-          <div 
-            style={{ 
-              width: '100%', 
-              maxWidth: '1600px',
-              height: '100%',
-              display: 'grid',
-              gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-              gap: 16,
-              alignContent: 'center'
-            }}
-          >
-            {participants.map((participant, index) => (
-              <div
-                key={participant.id}
-                style={{
-                  aspectRatio: '16/9',
-                  background: isVideoEnabled && index === 0 ? 'linear-gradient(135deg, #1e293b, #334155)' : 'linear-gradient(135deg, #1e293b, #334155)',
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  border: index === 0 ? '2px solid rgba(59, 130, 246, 0.5)' : '2px solid rgba(255,255,255,0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                {/* Placeholder для видео */}
-                <div style={{ 
-                  width: '100%', 
-                  height: '100%', 
-                  display: 'grid', 
-                  placeItems: 'center',
-                  background: 'linear-gradient(135deg, #1e293b, #334155)'
-                }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ 
-                      fontSize: 72, 
-                      marginBottom: 16,
-                      width: 120,
-                      height: 120,
-                      borderRadius: '50%',
-                      background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      margin: '0 auto 16px',
-                      color: '#fff',
-                      fontWeight: 700
-                    }}>
-                      {participant.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>{participant.name}</div>
-                    <div style={{ fontSize: 14, color: '#888' }}>
-                      {index === 0 && !isVideoEnabled && 'Камера выключена'}
-                      {index === 0 && !isAudioEnabled && '🔇 Микрофон выключен'}
-                    </div>
-                  </div>
+          <div style={{ width: 'min(720px, 94vw)', margin: 'auto', padding: 24 }}>
+            <div className="card" style={{ borderRadius: 20, padding: 24, border: isLight ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.1)', background: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(15,23,42,0.6)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <div style={{ width: 42, height: 42, borderRadius: 12, background: isLight ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.22)', display: 'grid', placeItems: 'center', color: '#3b82f6' }}>
+                  <Video size={20} />
                 </div>
-
-                {/* Индикатор статуса */}
-                <div style={{ 
-                  position: 'absolute', 
-                  bottom: 12, 
-                  left: 12, 
-                  padding: '6px 12px', 
-                  background: 'rgba(0,0,0,0.8)', 
-                  borderRadius: 8, 
-                  fontSize: 13,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  backdropFilter: 'blur(10px)'
-                }}>
-                  <div style={{ 
-                    width: 8, 
-                    height: 8, 
-                    borderRadius: '50%', 
-                    background: '#10b981',
-                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)'
-                  }}></div>
-                  <span>{participant.name}</span>
-                  {index === 0 && !isAudioEnabled && <span>🔇</span>}
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 800 }}>Готовы присоединиться?</div>
+                  <div className="small" style={{ color: 'var(--text-muted)' }}>Проверьте детали встречи и нажмите кнопку входа</div>
                 </div>
               </div>
-            ))}
+              <div style={{ marginTop: 14, borderRadius: 12, padding: 14, background: isLight ? '#f8fafc' : 'rgba(2,6,23,0.55)', border: isLight ? '1px solid rgba(15,23,42,0.08)' : '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{event.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', marginBottom: event.description ? 8 : 0 }}>
+                  <CalendarClock size={15} />
+                  {new Date(event.startsAt).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
+                </div>
+                {event.description && (
+                  <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>{event.description}</div>
+                )}
+              </div>
+              {isGuestMode && (
+                <div style={{ marginTop: 14 }}>
+                  <label className="small" style={{ display: 'block', marginBottom: 6, color: 'var(--text-muted)' }}>Как вас записать в комнате</label>
+                  <input
+                    value={guestDisplayName}
+                    onChange={(e) => setGuestDisplayName(e.target.value)}
+                    placeholder="Введите ваше имя"
+                    style={{ width: '100%', padding: '12px 12px', borderRadius: 10, border: isLight ? '1px solid rgba(15,23,42,0.18)' : '1px solid rgba(255,255,255,0.16)', background: isLight ? '#fff' : 'rgba(15,23,42,0.7)', color: 'inherit' }}
+                  />
+                </div>
+              )}
+              <div style={{ marginTop: 20 }}>
+                <button
+                  className="button"
+                  onClick={handleJoin}
+                  style={{
+                    width: '100%',
+                    padding: '14px 22px',
+                    fontSize: 16,
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    borderRadius: 12,
+                    border: 'none',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8
+                  }}
+                >
+                  <Video size={18} />
+                  Присоединиться к встрече
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ width: '100%', minHeight: 0 }}>
+            <LiveKitRoom
+              token={livekitToken}
+              serverUrl={livekitUrl}
+              connect={joined}
+              video
+              audio
+              onDisconnected={handleLeave}
+              style={{ height: '100%' }}
+            >
+              <LiveKitConferenceRu onLeave={handleLeave} />
+              <RoomAudioRenderer />
+            </LiveKitRoom>
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      <div style={{ 
-        padding: 24, 
-        borderTop: '1px solid rgba(255,255,255,0.1)', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        gap: 12,
-        background: 'rgba(0,0,0,0.3)',
-        backdropFilter: 'blur(10px)'
-      }}>
-        {!joined ? (
-          <button 
-            className="button" 
-            onClick={handleJoin}
-            style={{ 
-              padding: '14px 28px', 
-              fontSize: 16, 
-              background: 'linear-gradient(135deg, #3b82f6, #2563eb)', 
-              borderRadius: 12,
-              border: 'none',
-              color: '#fff',
-              cursor: 'pointer',
-              fontWeight: 600
-            }}
-          >
-            ▶ Присоединиться к встрече
-          </button>
-        ) : (
-          <>
-            <button
-              className="button"
-              onClick={toggleAudio}
-              style={{
-                padding: '12px 24px',
-                fontSize: 16,
-                borderRadius: 999,
-                background: isAudioEnabled ? 'rgba(255,255,255,0.1)' : '#ef4444',
-                border: 'none',
-                color: '#fff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                transition: 'all 0.2s',
-                fontWeight: 500
-              }}
-              onMouseOver={(e) => {
-                if (isAudioEnabled) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
-                }
-              }}
-              onMouseOut={(e) => {
-                if (isAudioEnabled) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                }
-              }}
-            >
-              <span style={{ fontSize: 20 }}>{isAudioEnabled ? '🎤' : '🔇'}</span>
-              <span>{isAudioEnabled ? 'Микрофон' : 'Выключен'}</span>
-            </button>
-            
-            <button
-              className="button"
-              onClick={toggleVideo}
-              style={{
-                padding: '12px 24px',
-                fontSize: 16,
-                borderRadius: 999,
-                background: isVideoEnabled ? 'rgba(255,255,255,0.1)' : '#ef4444',
-                border: 'none',
-                color: '#fff',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                transition: 'all 0.2s',
-                fontWeight: 500
-              }}
-              onMouseOver={(e) => {
-                if (isVideoEnabled) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.15)';
-                }
-              }}
-              onMouseOut={(e) => {
-                if (isVideoEnabled) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                }
-              }}
-            >
-              <span style={{ fontSize: 20 }}>{isVideoEnabled ? '📹' : '📹🚫'}</span>
-              <span>{isVideoEnabled ? 'Камера' : 'Выключена'}</span>
-            </button>
-            
-            <button
-              className="button danger"
-              onClick={handleLeave}
-              style={{
-                padding: '12px 28px',
-                fontSize: 16,
-                borderRadius: 999,
-                background: '#ef4444',
-                border: 'none',
-                color: '#fff',
-                cursor: 'pointer',
-                fontWeight: 600,
-                transition: 'all 0.2s'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.background = '#dc2626';
-                e.currentTarget.style.transform = 'scale(1.05)';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.background = '#ef4444';
-                e.currentTarget.style.transform = 'scale(1)';
-              }}
-            >
-              Покинуть встречу
-            </button>
-          </>
-        )}
-      </div>
     </div>
   );
 }

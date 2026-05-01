@@ -33,6 +33,7 @@
     "express-rate-limit": "^7.4.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "livekit-server-sdk": "^2.15.2",
     "multer": "^2.0.2",
     "natural": "^8.1.1",
     "node-cron": "^4.2.1",

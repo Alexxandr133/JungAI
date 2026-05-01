@@ -22,6 +22,10 @@ export const config = {
   agoraAppCertificate: process.env.AGORA_APP_CERTIFICATE || '',
   // Временный токен из консоли Agora (для тестирования, если App Certificate не настроен)
   agoraTempToken: process.env.AGORA_TEMP_TOKEN || '007eJxTYGgX6WJftaN9balw/5OuWapn61yv7646W8USprtAS7Xm5A8FBmMzUyMTAxPjpETDZBMjS/OkZLM0S1ODNNM0C8PkZANLL43AzIZARgbuqd6MjAwQCOIzMhgzMAAArc0cMQ==',
+  livekitUrl: process.env.LIVEKIT_URL || (process.env.NODE_ENV === 'development' ? 'ws://127.0.0.1:7880' : ''),
+  livekitApiKey: process.env.LIVEKIT_API_KEY || (process.env.NODE_ENV === 'development' ? 'devkey' : ''),
+  livekitApiSecret: process.env.LIVEKIT_API_SECRET || (process.env.NODE_ENV === 'development' ? 'supersecret' : ''),
+  livekitTokenTtlSec: Number(process.env.LIVEKIT_TOKEN_TTL_SEC || 3600),
   // Frontend URL для генерации ссылок регистрации
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   smtpHost: process.env.SMTP_HOST || '',

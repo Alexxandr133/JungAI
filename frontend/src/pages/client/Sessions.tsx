@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
+import { CalendarClock, Check, Phone, Video, X } from 'lucide-react';
 
 type Session = {
   id: string;
   date: string;
   summary?: string;
   videoUrl?: string;
+  eventId?: string;
   createdAt: string;
 };
 
@@ -36,6 +38,21 @@ export default function ClientSessions() {
   const [declineComment, setDeclineComment] = useState<Record<string, string>>({});
   const [showDeclineModal, setShowDeclineModal] = useState<string | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const nowTs = Date.now();
+  const activeEvents = events.filter(ev => new Date(ev.endsAt || ev.startsAt).getTime() >= nowTs);
+  const historyEvents = events.filter(ev => new Date(ev.endsAt || ev.startsAt).getTime() < nowTs);
+  const nearestUpcomingEvent = activeEvents
+    .filter(ev => new Date(ev.startsAt).getTime() > nowTs)
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0] || null;
+  const visibleSessions = sessions.filter(session => {
+    if (!session.eventId) return true;
+    const linkedEvent = events.find(ev => ev.id === session.eventId);
+    if (!linkedEvent) return true;
+    return linkedEvent.sessionStatus === 'accepted';
+  });
+  const activeSessions = visibleSessions.filter(s => new Date(s.date).getTime() >= nowTs);
+  const historySessions = visibleSessions.filter(s => new Date(s.date).getTime() < nowTs);
 
   useEffect(() => {
     (async () => {
@@ -112,7 +129,12 @@ export default function ClientSessions() {
         }}
       >
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Сессии с психологом</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Сессии с психологом</h1>
+            <button className={showHistory ? 'button' : 'button secondary'} onClick={() => setShowHistory(prev => !prev)} style={{ padding: '8px 14px', fontSize: 13 }}>
+              {showHistory ? 'Актуальные' : 'История'}
+            </button>
+          </div>
         </div>
 
         {loading && (
@@ -127,20 +149,35 @@ export default function ClientSessions() {
           </div>
         )}
 
-        {!loading && !error && sessions.length === 0 && (
-          <div style={{ marginTop: 24, padding: 24, background: 'var(--surface-2)', borderRadius: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📞</div>
-            <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Сессии с психологом</div>
-            <div style={{ color: 'var(--text-muted)' }}>Ваш психолог пока не назначил сессий. Сессии будут отображаться здесь после назначения.</div>
+        {/* Приглашения на сессии (события) */}
+        {!loading && !error && nearestUpcomingEvent && (
+          <div className="card" style={{ marginTop: 12, padding: 14, border: '1px solid rgba(59,130,246,0.28)', background: 'rgba(59,130,246,0.08)' }}>
+            <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><CalendarClock size={16} />Ближайшая предстоящая</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 600 }}>{nearestUpcomingEvent.title}</div>
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(nearestUpcomingEvent.startsAt)}</div>
+              </div>
+              {nearestUpcomingEvent.voiceRoom && (
+                <a
+                  href={nearestUpcomingEvent.voiceRoom.roomUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="button"
+                  style={{ padding: '8px 12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Video size={14} />
+                  В комнату
+                </a>
+              )}
+            </div>
           </div>
         )}
-
-        {/* Приглашения на сессии (события) */}
-        {!loading && !error && events.length > 0 && (
+        {!loading && !error && !showHistory && activeEvents.length > 0 && (
           <div style={{ marginTop: 24 }}>
-            <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Приглашения на сессии</h2>
+            <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Сессии</h2>
             <div style={{ display: 'grid', gap: 12 }}>
-              {events.map(event => {
+              {activeEvents.map(event => {
                 const upcoming = isUpcoming(event.startsAt);
                 const isPending = event.sessionStatus === 'pending' || !event.sessionStatus;
                 const isAccepted = event.sessionStatus === 'accepted';
@@ -170,7 +207,7 @@ export default function ClientSessions() {
                               fontSize: 12, 
                               fontWeight: 700 
                             }}>
-                              ⏳ Ожидает ответа
+                              Ожидает ответа
                             </span>
                           )}
                           {isAccepted && (
@@ -182,7 +219,7 @@ export default function ClientSessions() {
                               fontSize: 12, 
                               fontWeight: 700 
                             }}>
-                              ✓ Принята
+                              Принята
                             </span>
                           )}
                           {isDeclined && (
@@ -194,13 +231,14 @@ export default function ClientSessions() {
                               fontSize: 12, 
                               fontWeight: 700 
                             }}>
-                              ✗ Отклонена
+                              Отклонена
                             </span>
                           )}
                           <div style={{ fontSize: 18, fontWeight: 700 }}>{event.title}</div>
                         </div>
-                        <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
-                          📅 {formatDateTime(event.startsAt)}
+                        <div style={{ color: 'var(--text-muted)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <CalendarClock size={15} />
+                          {formatDateTime(event.startsAt)}
                         </div>
                         {event.description && (
                           <div style={{ marginTop: 12, padding: 12, background: 'var(--surface)', borderRadius: 8 }}>
@@ -217,7 +255,8 @@ export default function ClientSessions() {
                               className="button"
                               style={{ padding: '8px 16px', fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
                             >
-                              🎤 Войти в голосовую комнату
+                              <Video size={15} />
+                              Войти в комнату
                             </a>
                           </div>
                         )}
@@ -236,7 +275,7 @@ export default function ClientSessions() {
                             disabled={processing === event.id}
                             style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap' }}
                           >
-                            {processing === event.id ? '...' : '✓ Принять'}
+                            {processing === event.id ? '...' : (<><Check size={14} /> Принять</>)}
                           </button>
                           <button
                             className="button danger"
@@ -244,7 +283,7 @@ export default function ClientSessions() {
                             disabled={processing === event.id}
                             style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap' }}
                           >
-                            ✗ Отклонить
+                            <X size={14} /> Отклонить
                           </button>
                         </div>
                       )}
@@ -256,70 +295,32 @@ export default function ClientSessions() {
           </div>
         )}
 
-        {/* Прошедшие сессии */}
-        {!loading && !error && sessions.length > 0 && (
-          <div style={{ marginTop: events.length > 0 ? 32 : 24 }}>
-            {events.length > 0 && <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Прошедшие сессии</h2>}
-            <div style={{ display: 'grid', gap: 12 }}>
-              {sessions.map(session => {
-                const upcoming = isUpcoming(session.date);
-                return (
-                  <div key={session.id} className="card" style={{ 
-                    padding: 20, 
-                    border: upcoming ? '2px solid var(--primary)' : '1px solid rgba(255,255,255,0.08)',
-                    background: upcoming ? 'linear-gradient(135deg, var(--primary)11, var(--accent)11)' : 'var(--surface-2)'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                          {upcoming && (
-                            <span style={{ 
-                              padding: '4px 8px', 
-                              background: 'var(--primary)', 
-                              color: '#0b0f1a', 
-                              borderRadius: 6, 
-                              fontSize: 12, 
-                              fontWeight: 700 
-                            }}>
-                              Предстоящая
-                            </span>
-                          )}
-                          <div style={{ fontSize: 18, fontWeight: 700 }}>Сессия с психологом</div>
-                        </div>
-                        <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
-                          📅 {formatDateTime(session.date)}
-                        </div>
-                        {session.summary && (
-                          <div style={{ marginTop: 12, padding: 12, background: 'var(--surface)', borderRadius: 8 }}>
-                            <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4 }}>Описание:</div>
-                            <div>{session.summary}</div>
-                          </div>
-                        )}
-                        {session.videoUrl && (
-                          <div style={{ marginTop: 12 }}>
-                            <a 
-                              href={session.videoUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="button secondary"
-                              style={{ padding: '8px 16px', fontSize: 13, textDecoration: 'none', display: 'inline-block' }}
-                            >
-                              📹 Открыть видеозапись
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {!loading && !error && showHistory && historyEvents.length === 0 && historySessions.length === 0 && (
+          <div style={{ marginTop: 24, padding: 24, background: 'var(--surface-2)', borderRadius: 16, textAlign: 'center' }}>
+            <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8 }}>История пока пуста</div>
+            <div style={{ color: 'var(--text-muted)' }}>Прошедшие встречи и сессии будут отображаться здесь.</div>
+          </div>
+        )}
+        {!loading && !error && showHistory && (historyEvents.length > 0 || historySessions.length > 0) && (
+          <div style={{ marginTop: 20, display: 'grid', gap: 12 }}>
+            {historyEvents.map(event => (
+              <div key={`h-ev-${event.id}`} className="card" style={{ padding: 16, opacity: 0.75, background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)' }}>
+                <div style={{ fontWeight: 600 }}>{event.title}</div>
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(event.startsAt)} · Прошла</div>
+              </div>
+            ))}
+            {historySessions.map(session => (
+              <div key={`h-sess-${session.id}`} className="card" style={{ padding: 16, opacity: 0.75, background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)' }}>
+                <div style={{ fontWeight: 600 }}>Сессия с психологом</div>
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(session.date)} · Прошла</div>
+              </div>
+            ))}
           </div>
         )}
 
-        {!loading && !error && sessions.length === 0 && events.length === 0 && (
+        {!loading && !error && !showHistory && activeSessions.length === 0 && activeEvents.length === 0 && (
           <div style={{ marginTop: 24, padding: 24, background: 'var(--surface-2)', borderRadius: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📞</div>
+            <div style={{ marginBottom: 16, display: 'grid', placeItems: 'center', color: 'var(--primary)' }}><Phone size={44} /></div>
             <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Сессии с психологом</div>
             <div style={{ color: 'var(--text-muted)' }}>Ваш психолог пока не назначил сессий. Сессии будут отображаться здесь после назначения.</div>
           </div>
