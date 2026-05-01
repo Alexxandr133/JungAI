@@ -43,6 +43,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
   const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>('chat');
   const [chatText, setChatText] = useState('');
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const participantMetaCacheRef = useRef<Record<string, { avatarUrl: string; displayName: string }>>({});
   const { chatMessages, send, isSending } = useChat();
   const participants = useParticipants();
   const { canPlayAudio, startAudio } = useAudioPlayback();
@@ -89,11 +90,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
       const id = tr.participant.identity;
       if (!byIdentity.has(id)) byIdentity.set(id, tr);
     }
-    return Array.from(byIdentity.values()).sort((a, b) => {
-      const sa = a.participant.isSpeaking ? 1 : 0;
-      const sb = b.participant.isSpeaking ? 1 : 0;
-      return sb - sa;
-    });
+    return Array.from(byIdentity.values());
   })();
 
   const maxTiles = 9;
@@ -113,7 +110,16 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
     if (avatarUrl && avatarUrl.startsWith('/')) {
       avatarUrl = `${getApiBaseUrl()}${avatarUrl}`;
     }
-    return { avatarUrl, displayName };
+    const cached = participantMetaCacheRef.current[p.identity || ''];
+    const resolvedAvatar = avatarUrl || cached?.avatarUrl || '';
+    const resolvedName = displayName || cached?.displayName || 'Участник';
+    if (p.identity) {
+      participantMetaCacheRef.current[p.identity] = {
+        avatarUrl: resolvedAvatar,
+        displayName: resolvedName
+      };
+    }
+    return { avatarUrl: resolvedAvatar, displayName: resolvedName };
   };
 
   const getConnectionQualityLabel = (p: any) => {
@@ -127,13 +133,14 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
   function renderParticipantMainTile(trackRef: TrackReferenceOrPlaceholder, key: string) {
     const { avatarUrl, displayName } = getParticipantMeta(trackRef.participant);
     const hasVideoTrack = Boolean((trackRef as any)?.publication?.track);
+    const speakingHighlight = trackRef.participant.isSpeaking ? '0 0 0 2px rgba(34,197,94,0.95), 0 0 24px rgba(34,197,94,0.45)' : undefined;
 
     if (hasVideoTrack) {
       return (
-        <div key={key} style={{ position: 'relative' }}>
+        <div key={key} style={{ position: 'relative', height: '100%' }}>
           <ParticipantTile
             trackRef={trackRef}
-            style={{ borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}
+            style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)', boxShadow: speakingHighlight }}
             title={getConnectionQualityLabel(trackRef.participant)}
           />
           <div style={{ position: 'absolute', left: 8, bottom: 8, display: 'flex', alignItems: 'center', gap: 6, padding: '3px 7px', borderRadius: 999, background: 'rgba(0,0,0,0.45)', color: '#fff' }}>
@@ -156,7 +163,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
     }
 
     return (
-      <div key={key} style={{ borderRadius: 10, overflow: 'hidden', position: 'relative', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}>
+      <div key={key} style={{ borderRadius: 10, overflow: 'hidden', position: 'relative', height: '100%', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)', boxShadow: speakingHighlight }}>
         {avatarUrl ? (
           <img
             src={avatarUrl}
@@ -164,7 +171,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
             draggable={false}
             onDragStart={(e) => e.preventDefault()}
             onContextMenu={(e) => e.preventDefault()}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', background: isLight ? '#dbeafe' : '#0f172a', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
           />
         ) : (
           <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: isLight ? '#475569' : '#94a3b8' }}>
@@ -252,7 +259,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
                   visibleCameraTracks.length <= 1 ? '1fr' :
                   visibleCameraTracks.length <= 4 ? 'repeat(2, 1fr)' :
                   'repeat(3, 1fr)',
-                gridAutoRows: 'minmax(160px, 1fr)',
+                gridAutoRows: 'minmax(180px, 1fr)',
                 gap: 10,
                 padding: 10
               }}
