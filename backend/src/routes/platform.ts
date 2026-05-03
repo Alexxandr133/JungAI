@@ -126,10 +126,11 @@ async function createUpdateSafe(input: {
       data: {
         title: input.title,
         description: input.description,
-        details: input.details.length ? input.details : undefined,
+        // SQLite Json: нельзя передавать undefined — «Conversion failed: Value JSON not supported»
+        details: input.details.length ? input.details : [],
         publishedAt: input.publishedAt,
         isDraft: input.isDraft,
-        createdBy: input.createdBy ?? undefined
+        ...(input.createdBy ? { createdBy: input.createdBy } : {})
       }
     });
   }

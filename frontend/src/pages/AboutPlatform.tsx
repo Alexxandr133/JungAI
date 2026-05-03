@@ -4,6 +4,8 @@ import { api } from '../lib/api';
 import { PsychologistNavbar } from '../components/PsychologistNavbar';
 import { ClientNavbar } from '../components/ClientNavbar';
 import { ResearcherNavbar } from '../components/ResearcherNavbar';
+import { PlatformUpdateBody } from '../components/PlatformUpdateBody';
+import { PlatformUpdateEditor } from '../components/PlatformUpdateEditor';
 
 type PlatformUpdate = {
   id: string;
@@ -586,7 +588,9 @@ function AboutPlatform() {
                           )}
                         </div>
                       </div>
-                      <div style={{ marginTop: 10, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{item.description}</div>
+                      <div style={{ marginTop: 10 }}>
+                        <PlatformUpdateBody source={item.description} />
+                      </div>
                       {Array.isArray(item.details) && item.details.length > 0 && (
                         <ul style={{ margin: '10px 0 0', paddingLeft: 18, lineHeight: 1.7 }}>
                           {item.details.map((d, dIdx) => <li key={`${item.id}-${dIdx}`}>{d}</li>)}
@@ -678,7 +682,7 @@ function AboutPlatform() {
               className="card"
               onClick={(ev) => ev.stopPropagation()}
               style={{
-                width: 'min(640px, 100%)',
+                width: 'min(960px, 100%)',
                 maxHeight: 'min(92vh, 900px)',
                 overflowY: 'auto',
                 padding: 22,
@@ -719,21 +723,14 @@ function AboutPlatform() {
                     disabled={addSubmitting}
                   />
                 </label>
-                <label style={{ display: 'grid', gap: 6 }}>
+                <label style={{ display: 'grid', gap: 8 }}>
                   <span className="small" style={{ fontWeight: 600 }}>
-                    Текст
+                    Текст (Markdown)
                   </span>
                   <span className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Один блок: абзацы и переносы строк сохраняются как вы их задаёте.
+                    Панель инструментов: жирный, курсив, списки, заголовки. Рядом — живой предпросмотр. Можно писать и разметку вручную (**жирный**, списки через «- »).
                   </span>
-                  <textarea
-                    value={formBody}
-                    onChange={(e) => setFormBody(e.target.value)}
-                    placeholder="Полный текст обновления…"
-                    rows={16}
-                    disabled={addSubmitting}
-                    style={{ ...fieldStyle, resize: 'vertical', minHeight: 220, fontFamily: 'inherit' }}
-                  />
+                  <PlatformUpdateEditor value={formBody} onChange={setFormBody} disabled={addSubmitting} />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className="small" style={{ fontWeight: 600 }}>
@@ -789,7 +786,7 @@ function AboutPlatform() {
               aria-labelledby="platform-preview-title"
               className="card"
               onClick={(ev) => ev.stopPropagation()}
-              style={{ width: 'min(560px, 100%)', maxHeight: 'min(85vh, 720px)', overflowY: 'auto', padding: 22, borderRadius: 16 }}
+              style={{ width: 'min(720px, 100%)', maxHeight: 'min(85vh, 720px)', overflowY: 'auto', padding: 22, borderRadius: 16 }}
             >
               <h3 id="platform-preview-title" style={{ marginTop: 0 }}>
                 Предпросмотр
@@ -811,7 +808,9 @@ function AboutPlatform() {
                       : new Date().toLocaleString('ru-RU')}
                   </span>
                 </div>
-                <div style={{ marginTop: 10, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{formBody.trim() || '—'}</div>
+                <div style={{ marginTop: 10 }}>
+                  {formBody.trim() ? <PlatformUpdateBody source={formBody.trim()} /> : <span className="small" style={{ color: 'var(--text-muted)' }}>—</span>}
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
                 <button type="button" className="button" onClick={() => setShowPreviewModal(false)}>

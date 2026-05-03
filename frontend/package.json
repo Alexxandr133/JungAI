@@ -12,6 +12,7 @@
   "dependencies": {
     "@livekit/components-react": "^2.9.20",
     "@livekit/components-styles": "^1.2.0",
+    "@uiw/react-md-editor": "^4.1.0",
     "agora-react-uikit": "^1.2.0",
     "agora-rtc-react": "^2.5.1",
     "agora-rtc-sdk-ng": "^4.24.2",
@@ -21,8 +22,11 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-easy-crop": "^5.5.6",
+    "react-markdown": "^10.1.0",
     "react-router": "^6.30.1",
     "react-router-dom": "^6.30.1",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
     "scheduler": "^0.25.0",
     "socket.io-client": "^4.8.3"
   },
