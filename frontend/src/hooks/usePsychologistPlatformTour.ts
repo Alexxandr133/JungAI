@@ -4,7 +4,7 @@ import {
   runPsychologistPlatformTour,
   type PsychologistTourId
 } from '../lib/psychologistPlatformTour';
-import type { DriveStep } from 'driver.js';
+import type { DriveStep, Driver } from 'driver.js';
 
 type Options = {
   userId: string | undefined;

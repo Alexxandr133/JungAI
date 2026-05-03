@@ -154,7 +154,7 @@ export default function CommunityView() {
                   }}
                 >
                   {resolvePublicFileUrl(community?.avatarUrl) ? (
-                    <img src={resolvePublicFileUrl(community?.avatarUrl) || ''} alt={community.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={resolvePublicFileUrl(community?.avatarUrl) || ''} alt={community?.name ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     <span style={{ fontWeight: 700 }}>{(community?.name || 'C').slice(0, 1)}</span>
                   )}

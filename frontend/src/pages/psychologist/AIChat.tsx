@@ -266,7 +266,7 @@ export default function PsychologistAIChat() {
     tourId: 'ai',
     userId: user?.id,
     role: user?.role,
-    enabled: Boolean(token && user),
+    enabled: Boolean(token && user?.role === 'psychologist' && isVerified === true && user),
     steps: PSYCHOLOGIST_AI_TOUR_STEPS
   });
 
