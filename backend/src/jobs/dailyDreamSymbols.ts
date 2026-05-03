@@ -130,11 +130,35 @@ async function upsertDailyValidationRow(input: {
   )) as any[];
   const row = rows?.[0];
 
+  const fromDb = row?.cleanedFrequency;
+  const cleanedParsed = parseStoredFrequencyJson(fromDb, cleaned);
+
   return {
     day: new Date(row?.day ?? dayIso),
     sourceDreams: Number(row?.sourceDreams ?? input.sourceDreams),
-    cleanedFrequency: JSON.parse(String(row?.cleanedFrequency ?? cleaned)) as SymbolCountRow[]
+    cleanedFrequency: cleanedParsed
   };
+}
+
+function parseStoredFrequencyJson(raw: unknown, fallbackJson: string): SymbolCountRow[] {
+  const s = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : '';
+  if (!s) {
+    try {
+      return JSON.parse(fallbackJson) as SymbolCountRow[];
+    } catch {
+      return [];
+    }
+  }
+  try {
+    const j = JSON.parse(s);
+    return Array.isArray(j) ? (j as SymbolCountRow[]) : [];
+  } catch {
+    try {
+      return JSON.parse(fallbackJson) as SymbolCountRow[];
+    } catch {
+      return [];
+    }
+  }
 }
 
 function buildTagNormalizationPrompt(input: {

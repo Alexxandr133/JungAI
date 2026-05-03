@@ -1264,10 +1264,24 @@ router.post('/ai/psychologist/shortcuts', requireAuth, requireRole(['psychologis
 
     let shortcut;
     if (id) {
-      shortcut = await prisma.aIChatShortcut.update({
-        where: { id },
-        data: { label, emoji: emoji || '📝', prompt }
+      const existing = await prisma.aIChatShortcut.findFirst({
+        where: { id, psychologistId: req.user!.id }
       });
+      if (existing) {
+        shortcut = await prisma.aIChatShortcut.update({
+          where: { id },
+          data: { label, emoji: emoji || '📝', prompt }
+        });
+      } else {
+        shortcut = await prisma.aIChatShortcut.create({
+          data: {
+            psychologistId: req.user!.id,
+            label,
+            emoji: emoji || '📝',
+            prompt
+          }
+        });
+      }
     } else {
       shortcut = await prisma.aIChatShortcut.create({
         data: {
