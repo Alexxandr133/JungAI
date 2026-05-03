@@ -401,6 +401,7 @@ model PlatformUpdate {
   description String
   details     Json?
   publishedAt DateTime @default(now())
+  isDraft     Boolean  @default(false)
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

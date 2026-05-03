@@ -11,6 +11,16 @@ type PlatformUpdate = {
   description: string;
   details: string[];
   publishedAt: string;
+  isSeed?: boolean;
+};
+
+type DraftRow = {
+  id: string;
+  title: string;
+  description: string;
+  details: string[];
+  updatedAt: string;
+  publishedAt: string;
 };
 
 type SectionKey = 'main' | 'tools' | 'ai' | 'research' | 'publications';
@@ -29,7 +39,10 @@ function roleLabel(role: string | undefined): string {
   return 'Пользователь';
 }
 
-const MAX_UPDATE_DETAIL_LINES = 12;
+function bodyTextFromUpdate(u: { description: string; details: string[] }): string {
+  if (!u.details?.length) return u.description;
+  return `${u.description}\n\n${u.details.join('\n')}`;
+}
 
 const fieldStyle: CSSProperties = {
   width: '100%',
@@ -45,18 +58,22 @@ function AboutPlatform() {
   const { user, token } = useAuth();
   const [tab, setTab] = useState<'about' | 'updates'>('about');
   const [items, setItems] = useState<PlatformUpdate[]>([]);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SectionKey>('main');
 
   const isAdmin = user?.role === 'admin';
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [addFormError, setAddFormError] = useState<string | null>(null);
   const [formTitle, setFormTitle] = useState('');
-  const [formDescription, setFormDescription] = useState('');
-  const [formDetails, setFormDetails] = useState('');
+  const [formBody, setFormBody] = useState('');
   const [formPublishedAt, setFormPublishedAt] = useState('');
+  /** Редактируем существующий черновик */
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
 
   const sectionDocs = useMemo(() => {
     const mapByRole: Record<string, Record<SectionKey, { title: string; intro: string; items: SectionDocItem[] }>> = {
@@ -206,58 +223,182 @@ function AboutPlatform() {
     }
   }
 
-  useEffect(() => {
-    if (tab === 'updates') loadUpdates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, token]);
+  async function loadDrafts() {
+    if (!token || !isAdmin) return;
+    setLoadingDrafts(true);
+    try {
+      const res = await api<{ drafts: DraftRow[] }>('/api/admin/platform/drafts', { token });
+      setDrafts(Array.isArray(res.drafts) ? res.drafts : []);
+    } catch {
+      setDrafts([]);
+    } finally {
+      setLoadingDrafts(false);
+    }
+  }
 
   useEffect(() => {
-    if (!showAddModal) return;
+    if (tab === 'updates') {
+      loadUpdates();
+      if (isAdmin) loadDrafts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, token, isAdmin]);
+
+  useEffect(() => {
+    if (!showAddModal && !showPreviewModal) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowAddModal(false);
+      if (e.key !== 'Escape') return;
+      if (showPreviewModal) {
+        setShowPreviewModal(false);
+        return;
+      }
+      setShowAddModal(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showAddModal]);
+  }, [showAddModal, showPreviewModal]);
 
-  async function submitPlatformUpdate(e: FormEvent) {
-    e.preventDefault();
-    if (!token || !isAdmin) return;
+  function openNewUpdateModal() {
+    setAddFormError(null);
+    setEditingDraftId(null);
+    setFormTitle('');
+    setFormBody('');
+    setFormPublishedAt('');
+    setShowAddModal(true);
+  }
+
+  function openEditDraft(d: DraftRow) {
+    setAddFormError(null);
+    setEditingDraftId(d.id);
+    setFormTitle(d.title);
+    setFormBody(bodyTextFromUpdate(d));
+    setFormPublishedAt('');
+    setShowAddModal(true);
+  }
+
+  function validateForm(): boolean {
     const title = formTitle.trim();
-    const description = formDescription.trim();
-    if (!title || !description) {
-      setAddFormError('Укажите заголовок и описание');
-      return;
+    const body = formBody.trim();
+    if (!title || !body) {
+      setAddFormError('Укажите заголовок и текст');
+      return false;
     }
-    const details = formDetails
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, MAX_UPDATE_DETAIL_LINES);
+    return true;
+  }
+
+  async function saveDraft() {
+    if (!token || !isAdmin || !validateForm()) return;
     setAddSubmitting(true);
     setAddFormError(null);
     try {
-      await api('/api/admin/platform/updates', {
-        method: 'POST',
-        token,
-        body: {
-          title,
-          description,
-          details,
-          ...(formPublishedAt ? { publishedAt: new Date(formPublishedAt).toISOString() } : {})
-        }
-      });
-      setFormTitle('');
-      setFormDescription('');
-      setFormDetails('');
-      setFormPublishedAt('');
+      const title = formTitle.trim();
+      const description = formBody.trim();
+      if (editingDraftId) {
+        await api(`/api/admin/platform/updates/${editingDraftId}`, {
+          method: 'PATCH',
+          token,
+          body: { title, description, details: [] }
+        });
+      } else {
+        await api('/api/admin/platform/updates', {
+          method: 'POST',
+          token,
+          body: { title, description, details: [], draft: true }
+        });
+      }
       setShowAddModal(false);
+      setEditingDraftId(null);
+      setFormTitle('');
+      setFormBody('');
       await loadUpdates();
+      await loadDrafts();
     } catch (err: any) {
-      setAddFormError(err?.message || 'Не удалось опубликовать обновление');
+      setAddFormError(err?.message || 'Не удалось сохранить черновик');
     } finally {
       setAddSubmitting(false);
     }
+  }
+
+  async function publishUpdate() {
+    if (!token || !isAdmin || !validateForm()) return;
+    setAddSubmitting(true);
+    setAddFormError(null);
+    try {
+      const title = formTitle.trim();
+      const description = formBody.trim();
+      const pubAt = formPublishedAt ? new Date(formPublishedAt).toISOString() : undefined;
+      if (editingDraftId) {
+        await api(`/api/admin/platform/updates/${editingDraftId}`, {
+          method: 'PATCH',
+          token,
+          body: { title, description, details: [] }
+        });
+        await api(`/api/admin/platform/updates/${editingDraftId}/publish`, {
+          method: 'POST',
+          token,
+          body: pubAt ? { publishedAt: pubAt } : {}
+        });
+      } else {
+        await api('/api/admin/platform/updates', {
+          method: 'POST',
+          token,
+          body: {
+            title,
+            description,
+            details: [],
+            draft: false,
+            ...(pubAt ? { publishedAt: pubAt } : {})
+          }
+        });
+      }
+      setShowAddModal(false);
+      setEditingDraftId(null);
+      setFormTitle('');
+      setFormBody('');
+      setFormPublishedAt('');
+      await loadUpdates();
+      await loadDrafts();
+    } catch (err: any) {
+      setAddFormError(err?.message || 'Не удалось опубликовать');
+    } finally {
+      setAddSubmitting(false);
+    }
+  }
+
+  async function deleteUpdate(id: string) {
+    if (!token || !isAdmin) return;
+    if (!window.confirm('Удалить это обновление? Действие необратимо.')) return;
+    try {
+      await api(`/api/admin/platform/updates/${id}`, { method: 'DELETE', token });
+      await loadUpdates();
+      await loadDrafts();
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось удалить');
+    }
+  }
+
+  async function publishDraftQuick(id: string) {
+    if (!token || !isAdmin) return;
+    setAddSubmitting(true);
+    try {
+      await api(`/api/admin/platform/updates/${id}/publish`, { method: 'POST', token });
+      await loadUpdates();
+      await loadDrafts();
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось опубликовать');
+    } finally {
+      setAddSubmitting(false);
+    }
+  }
+
+  function showPreview() {
+    if (!validateForm()) return;
+    setShowPreviewModal(true);
+  }
+
+  function handleFormSubmit(e: FormEvent) {
+    e.preventDefault();
+    publishUpdate();
   }
 
   const Navbar =
@@ -388,10 +529,7 @@ function AboutPlatform() {
                     className="button"
                     title="Добавить обновление"
                     aria-label="Добавить обновление платформы"
-                    onClick={() => {
-                      setAddFormError(null);
-                      setShowAddModal(true);
-                    }}
+                    onClick={openNewUpdateModal}
                     style={{
                       minWidth: 44,
                       minHeight: 44,
@@ -425,13 +563,30 @@ function AboutPlatform() {
                         border: idx === 0 ? '1px solid rgba(124,58,237,.28)' : '1px solid rgba(255,255,255,.08)'
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <strong style={{ fontSize: 17 }}>{item.title}</strong>
-                        <span className="small" style={{ color: 'var(--text-muted)' }}>
-                          {new Date(item.publishedAt).toLocaleString('ru-RU')}
-                        </span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <strong style={{ fontSize: 17 }}>{item.title}</strong>
+                          {item.isSeed && (
+                            <span className="small" style={{ marginLeft: 8, color: 'var(--text-muted)' }}>(системная)</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <span className="small" style={{ color: 'var(--text-muted)' }}>
+                            {new Date(item.publishedAt).toLocaleString('ru-RU')}
+                          </span>
+                          {isAdmin && !item.isSeed && (
+                            <button
+                              type="button"
+                              className="button secondary"
+                              style={{ padding: '6px 12px', fontSize: 13 }}
+                              onClick={() => deleteUpdate(item.id)}
+                            >
+                              Удалить
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div style={{ marginTop: 8, lineHeight: 1.65 }}>{item.description}</div>
+                      <div style={{ marginTop: 10, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{item.description}</div>
                       {Array.isArray(item.details) && item.details.length > 0 && (
                         <ul style={{ margin: '10px 0 0', paddingLeft: 18, lineHeight: 1.7 }}>
                           {item.details.map((d, dIdx) => <li key={`${item.id}-${dIdx}`}>{d}</li>)}
@@ -442,6 +597,63 @@ function AboutPlatform() {
                 </div>
               )}
             </div>
+
+            {isAdmin && (
+              <div className="card" style={{ padding: 20 }}>
+                <h3 style={{ marginTop: 0 }}>Черновики</h3>
+                <p className="small" style={{ marginTop: -6, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                  Видно только администраторам. После публикации запись попадает в общую ленту (вместе с системными обновлениями).
+                </p>
+                {loadingDrafts ? (
+                  <div className="small" style={{ color: 'var(--text-muted)' }}>Загрузка…</div>
+                ) : drafts.length === 0 ? (
+                  <div className="small" style={{ color: 'var(--text-muted)' }}>Нет черновиков.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {drafts.map((d) => (
+                      <div
+                        key={d.id}
+                        className="card"
+                        style={{
+                          padding: 14,
+                          borderRadius: 12,
+                          background: 'var(--surface-2)',
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 12,
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <strong>{d.title}</strong>
+                          <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+                            Изменён {new Date(d.updatedAt).toLocaleString('ru-RU')}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button type="button" className="button secondary" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => openEditDraft(d)}>
+                            Редактировать
+                          </button>
+                          <button
+                            type="button"
+                            className="button"
+                            style={{ padding: '8px 14px', fontSize: 13 }}
+                            disabled={addSubmitting}
+                            onClick={() => publishDraftQuick(d.id)}
+                          >
+                            Опубликовать
+                          </button>
+                          <button type="button" className="button secondary" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => deleteUpdate(d.id)}>
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -466,18 +678,18 @@ function AboutPlatform() {
               className="card"
               onClick={(ev) => ev.stopPropagation()}
               style={{
-                width: 'min(520px, 100%)',
-                maxHeight: 'min(88vh, 720px)',
+                width: 'min(640px, 100%)',
+                maxHeight: 'min(92vh, 900px)',
                 overflowY: 'auto',
                 padding: 22,
                 borderRadius: 16
               }}
             >
               <h3 id="platform-update-dialog-title" style={{ marginTop: 0 }}>
-                Новое обновление
+                {editingDraftId ? 'Черновик' : 'Новое обновление'}
               </h3>
               <p className="small" style={{ marginTop: -6, color: 'var(--text-muted)', lineHeight: 1.55 }}>
-                Запись появится во вкладке «Обновления» у всех авторизованных пользователей.
+                Системные записи в ленте не удаляются. Черновики видите только вы; после публикации текст появится у всех пользователей.
               </p>
               {addFormError && (
                 <div
@@ -494,7 +706,7 @@ function AboutPlatform() {
                   {addFormError}
                 </div>
               )}
-              <form onSubmit={submitPlatformUpdate} style={{ display: 'grid', gap: 14 }}>
+              <form onSubmit={handleFormSubmit} style={{ display: 'grid', gap: 14 }}>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className="small" style={{ fontWeight: 600 }}>
                     Заголовок
@@ -504,39 +716,23 @@ function AboutPlatform() {
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     placeholder="Например: Крупное обновление платформы"
-                    required
-                    autoFocus
                     disabled={addSubmitting}
                   />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className="small" style={{ fontWeight: 600 }}>
-                    Описание
-                  </span>
-                  <textarea
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    placeholder="Краткий текст обновления"
-                    rows={4}
-                    required
-                    disabled={addSubmitting}
-                    style={{ ...fieldStyle, resize: 'vertical', minHeight: 96 }}
-                  />
-                </label>
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span className="small" style={{ fontWeight: 600 }}>
-                    Пункты списка (необязательно)
+                    Текст
                   </span>
                   <span className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Одна строка — один пункт. Не более {MAX_UPDATE_DETAIL_LINES} пунктов.
+                    Один блок: абзацы и переносы строк сохраняются как вы их задаёте.
                   </span>
                   <textarea
-                    value={formDetails}
-                    onChange={(e) => setFormDetails(e.target.value)}
-                    placeholder={'Пункт 1\nПункт 2'}
-                    rows={5}
+                    value={formBody}
+                    onChange={(e) => setFormBody(e.target.value)}
+                    placeholder="Полный текст обновления…"
+                    rows={16}
                     disabled={addSubmitting}
-                    style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }}
+                    style={{ ...fieldStyle, resize: 'vertical', minHeight: 220, fontFamily: 'inherit' }}
                   />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
@@ -551,23 +747,77 @@ function AboutPlatform() {
                     disabled={addSubmitting}
                   />
                   <span className="small" style={{ color: 'var(--text-muted)' }}>
-                    Если не указать — будет текущее время.
+                    Учитывается при нажатии «Опубликовать». Если пусто — время публикации «сейчас».
                   </span>
                 </label>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={addSubmitting}
-                    onClick={() => setShowAddModal(false)}
-                  >
+                  <button type="button" className="button secondary" disabled={addSubmitting} onClick={() => setShowAddModal(false)}>
                     Отмена
+                  </button>
+                  <button type="button" className="button secondary" disabled={addSubmitting} onClick={showPreview}>
+                    Предпросмотр
+                  </button>
+                  <button type="button" className="button secondary" disabled={addSubmitting} onClick={saveDraft}>
+                    {addSubmitting ? 'Сохранение…' : 'Сохранить черновик'}
                   </button>
                   <button type="submit" className="button" disabled={addSubmitting}>
                     {addSubmitting ? 'Публикация…' : 'Опубликовать'}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {isAdmin && showPreviewModal && (
+          <div
+            role="presentation"
+            onClick={() => setShowPreviewModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(5,8,16,0.78)',
+              display: 'grid',
+              placeItems: 'center',
+              padding: 16,
+              zIndex: 2100
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="platform-preview-title"
+              className="card"
+              onClick={(ev) => ev.stopPropagation()}
+              style={{ width: 'min(560px, 100%)', maxHeight: 'min(85vh, 720px)', overflowY: 'auto', padding: 22, borderRadius: 16 }}
+            >
+              <h3 id="platform-preview-title" style={{ marginTop: 0 }}>
+                Предпросмотр
+              </h3>
+              <div
+                className="card"
+                style={{
+                  padding: 16,
+                  borderRadius: 16,
+                  background: 'linear-gradient(180deg, rgba(124,58,237,.13), rgba(124,58,237,.05))',
+                  border: '1px solid rgba(124,58,237,.28)'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <strong style={{ fontSize: 17 }}>{formTitle.trim() || '—'}</strong>
+                  <span className="small" style={{ color: 'var(--text-muted)' }}>
+                    {formPublishedAt
+                      ? new Date(formPublishedAt).toLocaleString('ru-RU')
+                      : new Date().toLocaleString('ru-RU')}
+                  </span>
+                </div>
+                <div style={{ marginTop: 10, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{formBody.trim() || '—'}</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                <button type="button" className="button" onClick={() => setShowPreviewModal(false)}>
+                  Закрыть
+                </button>
+              </div>
             </div>
           </div>
         )}
