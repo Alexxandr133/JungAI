@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { PsychologistNavbar } from '../components/PsychologistNavbar';
@@ -29,6 +29,18 @@ function roleLabel(role: string | undefined): string {
   return 'Пользователь';
 }
 
+const MAX_UPDATE_DETAIL_LINES = 12;
+
+const fieldStyle: CSSProperties = {
+  width: '100%',
+  padding: '12px 14px',
+  borderRadius: 12,
+  border: '1px solid rgba(255,255,255,0.12)',
+  background: 'var(--surface-2)',
+  color: 'var(--text)',
+  boxSizing: 'border-box'
+};
+
 function AboutPlatform() {
   const { user, token } = useAuth();
   const [tab, setTab] = useState<'about' | 'updates'>('about');
@@ -36,6 +48,15 @@ function AboutPlatform() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SectionKey>('main');
+
+  const isAdmin = user?.role === 'admin';
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addFormError, setAddFormError] = useState<string | null>(null);
+  const [formTitle, setFormTitle] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formDetails, setFormDetails] = useState('');
+  const [formPublishedAt, setFormPublishedAt] = useState('');
 
   const sectionDocs = useMemo(() => {
     const mapByRole: Record<string, Record<SectionKey, { title: string; intro: string; items: SectionDocItem[] }>> = {
@@ -190,6 +211,55 @@ function AboutPlatform() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, token]);
 
+  useEffect(() => {
+    if (!showAddModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowAddModal(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showAddModal]);
+
+  async function submitPlatformUpdate(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !isAdmin) return;
+    const title = formTitle.trim();
+    const description = formDescription.trim();
+    if (!title || !description) {
+      setAddFormError('Укажите заголовок и описание');
+      return;
+    }
+    const details = formDetails
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, MAX_UPDATE_DETAIL_LINES);
+    setAddSubmitting(true);
+    setAddFormError(null);
+    try {
+      await api('/api/admin/platform/updates', {
+        method: 'POST',
+        token,
+        body: {
+          title,
+          description,
+          details,
+          ...(formPublishedAt ? { publishedAt: new Date(formPublishedAt).toISOString() } : {})
+        }
+      });
+      setFormTitle('');
+      setFormDescription('');
+      setFormDetails('');
+      setFormPublishedAt('');
+      setShowAddModal(false);
+      await loadUpdates();
+    } catch (err: any) {
+      setAddFormError(err?.message || 'Не удалось опубликовать обновление');
+    } finally {
+      setAddSubmitting(false);
+    }
+  }
+
   const Navbar =
     user?.role === 'client' ? ClientNavbar :
     user?.role === 'researcher' ? ResearcherNavbar :
@@ -310,7 +380,32 @@ function AboutPlatform() {
         ) : (
           <div style={{ display: 'grid', gap: 16 }}>
             <div className="card" style={{ padding: 20 }}>
-              <h3 style={{ marginTop: 0 }}>Лента обновлений</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <h3 style={{ marginTop: 0, marginBottom: 0 }}>Лента обновлений</h3>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="button"
+                    title="Добавить обновление"
+                    aria-label="Добавить обновление платформы"
+                    onClick={() => {
+                      setAddFormError(null);
+                      setShowAddModal(true);
+                    }}
+                    style={{
+                      minWidth: 44,
+                      minHeight: 44,
+                      padding: '0 16px',
+                      fontSize: 22,
+                      lineHeight: 1,
+                      fontWeight: 700,
+                      borderRadius: 12
+                    }}
+                  >
+                    +
+                  </button>
+                )}
+              </div>
               {loading ? (
                 <div className="small" style={{ color: 'var(--text-muted)' }}>Загрузка...</div>
               ) : items.length === 0 ? (
@@ -346,6 +441,133 @@ function AboutPlatform() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {isAdmin && showAddModal && (
+          <div
+            role="presentation"
+            onClick={() => !addSubmitting && setShowAddModal(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(5,8,16,0.78)',
+              display: 'grid',
+              placeItems: 'center',
+              padding: 16,
+              zIndex: 2000
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="platform-update-dialog-title"
+              className="card"
+              onClick={(ev) => ev.stopPropagation()}
+              style={{
+                width: 'min(520px, 100%)',
+                maxHeight: 'min(88vh, 720px)',
+                overflowY: 'auto',
+                padding: 22,
+                borderRadius: 16
+              }}
+            >
+              <h3 id="platform-update-dialog-title" style={{ marginTop: 0 }}>
+                Новое обновление
+              </h3>
+              <p className="small" style={{ marginTop: -6, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                Запись появится во вкладке «Обновления» у всех авторизованных пользователей.
+              </p>
+              {addFormError && (
+                <div
+                  style={{
+                    padding: 10,
+                    marginBottom: 12,
+                    borderRadius: 10,
+                    background: 'rgba(239,68,68,0.12)',
+                    border: '1px solid rgba(239,68,68,0.35)',
+                    color: '#ef4444',
+                    fontSize: 14
+                  }}
+                >
+                  {addFormError}
+                </div>
+              )}
+              <form onSubmit={submitPlatformUpdate} style={{ display: 'grid', gap: 14 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="small" style={{ fontWeight: 600 }}>
+                    Заголовок
+                  </span>
+                  <input
+                    style={fieldStyle}
+                    value={formTitle}
+                    onChange={(e) => setFormTitle(e.target.value)}
+                    placeholder="Например: Крупное обновление платформы"
+                    required
+                    autoFocus
+                    disabled={addSubmitting}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="small" style={{ fontWeight: 600 }}>
+                    Описание
+                  </span>
+                  <textarea
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="Краткий текст обновления"
+                    rows={4}
+                    required
+                    disabled={addSubmitting}
+                    style={{ ...fieldStyle, resize: 'vertical', minHeight: 96 }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="small" style={{ fontWeight: 600 }}>
+                    Пункты списка (необязательно)
+                  </span>
+                  <span className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Одна строка — один пункт. Не более {MAX_UPDATE_DETAIL_LINES} пунктов.
+                  </span>
+                  <textarea
+                    value={formDetails}
+                    onChange={(e) => setFormDetails(e.target.value)}
+                    placeholder={'Пункт 1\nПункт 2'}
+                    rows={5}
+                    disabled={addSubmitting}
+                    style={{ ...fieldStyle, resize: 'vertical', fontFamily: 'inherit' }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className="small" style={{ fontWeight: 600 }}>
+                    Дата публикации (необязательно)
+                  </span>
+                  <input
+                    type="datetime-local"
+                    style={fieldStyle}
+                    value={formPublishedAt}
+                    onChange={(e) => setFormPublishedAt(e.target.value)}
+                    disabled={addSubmitting}
+                  />
+                  <span className="small" style={{ color: 'var(--text-muted)' }}>
+                    Если не указать — будет текущее время.
+                  </span>
+                </label>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 4 }}>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={addSubmitting}
+                    onClick={() => setShowAddModal(false)}
+                  >
+                    Отмена
+                  </button>
+                  <button type="submit" className="button" disabled={addSubmitting}>
+                    {addSubmitting ? 'Публикация…' : 'Опубликовать'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

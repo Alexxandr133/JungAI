@@ -9,6 +9,7 @@
     "shared"
   ],
   "scripts": {
+    "prisma:generate:backend": "npm -w backend run prisma:generate",
     "dev:backend": "npm -w backend run dev",
     "build:backend": "npm -w backend run build",
     "start:backend": "npm -w backend run start",
