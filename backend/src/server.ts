@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { existsSync } from 'fs';
+import { getUploadsRoot } from './utils/uploadsRoot';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config';
@@ -70,7 +71,7 @@ app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 
 // Статическая раздача файлов из папки uploads с CORS заголовками
-const uploadsStaticPath = path.join(process.cwd(), 'backend', 'uploads');
+const uploadsStaticPath = getUploadsRoot();
 console.log(`[Server] Static uploads path: ${uploadsStaticPath}`);
 console.log(`[Server] Uploads directory exists: ${existsSync(uploadsStaticPath)}`);
 

@@ -3,11 +3,12 @@ import { requireAuth, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import path from 'path';
 import fs from 'fs';
+import { getUploadsRoot } from '../utils/uploadsRoot';
 
 const router = Router();
 
 // Настройка директории для загрузки файлов
-const uploadDir = path.join(process.cwd(), 'uploads');
+const uploadDir = getUploadsRoot();
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }

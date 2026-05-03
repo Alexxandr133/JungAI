@@ -5,14 +5,14 @@ import fs from 'fs';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import { config } from '../config';
+import { getUploadsRoot } from '../utils/uploadsRoot';
 
 const router = Router();
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Настройка multer для загрузки аватаров клиентов
-// Используем process.cwd() для определения корня проекта (работает и в dev, и в production)
-const uploadsBaseDir = path.join(process.cwd(), 'backend', 'uploads');
+const uploadsBaseDir = getUploadsRoot();
 const avatarsDir = path.join(uploadsBaseDir, 'avatars');
 if (!fs.existsSync(avatarsDir)) {
   fs.mkdirSync(avatarsDir, { recursive: true });

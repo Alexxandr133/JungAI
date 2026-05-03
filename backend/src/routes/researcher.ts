@@ -5,12 +5,12 @@ import fs from 'fs';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { getUploadsRoot } from '../utils/uploadsRoot';
 
 const router = Router();
 
 // Настройка multer для загрузки файлов
-// Используем process.cwd() для определения корня проекта (работает и в dev, и в production)
-const uploadsBaseDir = path.join(process.cwd(), 'backend', 'uploads');
+const uploadsBaseDir = getUploadsRoot();
 const verificationDir = path.join(uploadsBaseDir, 'verification');
 const avatarsDir = path.join(uploadsBaseDir, 'avatars');
 if (!fs.existsSync(verificationDir)) {
