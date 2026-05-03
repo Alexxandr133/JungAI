@@ -30,10 +30,16 @@ const DEFAULT_UPDATES = [
 ];
 
 function parseDetails(value: unknown): string[] {
+  if (value == null) return [];
   if (Array.isArray(value)) return value.map((v) => String(v)).filter(Boolean);
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) {
+    return parseDetails(value.toString('utf8'));
+  }
   if (typeof value === 'string') {
+    const t = value.trim();
+    if (!t) return [];
     try {
-      const parsed = JSON.parse(value);
+      const parsed = JSON.parse(t);
       if (Array.isArray(parsed)) return parsed.map((v) => String(v)).filter(Boolean);
       return [];
     } catch {
@@ -44,6 +50,8 @@ function parseDetails(value: unknown): string[] {
 }
 
 function normalizeDbRow(item: any) {
+  const rawDraft = item.isDraft;
+  const isDraft = rawDraft === true || rawDraft === 1 || rawDraft === '1';
   return {
     id: item.id,
     title: item.title,
@@ -51,7 +59,7 @@ function normalizeDbRow(item: any) {
     details: parseDetails(item.details),
     publishedAt: new Date(item.publishedAt).toISOString(),
     isSeed: false,
-    isDraft: Boolean(item.isDraft)
+    isDraft
   };
 }
 
@@ -72,17 +80,13 @@ function mergePublicFeed(dbPublished: any[]): ReturnType<typeof normalizeDbRow>[
   return combined as ReturnType<typeof normalizeDbRow>[];
 }
 
+/**
+ * Всегда raw SQL: Prisma + Json + SQLite даёт «Value JSON not supported» на findMany,
+ * если в ячейке details некорректный JSON или тип не совпал.
+ */
 async function fetchPublishedFromDb(): Promise<any[]> {
-  const model = (prisma as any).platformUpdate;
-  if (model?.findMany) {
-    return model.findMany({
-      where: { isDraft: false },
-      orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 200
-    });
-  }
   return (prisma as any).$queryRawUnsafe(`
-    SELECT id, title, description, details, publishedAt, createdAt, COALESCE(isDraft, 0) as isDraft
+    SELECT id, title, description, CAST(details AS TEXT) as details, publishedAt, createdAt, COALESCE(isDraft, 0) as isDraft
     FROM "PlatformUpdate"
     WHERE COALESCE(isDraft, 0) = 0
     ORDER BY publishedAt DESC, createdAt DESC
@@ -91,18 +95,10 @@ async function fetchPublishedFromDb(): Promise<any[]> {
 }
 
 async function fetchDraftsFromDb(): Promise<any[]> {
-  const model = (prisma as any).platformUpdate;
-  if (model?.findMany) {
-    return model.findMany({
-      where: { isDraft: true },
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 50
-    });
-  }
   return (prisma as any).$queryRawUnsafe(`
-    SELECT id, title, description, details, publishedAt, createdAt, updatedAt, isDraft
+    SELECT id, title, description, CAST(details AS TEXT) as details, publishedAt, createdAt, updatedAt, isDraft
     FROM "PlatformUpdate"
-    WHERE isDraft = 1
+    WHERE COALESCE(isDraft, 0) = 1
     ORDER BY updatedAt DESC, createdAt DESC
     LIMIT 50
   `);
@@ -120,22 +116,8 @@ async function createUpdateSafe(input: {
   isDraft: boolean;
   createdBy: string | null;
 }) {
-  const model = (prisma as any).platformUpdate;
-  if (model?.create) {
-    return model.create({
-      data: {
-        title: input.title,
-        description: input.description,
-        // SQLite Json: нельзя передавать undefined — «Conversion failed: Value JSON not supported»
-        details: input.details.length ? input.details : [],
-        publishedAt: input.publishedAt,
-        isDraft: input.isDraft,
-        ...(input.createdBy ? { createdBy: input.createdBy } : {})
-      }
-    });
-  }
   const id = `upd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const detailsJson = JSON.stringify(input.details || []);
+  const detailsJson = JSON.stringify(input.details?.length ? input.details : []);
   const draftNum = input.isDraft ? 1 : 0;
   await (prisma as any).$executeRawUnsafe(
     `
@@ -151,20 +133,16 @@ async function createUpdateSafe(input: {
     draftNum,
     input.createdBy
   );
-  const rows = await (prisma as any).$queryRawUnsafe(
-    `SELECT id, title, description, details, publishedAt, isDraft FROM "PlatformUpdate" WHERE id = ? LIMIT 1`,
-    id
-  );
-  return rows?.[0] || { id, ...input };
+  return getOneById(id);
 }
 
 async function getOneById(id: string): Promise<any | null> {
-  const model = (prisma as any).platformUpdate;
-  if (model?.findUnique) {
-    return model.findUnique({ where: { id } });
-  }
   const rows = await (prisma as any).$queryRawUnsafe(
-    `SELECT * FROM "PlatformUpdate" WHERE id = ? LIMIT 1`,
+    `
+    SELECT id, title, description, CAST(details AS TEXT) as details, publishedAt, createdAt, updatedAt,
+           COALESCE(isDraft, 0) as isDraft, createdBy
+    FROM "PlatformUpdate" WHERE id = ? LIMIT 1
+    `,
     id
   );
   return rows?.[0] ?? null;
@@ -174,17 +152,6 @@ async function updateByIdSafe(
   id: string,
   data: { title?: string; description?: string; details?: string[]; publishedAt?: Date; isDraft?: boolean }
 ) {
-  const model = (prisma as any).platformUpdate;
-  const patch: any = {};
-  if (data.title !== undefined) patch.title = data.title;
-  if (data.description !== undefined) patch.description = data.description;
-  if (data.details !== undefined) patch.details = data.details.length ? data.details : [];
-  if (data.publishedAt !== undefined) patch.publishedAt = data.publishedAt;
-  if (data.isDraft !== undefined) patch.isDraft = data.isDraft;
-
-  if (model?.update) {
-    return model.update({ where: { id }, data: patch });
-  }
   const sets: string[] = [];
   const vals: unknown[] = [];
   if (data.title !== undefined) {
@@ -197,7 +164,7 @@ async function updateByIdSafe(
   }
   if (data.details !== undefined) {
     sets.push('details = ?');
-    vals.push(JSON.stringify(data.details));
+    vals.push(JSON.stringify(data.details?.length ? data.details : []));
   }
   if (data.publishedAt !== undefined) {
     sets.push('publishedAt = ?');
@@ -218,10 +185,6 @@ async function updateByIdSafe(
 }
 
 async function deleteByIdSafe(id: string) {
-  const model = (prisma as any).platformUpdate;
-  if (model?.delete) {
-    return model.delete({ where: { id } });
-  }
   await (prisma as any).$executeRawUnsafe(`DELETE FROM "PlatformUpdate" WHERE id = ?`, id);
 }
 
