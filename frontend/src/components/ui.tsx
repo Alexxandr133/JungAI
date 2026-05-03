@@ -80,12 +80,13 @@ export const Footer: React.FC = () => (
   </div>
 );
 
-export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | null; profile?: { avatarUrl?: string | null; name?: string | null } | null }>
-  = ({ user: userProp, profile: profileProp }) => {
+export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | null; profile?: { avatarUrl?: string | null; name?: string | null } | null; includeMobileMessagesItem?: boolean }>
+  = ({ user: userProp, profile: profileProp, includeMobileMessagesItem = false }) => {
   const { user: userFromContext, profile: profileFromContext } = useAuth();
   const user = userProp || userFromContext;
   const profile = profileProp || profileFromContext;
   const [open, setOpen] = React.useState(false);
+  const [isMobile, setIsMobile] = React.useState(false);
   const displayName = profile?.name || (user?.email || '').split('@')[0] || 'Пользователь';
   const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
   const profileLink = user?.role === 'client' ? '/client/profile' : (user?.role === 'psychologist' ? '/psychologist/profile' : (user?.role === 'researcher' ? '/researcher/profile' : '/profile'));
@@ -118,6 +119,13 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
     localStorage.removeItem('auth_user');
     window.location.href = '/login';
   };
+
+  React.useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 1024);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   
   return (
     <div style={{ position: 'relative' }}>
@@ -201,6 +209,11 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
           </div>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
           <Link to={profileLink} onClick={() => setOpen(false)} style={{ display: 'block', padding: '8px 10px', textDecoration: 'none', color: 'inherit', borderRadius: 8 }}>Профиль</Link>
+          {includeMobileMessagesItem && isMobile && (
+            <Link to="/chat" onClick={() => setOpen(false)} style={{ display: 'block', padding: '8px 10px', textDecoration: 'none', color: 'inherit', borderRadius: 8 }}>
+              Сообщения
+            </Link>
+          )}
           <button onClick={handleLogout} style={{ width: '100%', padding: '8px 10px', textAlign: 'left', background: 'transparent', border: 'none', color: 'inherit', borderRadius: 8, cursor: 'pointer' }}>Выйти</button>
         </div>
       )}

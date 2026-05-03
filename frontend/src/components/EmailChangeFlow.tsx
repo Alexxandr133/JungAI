@@ -158,7 +158,11 @@ export function EmailChangeFlow({ forced = false, initiallyOpen = false }: Props
         Изменить email
       </button>
       {isOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.72)', backdropFilter: 'blur(4px)', display: 'grid', placeItems: 'center', zIndex: 3000 }}>
+        <div
+          role="presentation"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.72)', backdropFilter: 'blur(4px)', display: 'grid', placeItems: 'center', zIndex: 3000, padding: 16 }}
+          onClick={() => setOpen(false)}
+        >
           <div onClick={e => e.stopPropagation()}>{card}</div>
         </div>
       )}

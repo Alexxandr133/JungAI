@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { api, resolvePublicFileUrl } from '../../lib/api';
 import { PlatformIcon } from '../../components/icons';
 
 type PostDetails = {
@@ -28,7 +28,16 @@ function canComment(role?: string) {
   return role === 'psychologist' || role === 'researcher' || role === 'admin';
 }
 
-export function PostModal({ postId, onClose }: { postId: string; onClose: () => void }) {
+export function PostModal({
+  postId,
+  onClose,
+  variant = 'default'
+}: {
+  postId: string;
+  onClose: () => void;
+  /** Только комментарии и форма — без текста поста (удобно на мобильной ленте). */
+  variant?: 'default' | 'commentsOnly';
+}) {
   const { token, user } = useAuth();
   const [post, setPost] = useState<PostDetails | null>(null);
   const [loading, setLoading] = useState(false);
@@ -80,21 +89,144 @@ export function PostModal({ postId, onClose }: { postId: string; onClose: () => 
     await loadPost();
   }
 
+  const scrollStylecss = `
+        .pretty-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .pretty-scroll::-webkit-scrollbar-track { background: transparent; }
+        .pretty-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.45); border-radius: 999px; }
+        .pretty-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.7); }
+      `;
+
+  if (variant === 'commentsOnly') {
+    return (
+      <div
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.65)',
+          backdropFilter: 'blur(4px)',
+          display: 'grid',
+          placeItems: 'center',
+          zIndex: 2000,
+          padding: 12
+        }}
+      >
+        <style>{scrollStylecss}</style>
+        <div
+          className="card"
+          role="dialog"
+          aria-modal="true"
+          style={{
+            width: 'min(520px, calc(100vw - 24px))',
+            maxHeight: 'min(88vh, 760px)',
+            overflow: 'hidden',
+            display: 'grid',
+            gridTemplateRows: 'auto minmax(0, 1fr) auto',
+            position: 'relative'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, overflowWrap: 'anywhere', wordBreak: 'break-word', lineHeight: 1.25 }}>
+                {loading ? 'Загрузка…' : post?.title || 'Комментарии'}
+              </div>
+              {post && (
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                  {post.authorMode === 'community' && post.community ? `${post.community.name} · сообщество` : post.author?.name || post.author?.email || 'Автор'}
+                </div>
+              )}
+            </div>
+            <button type="button" className="button secondary" onClick={onClose} style={{ flexShrink: 0, width: 32, height: 32, padding: 0, borderRadius: 999, lineHeight: 1 }} aria-label="Закрыть">
+              ✕
+            </button>
+          </div>
+
+          <div className="pretty-scroll" style={{ padding: 12, overflowY: 'auto', minHeight: 0, display: 'grid', gap: 8 }}>
+            {(post?.comments || []).map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  padding: 10,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 12,
+                  display: 'flex',
+                  gap: 8,
+                  background: 'color-mix(in srgb, var(--surface-2) 70%, transparent)'
+                }}
+              >
+                <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.1)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  {resolvePublicFileUrl(item.author?.avatarUrl) ? (
+                    <img src={resolvePublicFileUrl(item.author?.avatarUrl) || ''} alt={item.author?.name || item.author?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ fontSize: 12 }}>{(item.author?.name || item.author?.email || 'U').slice(0, 1).toUpperCase()}</span>
+                  )}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4 }}>
+                    {item.author?.name || item.author?.email || 'Пользователь'}
+                  </div>
+                  <div style={{ lineHeight: 1.55, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{item.content}</div>
+                  <button
+                    type="button"
+                    onClick={() => toggleCommentReaction(item.id)}
+                    style={{
+                      marginTop: 6,
+                      border: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      color: item.likedByMe ? '#ef4444' : 'var(--text-muted)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: 0
+                    }}
+                  >
+                    <PlatformIcon name="heart" size={14} strokeWidth={2} />
+                    <span className="small">{item.reactionsCount || 0}</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+            {!loading && (!post?.comments || post.comments.length === 0) && (
+              <div className="small" style={{ color: 'var(--text-muted)' }}>
+                Пока нет комментариев.
+              </div>
+            )}
+          </div>
+
+          <div style={{ padding: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {canWriteComment ? (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder="Напишите комментарий..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.14)', background: 'var(--surface-2)', color: 'var(--text)' }}
+                />
+                <button className="button" style={{ minWidth: 110, fontSize: 12, padding: '8px 12px' }} onClick={submitComment} disabled={saving || !comment.trim()}>
+                  {saving ? 'Отправка...' : 'Отправить'}
+                </button>
+              </div>
+            ) : (
+              <div className="small" style={{ color: 'var(--text-muted)' }}>Комментировать могут только специалисты по правилам платформы.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)', display: 'grid', placeItems: 'center', zIndex: 2000, padding: 12 }}
     >
-      <style>{`
-        .pretty-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
-        .pretty-scroll::-webkit-scrollbar-track { background: transparent; }
-        .pretty-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.45); border-radius: 999px; }
-        .pretty-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.7); }
-      `}</style>
+      <style>{scrollStylecss}</style>
       <div className="card" style={{ width: 'min(1180px, 96vw)', height: 'min(92vh, 780px)', overflow: 'hidden', display: 'grid', gridTemplateColumns: '58% 42%', position: 'relative' }}>
         <div style={{ background: '#0b1020', minHeight: 0, display: 'grid' }}>
           {post?.imageUrl ? (
-            <img src={post.imageUrl} alt={post.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <img src={resolvePublicFileUrl(post.imageUrl) || post.imageUrl || ''} alt={post.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : (
             <div className="pretty-scroll" style={{ minHeight: 0, overflowY: 'auto', padding: 16, background: 'var(--surface)', display: 'grid', gridTemplateRows: 'auto 1fr', gap: 10 }}>
               <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 8 }}>
@@ -157,8 +289,8 @@ export function PostModal({ postId, onClose }: { postId: string; onClose: () => 
                 {(post?.comments || []).map((item) => (
                   <div key={item.id} style={{ padding: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, display: 'flex', gap: 8, background: 'color-mix(in srgb, var(--surface-2) 70%, transparent)' }}>
                     <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.1)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                      {item.author?.avatarUrl ? (
-                        <img src={item.author.avatarUrl} alt={item.author?.name || item.author?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {resolvePublicFileUrl(item.author?.avatarUrl) ? (
+                        <img src={resolvePublicFileUrl(item.author?.avatarUrl) || ''} alt={item.author?.name || item.author?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
                         <span style={{ fontSize: 12 }}>{(item.author?.name || item.author?.email || 'U').slice(0, 1).toUpperCase()}</span>
                       )}
@@ -213,8 +345,8 @@ export function PostModal({ postId, onClose }: { postId: string; onClose: () => 
               {(post?.comments || []).map((item) => (
                 <div key={item.id} style={{ padding: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, display: 'flex', gap: 8, background: 'color-mix(in srgb, var(--surface-2) 70%, transparent)' }}>
                   <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.1)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                    {item.author?.avatarUrl ? (
-                      <img src={item.author.avatarUrl} alt={item.author?.name || item.author?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {resolvePublicFileUrl(item.author?.avatarUrl) ? (
+                      <img src={resolvePublicFileUrl(item.author?.avatarUrl) || ''} alt={item.author?.name || item.author?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                       <span style={{ fontSize: 12 }}>{(item.author?.name || item.author?.email || 'U').slice(0, 1).toUpperCase()}</span>
                     )}

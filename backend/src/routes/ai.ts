@@ -5,6 +5,7 @@ import { mergeDreamKeywords } from '../utils/dreamKeywords';
 import { config } from '../config';
 import { OpenAI } from 'openai';
 import {
+  appendArchetypeLanguageGuard,
   appendPersonalization,
   appendResponseStyle,
   buildClientModalityPrompt,
@@ -213,7 +214,8 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       responseStyle: responseStyleRaw,
       personalization: personalizationRaw,
       psychologistProfile: psychologistProfileRaw,
-      dreamsContextRange: dreamsContextRangeRaw
+      dreamsContextRange: dreamsContextRangeRaw,
+      includeDreamsInContext: includeDreamsRaw
     } = req.body ?? {};
 
     if (!message || typeof message !== 'string') {
@@ -234,11 +236,17 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
           ? psychologistProfileRaw
           : '';
     const dreamsContextRange = parseDreamsContextRange(dreamsContextRangeRaw);
+    const includeDreamsInContext =
+      includeDreamsRaw === undefined || includeDreamsRaw === null ? true : Boolean(includeDreamsRaw);
 
     // Если режим работы с клиентами выключен, работаем в обобщенном режиме
     if (!clientModeEnabled) {
       let systemPrompt = appendResponseStyle(buildGeneralModalityPrompt(modality), responseStyle);
+      if (!includeDreamsInContext) {
+        systemPrompt += `\n\nНастройка психолога: не акцентировать сны и сновидения; тексты снов в этот запрос не включены.`;
+      }
       systemPrompt = appendPersonalization(systemPrompt, personalization);
+      systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
 
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt },
@@ -286,6 +294,9 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         ]
       });
     }
+
+    /** Сны в запрос: и модальность разрешает, и тумблер психолога включён */
+    const passDreamData = includeDreamsInContext && modalityPolicy.allowDreams;
 
     // Получаем клиентов психолога с полной информацией (только если режим работы с клиентами включен)
     const clients = await prisma.client.findMany({
@@ -382,7 +393,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     }
 
     const maxDreamRows = dreamsContextRange === 'all' ? 2500 : 800;
-    const allDreams = modalityPolicy.allowDreams
+    const allDreams = passDreamData
       ? await prisma.dream.findMany({
           where: dreamWhere,
           orderBy: { createdAt: 'asc' },
@@ -421,10 +432,12 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         if (sym) dreamsContext += `   Символы: ${sym}\n`;
       });
       dreamsContext += '\n';
-    } else if (modalityPolicy.allowDreams) {
+    } else if (passDreamData) {
       dreamsContext = `\n\nЗа период «${rangeLabel}» записей снов для текущего контекста не найдено.\n`;
+    } else if (!includeDreamsInContext) {
+      dreamsContext = '\n\nСны не включены в контекст (настройка «работа со снами» выключена).\n';
     } else {
-      dreamsContext = '\n\nСны исключены из контекста для текущей модальности.\n';
+      dreamsContext = '\n\nСны исключены из контекста для выбранной модальности.\n';
     }
 
     // Формируем контекст о клиентах
@@ -529,7 +542,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
             const normalizedTab = String(tabName || '').trim().toLowerCase();
             const isDreamTab = normalizedTab === 'сны';
             const isSynchTab = normalizedTab === 'синхронии';
-            if (isDreamTab && !modalityPolicy.allowDreams) return;
+            if (isDreamTab && !passDreamData) return;
             if (isSynchTab && !modalityPolicy.allowSynchronicities) return;
 
             const doc = clientDocs.find(d => d.tabName === tabName);
@@ -559,9 +572,13 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       documentsContext = '\n\nВ рабочей области пока нет сохраненных документов о пациентах.';
     }
 
-    // Формируем system prompt (модальность влияет на акценты, данные те же)
-    let systemPrompt = appendResponseStyle(buildClientModalityPrompt(modality), responseStyle);
+    // Формируем system prompt (модальность влияет на акценты; сны — по passDreamData)
+    let systemPrompt = appendResponseStyle(
+      buildClientModalityPrompt(modality, { includeDreamsInContext: passDreamData }),
+      responseStyle
+    );
     systemPrompt = appendPersonalization(systemPrompt, personalization);
+    systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
 
     const userPrompt = `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}
 

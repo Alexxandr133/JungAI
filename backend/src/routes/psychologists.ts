@@ -93,6 +93,68 @@ router.get('/public', async (req, res) => {
   }
 });
 
+// Публичная статистика для главной — объявлено ДО /public/:id, иначе «stats» попадает в :id
+router.get('/public/stats', async (req, res) => {
+  try {
+    const psychologistsCount = await prisma.user.count({
+      where: {
+        role: 'psychologist',
+        isVerified: true
+      }
+    });
+
+    const clientsCount = await prisma.client.count();
+
+    const dreamsCount = await prisma.dream.count();
+
+    const dayStart = new Date();
+    dayStart.setHours(0, 0, 0, 0);
+    const publishAfter = new Date(dayStart);
+    publishAfter.setHours(SYMBOLS_PUBLISH_HOUR, 0, 0, 0);
+    const now = new Date();
+    const dayIso = dayStart.toISOString();
+
+    let topSymbolsToday: Array<{ symbol: string; count: number }> = [];
+
+    try {
+      if (now < publishAfter) {
+        const prev = (await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "cleanedFrequency" FROM "DailyDreamSymbolValidation" WHERE "day" < ? ORDER BY "day" DESC LIMIT 1`,
+          dayIso
+        )) as any[];
+        const parsed = parseCleanedFrequency(prev?.[0]?.cleanedFrequency);
+        if (parsed) topSymbolsToday = parsed;
+      } else {
+        const todayRows = (await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "cleanedFrequency" FROM "DailyDreamSymbolValidation" WHERE "day" = ? LIMIT 1`,
+          dayIso
+        )) as any[];
+        let parsed = parseCleanedFrequency(todayRows?.[0]?.cleanedFrequency);
+        if (!parsed) {
+          const prev = (await prisma.$queryRawUnsafe<any[]>(
+            `SELECT "cleanedFrequency" FROM "DailyDreamSymbolValidation" WHERE "day" < ? ORDER BY "day" DESC LIMIT 1`,
+            dayIso
+          )) as any[];
+          parsed = parseCleanedFrequency(prev?.[0]?.cleanedFrequency);
+        }
+        if (parsed) topSymbolsToday = parsed;
+      }
+    } catch {
+      // таблицы нет — оставляем пустой массив (демо на фронте)
+    }
+
+    res.json({
+      psychologists: psychologistsCount,
+      clients: clientsCount,
+      dreams: dreamsCount,
+      topSymbolsToday
+    });
+  } catch (e: any) {
+    console.error('Error fetching public stats:', e);
+    res.status(500).json({ error: e.message || 'Failed to load statistics' });
+  }
+});
+
 // Публичный профиль психолога + отзывы (без персональных данных)
 router.get('/public/:id', async (req, res) => {
   try {
@@ -219,73 +281,6 @@ router.get('/:id/rating/my', requireAuth, requireRole(['client', 'admin']), asyn
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load my rating' });
-  }
-});
-
-// Публичная статистика для главной страницы
-router.get('/public/stats', async (req, res) => {
-  try {
-    // Количество психологов (верифицированных)
-    const psychologistsCount = await prisma.user.count({
-      where: {
-        role: 'psychologist',
-        isVerified: true
-      }
-    });
-
-    // Количество клиентов
-    const clientsCount = await prisma.client.count();
-
-    // Общее количество снов
-    const dreamsCount = await prisma.dream.count();
-
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    const publishAfter = new Date(dayStart);
-    publishAfter.setHours(SYMBOLS_PUBLISH_HOUR, 0, 0, 0);
-    const now = new Date();
-    const dayIso = dayStart.toISOString();
-
-    // Главная: до 18:00 не показываем «сегодняшнюю» отбивку (ни сырой расчёт, ни раннюю валидацию).
-    // Только последняя завершённая запись за прошлые сутки, иначе пусто → на фронте демо.
-    let topSymbolsToday: Array<{ symbol: string; count: number }> = [];
-
-    try {
-      if (now < publishAfter) {
-        const prev = (await prisma.$queryRawUnsafe<any[]>(
-          `SELECT "cleanedFrequency" FROM "DailyDreamSymbolValidation" WHERE "day" < ? ORDER BY "day" DESC LIMIT 1`,
-          dayIso
-        )) as any[];
-        const parsed = parseCleanedFrequency(prev?.[0]?.cleanedFrequency);
-        if (parsed) topSymbolsToday = parsed;
-      } else {
-        const todayRows = (await prisma.$queryRawUnsafe<any[]>(
-          `SELECT "cleanedFrequency" FROM "DailyDreamSymbolValidation" WHERE "day" = ? LIMIT 1`,
-          dayIso
-        )) as any[];
-        let parsed = parseCleanedFrequency(todayRows?.[0]?.cleanedFrequency);
-        if (!parsed) {
-          const prev = (await prisma.$queryRawUnsafe<any[]>(
-            `SELECT "cleanedFrequency" FROM "DailyDreamSymbolValidation" WHERE "day" < ? ORDER BY "day" DESC LIMIT 1`,
-            dayIso
-          )) as any[];
-          parsed = parseCleanedFrequency(prev?.[0]?.cleanedFrequency);
-        }
-        if (parsed) topSymbolsToday = parsed;
-      }
-    } catch {
-      // таблицы нет — оставляем пустой массив (демо на фронте)
-    }
-
-    res.json({
-      psychologists: psychologistsCount,
-      clients: clientsCount,
-      dreams: dreamsCount,
-      topSymbolsToday
-    });
-  } catch (e: any) {
-    console.error('Error fetching public stats:', e);
-    res.status(500).json({ error: e.message || 'Failed to load statistics' });
   }
 });
 

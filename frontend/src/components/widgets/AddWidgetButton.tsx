@@ -10,10 +10,10 @@ export default function AddWidgetButton({ onClick }: AddWidgetButtonProps) {
       style={{
         width: '100%',
         minHeight: 120,
-        padding: 24,
-        background: 'var(--surface-2)',
-        border: '2px dashed rgba(255,255,255,0.2)',
-        borderRadius: 12,
+        padding: 20,
+        background: 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(15,23,42,0.2))',
+        border: '1px dashed rgba(148,163,184,0.45)',
+        borderRadius: 14,
         color: 'var(--text)',
         cursor: 'pointer',
         display: 'flex',
@@ -26,13 +26,13 @@ export default function AddWidgetButton({ onClick }: AddWidgetButtonProps) {
         fontWeight: 600
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--surface)';
-        e.currentTarget.style.borderColor = 'var(--primary)';
-        e.currentTarget.style.color = 'var(--primary)';
+        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(59,130,246,0.2), rgba(15,23,42,0.24))';
+        e.currentTarget.style.borderColor = 'rgba(59,130,246,0.75)';
+        e.currentTarget.style.color = '#c7d2fe';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'var(--surface-2)';
-        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(15,23,42,0.2))';
+        e.currentTarget.style.borderColor = 'rgba(148,163,184,0.45)';
         e.currentTarget.style.color = 'var(--text)';
       }}
     >

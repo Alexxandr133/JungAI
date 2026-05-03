@@ -1,0 +1,4 @@
+/* ParticipantTile подставляет имя (span.lk-participant-name); поверх рисуем свой бейдж с аватаром */
+.voice-room-tile-host .lk-participant-name {
+  display: none !important;
+}

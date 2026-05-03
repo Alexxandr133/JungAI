@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GuestNavbar } from '../../components/GuestNavbar';
 import { api } from '../../lib/api';
+import { useIsNarrowViewport } from '../../hooks/useIsNarrowViewport';
 import { PlatformIcon } from '../../components/icons';
 
 export default function GuestPublications() {
   const navigate = useNavigate();
+  const narrow = useIsNarrowViewport();
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [posts, setPosts] = useState<any[]>([]);
@@ -33,15 +35,21 @@ export default function GuestPublications() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <GuestNavbar />
-      <main style={{ flex: 1, padding: '24px clamp(16px, 4vw, 42px)' }}>
-        <div className="card" style={{ padding: 16, marginBottom: 14 }}>
-          <h1 style={{ margin: 0 }}>Лента</h1>
+      <main style={{ flex: 1, padding: narrow ? '16px 12px' : '24px clamp(16px, 4vw, 42px)', overflowX: 'hidden' }}>
+        <div className="card" style={{ padding: narrow ? 14 : 16, marginBottom: 14 }}>
+          <h1 style={{ margin: 0, fontSize: narrow ? 22 : undefined }}>Лента</h1>
           <div className="small" style={{ color: 'var(--text-muted)', marginTop: 6 }}>
             Просмотр доступен без регистрации. Подписка и комментарии — после регистрации.
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr) 280px', gap: 14 }}>
-          <aside className="card" style={{ padding: 14, alignSelf: 'start' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(200px, 280px) minmax(0, 1fr) minmax(200px, 280px)',
+            gap: 14
+          }}
+        >
+          <aside className="card" style={{ padding: 14, alignSelf: 'start', order: narrow ? 1 : undefined, width: '100%', minWidth: 0 }}>
             <div style={{ fontWeight: 700, marginBottom: 10 }}>Сообщества</div>
             <div style={{ display: 'grid', gap: 8 }}>
               {communities.map((community) => (
@@ -62,7 +70,7 @@ export default function GuestPublications() {
               ))}
             </div>
           </aside>
-          <section style={{ display: 'grid', gap: 12 }}>
+          <section style={{ display: 'grid', gap: 12, order: narrow ? -1 : undefined, minWidth: 0, width: '100%' }}>
             {posts.map((post) => (
               <article key={post.id} className="card" style={{ padding: 16, cursor: 'pointer' }} onClick={() => setSelectedPostId(post.id)}>
                 <div style={{ fontWeight: 700 }}>{post.title}</div>
@@ -83,7 +91,7 @@ export default function GuestPublications() {
               </article>
             ))}
           </section>
-          <aside className="card" style={{ padding: 14, alignSelf: 'start' }}>
+          <aside className="card" style={{ padding: 14, alignSelf: 'start', order: narrow ? 2 : undefined, width: '100%', minWidth: 0 }}>
             <div style={{ fontWeight: 700, marginBottom: 10 }}>Авторы</div>
             <div style={{ display: 'grid', gap: 8 }}>
               {authors.map((author) => (

@@ -287,14 +287,10 @@ router.get('/auth/me', async (req, res) => {
 // Регистрация клиента по токену
 router.post('/auth/register-client', async (req, res) => {
   try {
-    const { token, password, name, email, phone, age, gender, username } = req.body ?? {};
+    const { token, password, name, email, phone, age, gender } = req.body ?? {};
     
     if (!token || !password) {
       return res.status(400).json({ error: 'Token and password are required' });
-    }
-    
-    if (!username || username.length < 3) {
-      return res.status(400).json({ error: 'Логин обязателен и должен содержать минимум 3 символа' });
     }
     
     // Находим клиента по токену
@@ -330,16 +326,15 @@ router.post('/auth/register-client', async (req, res) => {
     const bcrypt = require('bcryptjs');
     const hashedPassword = bcrypt.hashSync(password, 10);
     
-    // Создаём пользователя
-    const trustedEmail = isTrustedEmailDomain(userEmail);
+    // Аккаунт по приглашению психолога: вход по email+паролю сразу, без письма с кодом
     const user = await (prisma as any).user.create({
       data: {
         email: userEmail,
         password: hashedPassword,
         role: 'client',
-        emailVerified: trustedEmail,
-        emailVerificationCode: trustedEmail ? null : makeSixDigitCode(),
-        emailVerificationExpiresAt: trustedEmail ? null : verificationExpiryDate()
+        emailVerified: true,
+        emailVerificationCode: null,
+        emailVerificationExpiresAt: null
       }
     });
     
@@ -374,19 +369,6 @@ router.post('/auth/register-client', async (req, res) => {
       }
     });
     
-    if (!trustedEmail) {
-      await sendEmailVerificationCode(userEmail, formatCodeForHuman(user.emailVerificationCode!));
-      return res.json({
-        requiresEmailVerification: true,
-        email: userEmail,
-        client: {
-          id: client.id,
-          name: client.name,
-          email: userEmail
-        }
-      });
-    }
-
     const jwtToken = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       config.jwtSecret,
@@ -523,22 +505,25 @@ router.get('/auth/check-registration-token/:token', async (req, res) => {
     if (client.tokenExpiresAt && new Date() > client.tokenExpiresAt) {
       return res.status(400).json({ error: 'Registration token has expired' });
     }
-    
-    // Проверяем, не зарегистрирован ли уже
-    const existingUser = await (prisma as any).user.findUnique({
-      where: { email: client.email || '' }
-    });
-    
-    if (existingUser) {
-      return res.status(400).json({ error: 'Client already registered' });
+
+    // Не блокируем показ формы, если на почту из карточки уже есть User (часто совпадает с почтой
+    // психолога при тесте или опечатка). Итоговый email проверяется в POST /auth/register-client.
+    const em = String(client.email ?? '').trim().toLowerCase();
+    let emailAlreadyRegistered = false;
+    if (em && EMAIL_REGEX.test(em)) {
+      const existingUser = await (prisma as any).user.findFirst({
+        where: { email: em }
+      });
+      emailAlreadyRegistered = Boolean(existingUser);
     }
-    
+
     res.json({
       valid: true,
       client: {
         name: client.name,
         email: client.email
-      }
+      },
+      emailAlreadyRegistered
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to check token' });

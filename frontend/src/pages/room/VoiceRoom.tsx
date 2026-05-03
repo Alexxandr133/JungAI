@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
 import { api, getApiBaseUrl } from '../../lib/api';
 import '@livekit/components-styles';
+import './VoiceRoom.css';
 import {
   DisconnectButton,
   LiveKitRoom,
@@ -18,7 +19,7 @@ import {
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { PlatformIcon } from '../../components/icons';
-import { CalendarClock, SendHorizontal, Video } from 'lucide-react';
+import { CalendarClock, PhoneOff, SendHorizontal, Video } from 'lucide-react';
 
 interface EventData {
   id: string;
@@ -40,7 +41,7 @@ interface LiveKitTokenResponse {
 function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
   const { appearance } = useAppearance();
   const isLight = appearance.colorMode === 'light';
-  const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>('chat');
+  const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>(null);
   const [chatText, setChatText] = useState('');
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const participantMetaCacheRef = useRef<Record<string, { avatarUrl: string; displayName: string }>>({});
@@ -67,6 +68,9 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
   }
 
   const panelBg = isLight ? 'rgba(241,245,249,0.92)' : 'rgba(3,7,18,0.55)';
+  const mobileSolidPanel = isLight ? '#f1f5f9' : '#0f172a';
+  const chatInputSolid = isLight ? '#ffffff' : '#1e293b';
+  const participantRowSolid = isLight ? '#f8fafc' : '#1e293b';
   const panelStrong = isLight ? '#e5e7eb' : 'rgba(15,23,42,0.72)';
   const border = isLight ? '1px solid rgba(15,23,42,0.14)' : '1px solid rgba(255,255,255,0.1)';
   const softText = isLight ? '#475569' : '#94a3b8';
@@ -137,7 +141,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
 
     if (hasVideoTrack) {
       return (
-        <div key={key} style={{ position: 'relative', height: '100%' }}>
+        <div key={key} className="voice-room-tile-host" style={{ position: 'relative', height: '100%' }}>
           <ParticipantTile
             trackRef={trackRef}
             style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)', boxShadow: speakingHighlight }}
@@ -219,109 +223,299 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
             </button>
           )}
         </div>
-        <div style={{ minHeight: 0, borderRadius: 12, overflow: 'hidden', border, background: panelStrong, position: 'relative' }}>
-          {hasScreenShare ? (
-            <div style={{ width: '100%', height: '100%', padding: 10 }}>
-              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                <ParticipantTile
-                  trackRef={screenTracks[0]}
-                  style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}
-                title={getConnectionQualityLabel(screenTracks[0].participant)}
-                />
-                {(() => {
-                  const { avatarUrl, displayName } = getParticipantMeta(screenTracks[0].participant);
-                  return (
-                    <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 999, background: 'rgba(0,0,0,0.45)', color: '#fff' }}>
-                      <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', background: '#334155', display: 'grid', placeItems: 'center' }}>
-                        {avatarUrl ? (
-                          <img
-                            src={avatarUrl}
-                            alt={displayName}
-                            draggable={false}
-                            onDragStart={(e) => e.preventDefault()}
-                            onContextMenu={(e) => e.preventDefault()}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
-                          />
-                        ) : <PlatformIcon name="user" size={12} color="#cbd5e1" />}
+        <div style={{ minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, minHeight: 0, borderRadius: 12, overflow: 'hidden', border, background: panelStrong, position: 'relative' }}>
+            {hasScreenShare ? (
+              <div style={{ width: '100%', height: '100%', padding: 10 }}>
+                <div className="voice-room-tile-host" style={{ width: '100%', height: '100%', position: 'relative' }}>
+                  <ParticipantTile
+                    trackRef={screenTracks[0]}
+                    style={{ width: '100%', height: '100%', borderRadius: 10, overflow: 'hidden', background: isLight ? '#cbd5e1' : 'linear-gradient(135deg, #111827, #1f2937)' }}
+                    title={getConnectionQualityLabel(screenTracks[0].participant)}
+                  />
+                  {(() => {
+                    const { avatarUrl, displayName } = getParticipantMeta(screenTracks[0].participant);
+                    return (
+                      <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', borderRadius: 999, background: 'rgba(0,0,0,0.45)', color: '#fff' }}>
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', background: '#334155', display: 'grid', placeItems: 'center' }}>
+                          {avatarUrl ? (
+                            <img
+                              src={avatarUrl}
+                              alt={displayName}
+                              draggable={false}
+                              onDragStart={(e) => e.preventDefault()}
+                              onContextMenu={(e) => e.preventDefault()}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+                            />
+                          ) : (
+                            <PlatformIcon name="user" size={12} color="#cbd5e1" />
+                          )}
+                        </div>
+                        <span className="small">
+                          {displayName}
+                          <span style={{ opacity: 0.85 }}> · экран</span>
+                        </span>
                       </div>
-                      <span className="small">{displayName}</span>
-                    </div>
-                  );
-                })()}
+                    );
+                  })()}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div
+            ) : (
+              <div
+                style={{
+                  height: '100%',
+                  display: 'grid',
+                  gridTemplateColumns:
+                    visibleCameraTracks.length <= 1 ? '1fr' :
+                    visibleCameraTracks.length <= 4 ? 'repeat(2, 1fr)' :
+                    'repeat(3, 1fr)',
+                  gridAutoRows: isMobile ? 'minmax(140px, 1fr)' : 'minmax(180px, 1fr)',
+                  gap: 10,
+                  padding: 10
+                }}
+              >
+                {visibleCameraTracks.map((trackRef, idx) => renderParticipantMainTile(trackRef, `${trackRef.participant.identity}-${idx}`))}
+              </div>
+            )}
+          </div>
+          {sidebarMode && isMobile && (
+            <aside
               style={{
-                height: '100%',
+                position: 'absolute',
+                inset: 6,
+                minHeight: 0,
                 display: 'grid',
-                gridTemplateColumns:
-                  visibleCameraTracks.length <= 1 ? '1fr' :
-                  visibleCameraTracks.length <= 4 ? 'repeat(2, 1fr)' :
-                  'repeat(3, 1fr)',
-                gridAutoRows: 'minmax(180px, 1fr)',
-                gap: 10,
-                padding: 10
+                gridTemplateRows: chatOpen ? 'auto minmax(0,1fr) auto' : 'auto minmax(0,1fr)',
+                background: mobileSolidPanel,
+                border,
+                borderRadius: 12,
+                zIndex: 20,
+                overflow: 'hidden',
+                boxShadow: '0 18px 48px rgba(0,0,0,0.55)'
               }}
             >
-              {visibleCameraTracks.map((trackRef, idx) => (
-                renderParticipantMainTile(trackRef, `${trackRef.participant.identity}-${idx}`)
-              ))}
-            </div>
+              <div style={{ padding: 12, fontWeight: 700, color: mainText, borderBottom: border, background: mobileSolidPanel }}>
+                {chatOpen ? 'Чат встречи' : 'Участники'}
+              </div>
+              {chatOpen ? (
+                <>
+                  <div style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8, background: mobileSolidPanel }}>
+                    {chatMessages.length === 0 && <div className="small" style={{ color: softText }}>Сообщений пока нет</div>}
+                    {chatMessages.map((msg: any, i: number) => (
+                      <div key={`${msg.timestamp || i}-${i}`} style={{ padding: '2px 0' }}>
+                        <div className="small" style={{ color: '#60a5fa', marginBottom: 2 }}>{msg.from?.name || msg.from?.identity || 'Участник'}</div>
+                        <div style={{ lineHeight: 1.5, color: mainText, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <form onSubmit={submitChat} style={{ padding: 10, borderTop: border, display: 'flex', gap: 8, background: mobileSolidPanel }}>
+                    <textarea
+                      ref={chatInputRef}
+                      value={chatText}
+                      onChange={(e) => {
+                        setChatText(e.target.value);
+                        const el = e.target as HTMLTextAreaElement;
+                        el.style.height = '40px';
+                        el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+                      }}
+                      placeholder="Напишите сообщение..."
+                      rows={1}
+                      style={{
+                        width: '100%',
+                        minHeight: 40,
+                        maxHeight: 180,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        border,
+                        background: chatInputSolid,
+                        color: mainText,
+                        resize: 'none',
+                        overflowY: 'auto',
+                        overflowX: 'hidden'
+                      }}
+                    />
+                    <button className="button" title="Отправить" aria-label="Отправить" disabled={isSending || !chatText.trim()} style={{ width: 40, height: 40, padding: 0, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                      <SendHorizontal size={16} />
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div style={{ minHeight: 0, overflowY: 'auto', padding: 10, display: 'grid', gap: 8, background: mobileSolidPanel }}>
+                  {participants.map((p: any) => {
+                    const { avatarUrl, displayName } = getParticipantMeta(p);
+                    return (
+                      <div
+                        key={p.identity}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          border,
+                          borderRadius: 6,
+                          padding: '3px 6px',
+                          background: participantRowSolid
+                        }}
+                        title={getConnectionQualityLabel(p)}
+                      >
+                        <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', background: isLight ? '#cbd5e1' : '#334155', display: 'grid', placeItems: 'center', color: mainText, fontSize: 11, fontWeight: 700 }}>
+                          {avatarUrl ? (
+                            <img
+                              src={avatarUrl}
+                              alt={displayName}
+                              draggable={false}
+                              onDragStart={(e) => e.preventDefault()}
+                              onContextMenu={(e) => e.preventDefault()}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'none' as const }}
+                            />
+                          ) : (
+                            <PlatformIcon name="user" size={11} />
+                          )}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: mainText, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {extraParticipants.length > 0 && (
+                    <div className="small" style={{ color: softText }}>Еще участников вне основной сетки: {extraParticipants.length}</div>
+                  )}
+                </div>
+              )}
+            </aside>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <TrackToggle
-            source={Track.Source.Microphone}
-            showIcon
-            className="button"
-            style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
-          >
-            Микрофон
-          </TrackToggle>
-          <TrackToggle
-            source={Track.Source.Camera}
-            showIcon
-            className="button"
-            style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
-          >
-            Камера
-          </TrackToggle>
-          <TrackToggle
-            source={Track.Source.ScreenShare}
-            showIcon
-            className="button"
-            style={{ background: controlOnBg, color: '#fff', border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: '0 2px 10px rgba(37,99,235,0.45)' }}
-          >
-            Экран
-          </TrackToggle>
-          <DisconnectButton
-            className="button danger"
-            style={{ marginLeft: 'auto', borderRadius: 999, padding: '10px 16px', boxShadow: '0 2px 10px rgba(220,38,38,0.35)' }}
-            onClick={onLeave}
-          >
-            Покинуть встречу
-          </DisconnectButton>
-        </div>
+        {isMobile ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, flexWrap: 'nowrap', padding: '6px 4px' }}>
+            <TrackToggle
+              source={Track.Source.Microphone}
+              showIcon
+              className="button"
+              title="Микрофон"
+              aria-label="Микрофон"
+              style={{
+                background: controlOffBg,
+                color: mainText,
+                border: 'none',
+                borderRadius: '50%',
+                width: 52,
+                height: 52,
+                padding: 0,
+                display: 'grid',
+                placeItems: 'center',
+                boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)'
+              }}
+            />
+            <TrackToggle
+              source={Track.Source.Camera}
+              showIcon
+              className="button"
+              title="Камера"
+              aria-label="Камера"
+              style={{
+                background: controlOffBg,
+                color: mainText,
+                border: 'none',
+                borderRadius: '50%',
+                width: 52,
+                height: 52,
+                padding: 0,
+                display: 'grid',
+                placeItems: 'center',
+                boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)'
+              }}
+            />
+            <TrackToggle
+              source={Track.Source.ScreenShare}
+              showIcon
+              className="button"
+              title="Экран"
+              aria-label="Экран"
+              style={{
+                background: controlOnBg,
+                color: '#fff',
+                border: 'none',
+                borderRadius: 999,
+                minWidth: 64,
+                height: 52,
+                padding: '4px 10px',
+                display: 'inline-flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 2,
+                fontSize: 10,
+                fontWeight: 700,
+                lineHeight: 1,
+                boxShadow: '0 2px 10px rgba(37,99,235,0.45)'
+              }}
+            >
+              Экран
+            </TrackToggle>
+            <DisconnectButton
+              className="button danger"
+              title="Покинуть встречу"
+              aria-label="Покинуть встречу"
+              style={{
+                borderRadius: '50%',
+                width: 52,
+                height: 52,
+                padding: 0,
+                display: 'grid',
+                placeItems: 'center',
+                boxShadow: '0 2px 10px rgba(220,38,38,0.35)',
+                marginLeft: 0
+              }}
+              onClick={onLeave}
+            >
+              <PhoneOff size={22} strokeWidth={2.25} />
+            </DisconnectButton>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <TrackToggle
+              source={Track.Source.Microphone}
+              showIcon
+              className="button"
+              style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
+            >
+              Микрофон
+            </TrackToggle>
+            <TrackToggle
+              source={Track.Source.Camera}
+              showIcon
+              className="button"
+              style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
+            >
+              Камера
+            </TrackToggle>
+            <TrackToggle
+              source={Track.Source.ScreenShare}
+              showIcon
+              className="button"
+              style={{ background: controlOnBg, color: '#fff', border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: '0 2px 10px rgba(37,99,235,0.45)' }}
+            >
+              Экран
+            </TrackToggle>
+            <DisconnectButton
+              className="button danger"
+              style={{ marginLeft: 'auto', borderRadius: 999, padding: '10px 16px', boxShadow: '0 2px 10px rgba(220,38,38,0.35)' }}
+              onClick={onLeave}
+            >
+              Покинуть встречу
+            </DisconnectButton>
+          </div>
+        )}
       </section>
-      {sidebarMode && (
+      {sidebarMode && !isMobile && (
         <aside
-          style={
-            isMobile
-              ? {
-                  position: 'absolute',
-                  inset: '56px 8px 8px 8px',
-                  minHeight: 0,
-                  display: 'grid',
-                  gridTemplateRows: 'auto minmax(0,1fr) auto',
-                  background: panelBg,
-                  border,
-                  borderRadius: 12,
-                  zIndex: 20,
-                  overflow: 'hidden'
-                }
-              : { borderLeft: border, minHeight: 0, display: 'grid', gridTemplateRows: chatOpen ? 'auto minmax(0,1fr) auto' : 'auto minmax(0,1fr)', background: panelBg }
-          }
+          style={{
+            borderLeft: border,
+            minHeight: 0,
+            display: 'grid',
+            gridTemplateRows: chatOpen ? 'auto minmax(0,1fr) auto' : 'auto minmax(0,1fr)',
+            background: panelBg
+          }}
         >
           <div style={{ padding: 12, fontWeight: 700, color: mainText, borderBottom: border }}>
             {chatOpen ? 'Чат встречи' : 'Участники'}
@@ -329,15 +523,11 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
           {chatOpen ? (
             <>
               <div style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {chatMessages.length === 0 && (
-                  <div className="small" style={{ color: softText }}>Сообщений пока нет</div>
-                )}
+                {chatMessages.length === 0 && <div className="small" style={{ color: softText }}>Сообщений пока нет</div>}
                 {chatMessages.map((msg: any, i: number) => (
                   <div key={`${msg.timestamp || i}-${i}`} style={{ padding: '2px 0' }}>
                     <div className="small" style={{ color: '#60a5fa', marginBottom: 2 }}>{msg.from?.name || msg.from?.identity || 'Участник'}</div>
-                    <div style={{ lineHeight: 1.5, color: mainText, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                      {msg.message}
-                    </div>
+                    <div style={{ lineHeight: 1.5, color: mainText, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.message}</div>
                   </div>
                 ))}
               </div>
@@ -353,7 +543,19 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
                   }}
                   placeholder="Напишите сообщение..."
                   rows={1}
-                  style={{ width: '100%', minHeight: 40, maxHeight: 180, padding: '10px 12px', borderRadius: 10, border, background: isLight ? '#fff' : 'rgba(15,23,42,0.7)', color: mainText, resize: 'none', overflowY: 'auto', overflowX: 'hidden' }}
+                  style={{
+                    width: '100%',
+                    minHeight: 40,
+                    maxHeight: 180,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border,
+                    background: isLight ? '#fff' : 'rgba(15,23,42,0.85)',
+                    color: mainText,
+                    resize: 'none',
+                    overflowY: 'auto',
+                    overflowX: 'hidden'
+                  }}
                 />
                 <button className="button" title="Отправить" aria-label="Отправить" disabled={isSending || !chatText.trim()} style={{ width: 40, height: 40, padding: 0, display: 'grid', placeItems: 'center' }}>
                   <SendHorizontal size={16} />
@@ -365,7 +567,19 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               {participants.map((p: any) => {
                 const { avatarUrl, displayName } = getParticipantMeta(p);
                 return (
-                  <div key={p.identity} style={{ display: 'flex', alignItems: 'center', gap: 6, border, borderRadius: 6, padding: '3px 6px', background: isLight ? '#fff' : 'rgba(15,23,42,0.6)' }} title={getConnectionQualityLabel(p)}>
+                  <div
+                    key={p.identity}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      border,
+                      borderRadius: 6,
+                      padding: '3px 6px',
+                      background: isLight ? '#fff' : 'rgba(15,23,42,0.75)'
+                    }}
+                    title={getConnectionQualityLabel(p)}
+                  >
                     <div style={{ width: 22, height: 22, borderRadius: '50%', overflow: 'hidden', background: isLight ? '#cbd5e1' : '#334155', display: 'grid', placeItems: 'center', color: mainText, fontSize: 11, fontWeight: 700 }}>
                       {avatarUrl ? (
                         <img

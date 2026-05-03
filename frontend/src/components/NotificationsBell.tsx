@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { PlatformIcon } from './icons';
 
 type Notification = {
   id: string;
@@ -145,16 +146,16 @@ export function NotificationsBell() {
           background: 'transparent',
           color: 'var(--text)',
           cursor: 'pointer',
-          fontSize: 20,
-          padding: 0,
+          padding: 6,
           lineHeight: 1,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
+          borderRadius: 10
         }}
         title="Уведомления"
       >
-        🔔
+        <PlatformIcon name="bell" size={18} />
         {unreadCount > 0 && (
           <span
             style={{
@@ -185,11 +186,11 @@ export function NotificationsBell() {
             position: 'absolute',
             top: 'calc(100% + 8px)',
             ...(isMobile ? {
+              left: 0,
               right: 'auto',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: 'calc(100vw - 32px)',
-              maxWidth: 'calc(100vw - 32px)'
+              transform: 'none',
+              width: 'min(360px, calc(100vw - 16px))',
+              maxWidth: 'calc(100vw - 16px)'
             } : {
               right: 0,
               width: 'min(380px, calc(100vw - 16px))',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 
@@ -11,7 +11,6 @@ export default function RegisterClient() {
   
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [username, setUsername] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -21,6 +20,7 @@ export default function RegisterClient() {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [clientInfo, setClientInfo] = useState<{ name?: string; email?: string } | null>(null);
+  const [emailTakenHint, setEmailTakenHint] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -32,13 +32,16 @@ export default function RegisterClient() {
     // Проверяем токен
     async function checkToken() {
       try {
-        const result = await api<{ valid: boolean; client?: { name?: string; email?: string } }>(
-          `/api/auth/check-registration-token/${token}`
-        );
+        const result = await api<{
+          valid: boolean;
+          client?: { name?: string; email?: string };
+          emailAlreadyRegistered?: boolean;
+        }>(`/api/auth/check-registration-token/${token}`);
         if (result.valid && result.client) {
           setClientInfo(result.client);
           setName(result.client.name || '');
           setEmail(result.client.email || '');
+          setEmailTakenHint(Boolean(result.emailAlreadyRegistered));
         }
       } catch (e: any) {
         setError(e.message || 'Недействительный или истекший токен регистрации');
@@ -54,8 +57,10 @@ export default function RegisterClient() {
     e.preventDefault();
     setError(null);
 
-    if (!username || username.length < 3) {
-      setError('Логин должен содержать минимум 3 символа');
+    const emailNorm = String(email ?? '').trim().toLowerCase();
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm);
+    if (!emailOk) {
+      setError('Укажите корректный email — он будет логином для входа');
       return;
     }
 
@@ -76,21 +81,30 @@ export default function RegisterClient() {
 
     setLoading(true);
     try {
-      const result = await api<{ token: string; user: any; client: any }>('/api/auth/register-client', {
-        method: 'POST',
-        body: {
-          token,
-          username,
-          password,
-          name: name || undefined,
-          email: email || undefined,
-          phone: phone || undefined,
-          age: age || undefined,
-          gender: gender || undefined
+      const result = await api<{ token?: string; user: any; client: any; requiresEmailVerification?: boolean }>(
+        '/api/auth/register-client',
+        {
+          method: 'POST',
+          body: {
+            token,
+            password,
+            name: name || undefined,
+            email: emailNorm,
+            phone: phone || undefined,
+            age: age || undefined,
+            gender: gender || undefined
+          }
         }
-      });
+      );
 
-      // Сохраняем токен и перенаправляем на профиль
+      if (result.requiresEmailVerification) {
+        setError('Требуется подтверждение email — проверьте почту');
+        return;
+      }
+      if (!result.token) {
+        setError('Не удалось получить сессию после регистрации');
+        return;
+      }
       await loginWithToken(result.token);
       navigate('/client/profile');
     } catch (e: any) {
@@ -135,6 +149,28 @@ export default function RegisterClient() {
           </div>
         </div>
 
+        {emailTakenHint && (
+          <div
+            style={{
+              padding: 12,
+              marginBottom: 16,
+              borderRadius: 10,
+              fontSize: 14,
+              lineHeight: 1.45,
+              background: 'rgba(250, 204, 21, 0.12)',
+              border: '1px solid rgba(234, 179, 8, 0.45)',
+              color: 'var(--text)'
+            }}
+          >
+            На почту, которую указал психолог, уже зарегистрирован аккаунт. Укажите{' '}
+            <strong>другой email</strong> в поле ниже или{' '}
+            <Link to="/login" style={{ color: 'var(--primary)', fontWeight: 600 }}>
+              войдите
+            </Link>
+            , если это ваш профиль.
+          </div>
+        )}
+
         {error && (
           <div style={{ 
             padding: 12, 
@@ -151,22 +187,6 @@ export default function RegisterClient() {
 
         <form onSubmit={handleRegister} style={{ display: 'grid', gap: 16 }}>
           <div>
-            <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Логин *</div>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              required
-              minLength={3}
-              style={{ width: '100%', padding: '12px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)' }}
-              placeholder="Введите логин"
-            />
-            <div className="small" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
-              Минимум 3 символа
-            </div>
-          </div>
-
-          <div>
             <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Имя *</div>
             <input
               type="text"
@@ -179,14 +199,22 @@ export default function RegisterClient() {
           </div>
 
           <div>
-            <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Email (опционально)</div>
+            <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Email *</div>
             <input
               type="email"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={e => {
+                setEmail(e.target.value);
+                setEmailTakenHint(false);
+              }}
+              required
+              autoComplete="email"
               style={{ width: '100%', padding: '12px 16px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)' }}
               placeholder="email@example.com"
             />
+            <div className="small" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
+              По этому адресу клиент входит в аккаунт
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

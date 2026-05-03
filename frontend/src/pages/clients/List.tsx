@@ -7,12 +7,21 @@ import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import { readableTextOnBackground } from '../../lib/colorContrast';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_CLIENTS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 const fieldBorder = '1px solid var(--navbar-edge)';
 
+function isValidEmail(s: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s ?? '').trim());
+}
+
 export default function ClientsList() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [items, setItems] = useState<any[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
   
   const getAvatarUrl = (url: string | null | undefined, clientId?: string) => {
     if (!url) return null;
@@ -33,7 +42,6 @@ export default function ClientsList() {
     return `${baseOrigin}${url}${separator}${params.toString()}`;
   };
   const [name, setName] = useState('');
-  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [age, setAge] = useState<string>('');
@@ -166,6 +174,16 @@ export default function ClientsList() {
   }, [token]);
 
   useEffect(() => {
+    const updateViewport = () => {
+      setIsMobile(window.innerWidth <= 768);
+      setIsNarrow(window.innerWidth <= 420);
+    };
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, []);
+
+  useEffect(() => {
     if (isVerified !== false) {
       load();
     }
@@ -212,26 +230,48 @@ export default function ClientsList() {
     localStorage.setItem('clients.tagFilter', JSON.stringify({ tags: selectedTags }));
   }, [selectedTags, location.pathname, location.search]);
 
+  usePsychologistPlatformTour({
+    tourId: 'clients',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && user?.role === 'psychologist' && isVerified === true),
+    steps: PSYCHOLOGIST_CLIENTS_TOUR_STEPS
+  });
+
   async function createClient(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const normalizedTags = tags.map(t => ({ label: t.label.trim(), color: t.color }));
     const newClient = { id: Math.random().toString(36).slice(2), name, email, phone, age: age ? Number(age) : undefined, city, tags: normalizedTags };
     if (!token) {
+      if (!isValidEmail(email)) {
+        setError('Укажите корректный email');
+        return;
+      }
       // local add in demo mode
       setItems(prev => { const next = [newClient, ...prev]; saveItemsToStorage(next); return next; });
       // ensure new id is not considered deleted
       const ids = readDeletedFromStorage().filter(x => x !== newClient.id);
       saveDeletedToStorage(ids);
-      setName(''); setUsername(''); setEmail(''); setPhone(''); setAge(''); setCity(''); setTags([]); setTagInput('');
+      setName(''); setEmail(''); setPhone(''); setAge(''); setCity(''); setTags([]); setTagInput('');
       setShowModal(false);
       return;
     }
+    if (!isValidEmail(email)) {
+      setError('Укажите корректный email — клиент войдёт в аккаунт по этой почте');
+      return;
+    }
     try {
-      const created = await api<any>('/api/clients', { method: 'POST', token: token, body: { name, username, email, phone, age: age ? Number(age) : undefined, city, tags: normalizedTags } });
+      const created = await api<any>('/api/clients', { method: 'POST', token: token, body: { name, email, phone, age: age ? Number(age) : undefined, city, tags: normalizedTags } });
       const serverId = created?.id || newClient.id;
-      const clientFinal = { ...newClient, id: serverId };
-      // optimistic update to preserve chosen tags immediately
+      const clientFinal = {
+        ...newClient,
+        id: serverId,
+        email: created?.email ?? email,
+        registrationPending: Boolean(created?.registrationToken),
+        registrationLink: created?.registrationLink ?? null,
+        platformRegistered: false
+      };
       setItems(prev => { const next = [clientFinal, ...prev.filter(c => c.id !== serverId)]; saveItemsToStorage(next); return next; });
       const ids = readDeletedFromStorage().filter(x => x !== serverId);
       saveDeletedToStorage(ids);
@@ -239,7 +279,7 @@ export default function ClientsList() {
       const overrides = readOverrides();
       overrides[serverId] = { tags: normalizedTags, city, age: age ? Number(age) : undefined };
       saveOverrides(overrides);
-      setName(''); setUsername(''); setEmail(''); setPhone(''); setAge(''); setCity(''); setTags([]); setTagInput('');
+      setName(''); setEmail(''); setPhone(''); setAge(''); setCity(''); setTags([]); setTagInput('');
       setShowModal(false);
       
       // Показываем ссылку для регистрации
@@ -248,12 +288,26 @@ export default function ClientsList() {
         setShowLinkModal(true);
       }
     } catch (e: any) {
-      // still add locally so UI is usable
-      setItems(prev => { const next = [newClient, ...prev]; saveItemsToStorage(next); return next; });
-      const ids = readDeletedFromStorage().filter(x => x !== newClient.id);
-      saveDeletedToStorage(ids);
-      setName(''); setUsername(''); setEmail(''); setPhone(''); setAge(''); setCity(''); setTags([]); setTagInput('');
-      setShowModal(false);
+      setError(e?.message || 'Не удалось создать клиента');
+    }
+  }
+
+  async function copyText(text: string) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const input = document.createElement('input');
+        input.value = text;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -332,21 +386,22 @@ export default function ClientsList() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
-      <main style={{ flex: 1, padding: '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+      <main style={{ flex: 1, padding: isNarrow ? '12px 12px 16px' : isMobile ? '16px 16px 20px' : '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Мои клиенты</h1>
-            <form onSubmit={onSearch} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, maxWidth: 600 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr auto', alignItems: 'center', gap: isMobile ? 10 : 16, marginBottom: isMobile ? 14 : 32 }}>
+          <div data-tour="clients-header">
+            <h1 style={{ margin: 0, fontSize: isNarrow ? 22 : isMobile ? 26 : 32, fontWeight: 800, marginBottom: isMobile ? 4 : 8 }}>Мои клиенты</h1>
+            <form onSubmit={onSearch} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: isMobile ? 8 : 12, maxWidth: isMobile ? '100%' : 600 }}>
               <div style={{ position: 'relative', flex: 1 }}>
-                <span style={{ position: 'absolute', left: 12, top: 10, opacity: .7 }}>🔎</span>
-                <input style={{ width: '100%', padding: '10px 12px 10px 34px', borderRadius: 12, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)', minWidth: 0 }} placeholder="Поиск: клиенты, сны, архетипы" value={query} onChange={e => setQuery(e.target.value)} />
+                <span style={{ position: 'absolute', left: 10, top: isMobile ? 8 : 10, opacity: .7 }}>🔎</span>
+                <input style={{ width: '100%', padding: isMobile ? '8px 10px 8px 30px' : '10px 12px 10px 34px', borderRadius: 12, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)', minWidth: 0, fontSize: isMobile ? 14 : 15 }} placeholder="Поиск: клиенты, сны, архетипы" value={query} onChange={e => setQuery(e.target.value)} />
               </div>
             </form>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button className="button secondary" onClick={() => load()} style={{ padding: '10px 20px' }} title="Обновить данные">🔄</button>
-            <button className="button" onClick={() => setShowModal(true)} style={{ padding: '10px 20px' }}>Добавить клиента</button>
+          <div data-tour="clients-add" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: isMobile ? 'stretch' : 'flex-end' }}>
+            <PsychologistTourHelpButton tourId="clients" steps={PSYCHOLOGIST_CLIENTS_TOUR_STEPS} userId={user?.id} role={user?.role} />
+            <button className={isMobile ? 'button secondary' : 'button secondary'} onClick={() => load()} style={{ padding: isMobile ? '8px 10px' : '10px 20px', minWidth: isMobile ? 44 : undefined }} title="Обновить данные">🔄</button>
+            <button className="button" onClick={() => setShowModal(true)} style={{ padding: isMobile ? '8px 12px' : '10px 20px', fontSize: isMobile ? 14 : 15 }}>Добавить клиента</button>
           </div>
         </div>
 
@@ -356,7 +411,7 @@ export default function ClientsList() {
         {error && <div style={{ color: 'red', marginTop: 10 }}>{error}</div>}
 
         {/* Tag filters */}
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div data-tour="clients-tags" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 10, flexWrap: 'wrap' }}>
           <div className="small" style={{ opacity: .8, color: 'var(--text-muted)' }}>Фильтр по тегам:</div>
           {[...PRESET_TAGS, ...allExistingTags.filter(l => !PRESET_TAGS.some(p => p.label === l)).map(l => ({ label: l, color: getColorForLabel(l) }))].slice(0, 24).map(t => {
             const active = selectedTags.includes(t.label);
@@ -367,8 +422,8 @@ export default function ClientsList() {
                 type="button"
                 onClick={() => setSelectedTags(prev => active ? prev.filter(x => x !== t.label) : [...prev, t.label])}
                 style={{
-                  padding: '5px 11px',
-                  fontSize: 12,
+                  padding: isMobile ? '4px 10px' : '5px 11px',
+                  fontSize: isMobile ? 11 : 12,
                   fontWeight: 600,
                   borderRadius: 999,
                   cursor: 'pointer',
@@ -387,9 +442,9 @@ export default function ClientsList() {
           </div>
         </div>
 
-        <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
+        <div data-tour="clients-grid" style={{ marginTop: 12, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap: isMobile ? 10 : 14 }}>
           {filteredItems.map(c => (
-            <div key={c.id} className="card" style={{ padding: 16, display: 'grid', gap: 10 }}>
+            <div key={c.id} className="card" style={{ padding: isMobile ? 12 : 16, display: 'grid', gap: isMobile ? 8 : 10 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 14, alignItems: 'center' }}>
                 {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
                   <img
@@ -397,8 +452,8 @@ export default function ClientsList() {
                     key={`avatar-${c.id}-${c.avatarUrl || c.profile?.avatarUrl || 'none'}`}
                     alt={c.name || 'Аватар'}
                     style={{
-                      width: 48,
-                      height: 48,
+                      width: isMobile ? 42 : 48,
+                      height: isMobile ? 42 : 48,
                       borderRadius: '50%',
                       objectFit: 'cover',
                       border: `2px solid var(--navbar-edge)`
@@ -417,15 +472,69 @@ export default function ClientsList() {
                     }}
                   />
                 ) : (
-                  <div style={{ width: 48, height: 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', textShadow: '0 1px 2px rgba(0,0,0,0.3)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>
+                  <div style={{ width: isMobile ? 42 : 48, height: isMobile ? 42 : 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', textShadow: '0 1px 2px rgba(0,0,0,0.3)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>
                     {(c.name || '?').trim().charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{c.name}</div>
+                  <div style={{ fontWeight: 700, overflowWrap: 'anywhere', fontSize: isMobile ? 21 : undefined }}>{c.name}</div>
                   <div className="small" style={{ color: 'var(--text-muted)' }}>{c.city || '—'}{c.age ? ` • ${c.age} лет` : ''}</div>
                 </div>
               </div>
+              {c.registrationPending && c.registrationLink && (
+                <div
+                  style={{
+                    padding: 10,
+                    borderRadius: 10,
+                    background: 'rgba(250, 204, 21, 0.14)',
+                    border: '1px solid rgba(234, 179, 8, 0.45)'
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: 'var(--text)' }}>Ожидает регистрации</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input
+                      readOnly
+                      value={c.registrationLink}
+                      title={c.registrationLink}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        border: fieldBorder,
+                        background: 'var(--surface-2)',
+                        color: 'var(--text)',
+                        fontSize: 11
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="button secondary"
+                      style={{ padding: '6px 10px', fontSize: 12 }}
+                      onClick={() => copyText(c.registrationLink)}
+                    >
+                      Копировать
+                    </button>
+                  </div>
+                </div>
+              )}
+              {c.platformRegistered && !c.registrationPending && (
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: 'rgba(34, 197, 94, 0.15)',
+                    border: '1px solid rgba(34, 197, 94, 0.45)',
+                    color: 'var(--text)'
+                  }}
+                >
+                  Авторизован
+                </div>
+              )}
               {c.email && <div className="small" style={{ wordBreak: 'break-word', color: 'var(--text-muted)' }}>{c.email}</div>}
               {c.phone && <div className="small" style={{ color: 'var(--text-muted)' }}>{c.phone}</div>}
               {Array.isArray(c.tags) && c.tags.length > 0 && (
@@ -451,10 +560,10 @@ export default function ClientsList() {
                   })}
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <Link to={`/clients/${c.id}/profile`} className="button secondary" style={{ padding: '6px 10px', fontSize: 13 }}>Профиль</Link>
-                <Link to={`/psychologist/work-area?client=${c.id}`} className="button" style={{ padding: '6px 10px', fontSize: 13 }}>Рабочая область</Link>
-                <button onClick={() => deleteClient(c.id)} className="button danger" style={{ padding: '6px 10px', marginLeft: 'auto', fontSize: 13 }}>Удалить</button>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                <Link to={`/clients/${c.id}/profile`} className="button secondary" style={{ padding: isMobile ? '6px 10px' : '6px 10px', fontSize: 13 }}>Профиль</Link>
+                <Link to={`/psychologist/work-area?client=${c.id}`} className="button" style={{ padding: isMobile ? '6px 10px' : '6px 10px', fontSize: 13 }}>Рабочая область</Link>
+                <button onClick={() => deleteClient(c.id)} className="button danger" style={{ padding: '6px 10px', marginLeft: isMobile ? 0 : 'auto', fontSize: 13 }}>Удалить</button>
               </div>
             </div>
           ))}
@@ -542,39 +651,52 @@ export default function ClientsList() {
         {/* Modal for adding client */}
         {showModal && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}>
-            <div className="card" style={{ width: 'min(720px, 94vw)', padding: 20, border: fieldBorder, boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
+            <div
+              className="card"
+              style={{
+                width: 'min(720px, 96vw)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                padding: isMobile ? 14 : 20,
+                border: fieldBorder,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
+                borderRadius: 16
+              }}
+              onClick={e => e.stopPropagation()}
+            >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ fontWeight: 800 }}>Добавить клиента</div>
                 <button className="button secondary" onClick={() => setShowModal(false)} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
               </div>
               <form onSubmit={createClient} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
                 <div>
-                  <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Логин *</div>
-                  <input 
-                    placeholder="Логин для регистрации" 
-                    value={username} 
-                    onChange={e => setUsername(e.target.value)} 
+                  <div className="small" style={{ marginBottom: 6, color: 'var(--text-muted)' }}>Email *</div>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    placeholder="client@mail.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
                     required
-                    minLength={3}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} 
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }}
                   />
                   <div className="small" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
-                    Минимум 3 символа. Будет использован для входа клиента
+                    По этой почте клиент зарегистрируется и будет входить в аккаунт
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <input placeholder="Имя" value={name} onChange={e => setName(e.target.value)} required style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+                  <input placeholder="Имя *" value={name} onChange={e => setName(e.target.value)} required style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
                   <input placeholder="Город" value={city} onChange={e => setCity(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
-                  <input placeholder="Email (опционально)" value={email} onChange={e => setEmail(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
                   <input placeholder="Телефон" value={phone} onChange={e => setPhone(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
                   <input placeholder="Возраст" value={age} onChange={e => setAge(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
                 </div>
                 <div>
                   <div className="small" style={{ marginBottom: 6 }}>Теги</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input placeholder="Новый тег" value={tagInput} onChange={e => setTagInput(e.target.value)} style={{ flex: '1 1 200px', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
-                    <input type="color" value={tagColor} onChange={e => setTagColor(e.target.value)} title="Цвет тега" />
-                    <button type="button" className="button secondary" onClick={addTag} style={{ padding: '6px 10px', fontSize: 13 }}>Добавить тег</button>
+                  <div style={{ display: 'grid', gap: 8, gridTemplateColumns: isMobile ? '1fr' : '1fr auto auto', alignItems: 'center' }}>
+                    <input placeholder="Новый тег" value={tagInput} onChange={e => setTagInput(e.target.value)} style={{ width: '100%', minWidth: 0, padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                    <input type="color" value={tagColor} onChange={e => setTagColor(e.target.value)} title="Цвет тега" style={{ width: isMobile ? '100%' : 56, height: 38, padding: 0, border: 'none', background: 'transparent' }} />
+                    <button type="button" className="button secondary" onClick={addTag} style={{ padding: '6px 10px', fontSize: 13, width: isMobile ? '100%' : 'auto' }}>Добавить тег</button>
                   </div>
                   {/* Suggestions */}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
@@ -623,9 +745,9 @@ export default function ClientsList() {
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button type="button" className="button secondary" onClick={() => setShowModal(false)} style={{ padding: '8px 12px', fontSize: 13 }}>Отмена</button>
-                  <button className="button" type="submit" style={{ padding: '8px 12px', fontSize: 13 }}>Создать</button>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+                  <button type="button" className="button secondary" onClick={() => setShowModal(false)} style={{ padding: '8px 12px', fontSize: 13, width: isMobile ? '100%' : 'auto' }}>Отмена</button>
+                  <button className="button" type="submit" style={{ padding: '8px 12px', fontSize: 13, width: isMobile ? '100%' : 'auto' }}>Создать</button>
                 </div>
               </form>
             </div>

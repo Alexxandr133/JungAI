@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { PlatformIcon } from './icons';
 
 export function MessagesBell() {
   const { token } = useAuth();
@@ -57,16 +58,16 @@ export function MessagesBell() {
           background: 'transparent',
           color: 'var(--text)',
           cursor: 'pointer',
-          fontSize: 20,
-          padding: 0,
+          padding: 6,
           lineHeight: 1,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
+          borderRadius: 10
         }}
         title="Сообщения"
       >
-        💬
+        <PlatformIcon name="messages" size={18} />
         {unreadCount > 0 && (
           <span
             style={{

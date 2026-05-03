@@ -8,6 +8,8 @@ import { config } from '../config';
 
 const router = Router();
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 // Настройка multer для загрузки аватаров клиентов
 // Используем process.cwd() для определения корня проекта (работает и в dev, и в production)
 const uploadsBaseDir = path.join(process.cwd(), 'backend', 'uploads');
@@ -183,7 +185,9 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         email: true,
         phone: true,
         psychologistId: true, // КРИТИЧНО: включаем psychologistId в результат
-        createdAt: true
+        createdAt: true,
+        registrationToken: true,
+        tokenExpiresAt: true
       },
       orderBy: { createdAt: 'desc' } 
     });
@@ -236,17 +240,34 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     
     // Обогащаем клиентов данными профиля
     const items = await Promise.all(Array.from(uniqueClients.values()).map(async (client: any) => {
-      if (!client.email) return client;
-      
+      const regTok = client.registrationToken as string | null | undefined;
+      const { registrationToken: _drop, ...restSafe } = client;
+      const registrationPending = Boolean(regTok);
+      const registrationLink = regTok
+        ? `${config.frontendUrl}/register-client?token=${regTok}`
+        : null;
+
+      if (!client.email) {
+        return {
+          ...restSafe,
+          registrationPending,
+          registrationLink,
+          platformRegistered: false
+        };
+      }
+
       const user = await prisma.user.findFirst({
         where: { email: client.email },
         include: { profile: true }
       });
-      
+
       return {
-        ...client,
+        ...restSafe,
         profile: user?.profile || null,
-        avatarUrl: user?.profile?.avatarUrl || null
+        avatarUrl: user?.profile?.avatarUrl || null,
+        registrationPending,
+        registrationLink,
+        platformRegistered: Boolean(user)
       };
     }));
     
@@ -261,28 +282,36 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
 });
 
 router.post('/clients', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
-  const { name, email, phone, age, city, tags, username } = req.body ?? {};
-  
+  const { name, email, phone, age, city, tags } = req.body ?? {};
+
+  const nameTrim = String(name ?? '').trim();
+  const emailNorm = String(email ?? '').trim().toLowerCase();
+  if (!nameTrim) {
+    return res.status(400).json({ error: 'Укажите имя клиента' });
+  }
+  if (!EMAIL_REGEX.test(emailNorm)) {
+    return res.status(400).json({ error: 'Укажите корректный email — клиент войдёт в аккаунт по этой почте' });
+  }
+
   // Генерируем токен регистрации
   const crypto = require('crypto');
   const registrationToken = crypto.randomBytes(32).toString('hex');
   const tokenExpiresAt = new Date();
   tokenExpiresAt.setDate(tokenExpiresAt.getDate() + 7); // Токен действителен 7 дней
-  
-  const c = await prisma.client.create({ 
-    data: { 
-      name, 
-      email: email || (username ? `${username}@jungai.local` : undefined), 
-      phone, 
+
+  const c = await prisma.client.create({
+    data: {
+      name: nameTrim,
+      email: emailNorm,
+      phone: phone ? String(phone).trim() : undefined,
       psychologistId: req.user!.id,
       registrationToken,
       tokenExpiresAt
-    } 
+    }
   });
-  
+
   res.status(201).json({
     ...c,
-    username: username || null,
     registrationLink: `${config.frontendUrl}/register-client?token=${registrationToken}`
   });
 });
@@ -299,7 +328,9 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
         email: true, 
         phone: true, 
         psychologistId: true,
-        createdAt: true
+        createdAt: true,
+        registrationToken: true,
+        tokenExpiresAt: true
       }
     });
     
@@ -320,11 +351,18 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
       }
     });
     
+    const regTok = client.registrationToken;
+    const { registrationToken: _reg, ...clientSafe } = client as any;
     res.json({
-      ...client,
+      ...clientSafe,
       profile: user?.profile || null,
       userId: user?.id || null,
-      avatarUrl: user?.profile?.avatarUrl || null
+      avatarUrl: user?.profile?.avatarUrl || null,
+      registrationPending: Boolean(regTok),
+      registrationLink: regTok
+        ? `${config.frontendUrl}/register-client?token=${regTok}`
+        : null,
+      platformRegistered: Boolean(user)
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to get client' });

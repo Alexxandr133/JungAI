@@ -4,7 +4,6 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
 import { NotificationsBell } from './NotificationsBell';
-import { MessagesBell } from './MessagesBell';
 import { BrandLogo } from './BrandLogo';
 import { ThemeMenuButton } from './ThemeMenuButton';
 import { PlatformIcon, type PlatformIconName } from './icons';
@@ -134,6 +133,7 @@ export function PsychologistNavbar() {
 
   return (
     <nav
+      data-tour="psych-nav"
       ref={menuRef}
       style={{
         position: 'sticky',
@@ -153,10 +153,17 @@ export function PsychologistNavbar() {
         alignItems: 'center',
         justifyContent: 'space-between',
         height: 64,
-        gap: 24
+        gap: 24,
+        position: 'relative'
       }}>
+        <div className="navbar-mobile-left" style={{ display: 'none' }}>
+          <NotificationsBell />
+        </div>
+
         {/* Logo */}
-        <BrandLogo to="/psychologist" />
+        <div className="navbar-logo-wrap">
+          <BrandLogo to="/psychologist" />
+        </div>
 
         {/* Desktop Menu */}
         <div
@@ -309,33 +316,37 @@ export function PsychologistNavbar() {
           display: 'flex',
           alignItems: 'center',
           gap: 12
-        }}>
-          <ThemeMenuButton />
-          <MessagesBell />
-          <NotificationsBell />
-          <UserMenu user={user as any} />
+        }} className="navbar-right-actions">
+          <div className="navbar-desktop-icons" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ThemeMenuButton />
+            <NotificationsBell />
+          </div>
+          <div className="mobile-user-menu">
+            <UserMenu user={user as any} includeMobileMessagesItem />
+          </div>
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              border: 'none',
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontSize: 20
+            }}
+            className="mobile-menu-button"
+          >
+            <span style={{ fontSize: 22, lineHeight: 1, fontWeight: 700 }}>
+              {mobileMenuOpen ? '×' : '☰'}
+            </span>
+          </button>
         </div>
-
-        {/* Mobile Menu Button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          style={{
-            display: 'none',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            border: 'none',
-            background: 'var(--surface-2)',
-            color: 'var(--text)',
-            cursor: 'pointer',
-            fontSize: 20
-          }}
-          className="mobile-menu-button"
-        >
-          <PlatformIcon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
-        </button>
       </div>
 
       {/* Mobile Menu - rendered via Portal */}
@@ -367,6 +378,25 @@ export function PsychologistNavbar() {
             }}
             onClick={e => e.stopPropagation()}
           >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0 10px', borderBottom: '1px solid var(--navbar-edge)', marginBottom: 8 }}>
+              <div style={{ fontWeight: 700 }}>Меню</div>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  fontSize: 24,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+                title="Закрыть"
+              >
+                ×
+              </button>
+            </div>
             <div style={{ padding: '8px 0 12px', borderBottom: '1px solid var(--navbar-edge)' }}>
               <ThemeMenuButton compact={false} />
             </div>
@@ -457,6 +487,66 @@ export function PsychologistNavbar() {
           }
           .navbar-desktop-menu {
             display: none !important;
+          }
+          .navbar-desktop-icons {
+            display: none !important;
+          }
+          .navbar-mobile-left {
+            display: none !important;
+          }
+          .navbar-logo-wrap {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 0;
+            pointer-events: none;
+            background: var(--surface);
+            border-radius: 0 0 18px 18px;
+            padding: 0 10px 0;
+            box-shadow: 0 6px 18px rgba(2, 6, 23, 0.28);
+            border-left: 1px solid rgba(148,163,184,0.2);
+            border-right: 1px solid rgba(148,163,184,0.2);
+            border-bottom: 1px solid rgba(148,163,184,0.2);
+          }
+          .navbar-logo-wrap .brand-logo-link {
+            pointer-events: auto;
+          }
+          .navbar-logo-wrap .brand-logo-text {
+            display: none !important;
+          }
+          .navbar-logo-wrap img {
+            height: 64px !important;
+          }
+          .navbar-right-actions {
+            gap: 8px !important;
+            z-index: 2;
+            position: relative;
+            margin-left: auto;
+            justify-content: flex-end;
+          }
+          .navbar-mobile-left {
+            display: flex !important;
+            align-items: center;
+            width: 40px;
+            min-width: 40px;
+            z-index: 2;
+            position: relative;
+          }
+          .mobile-user-menu img {
+            width: 30px !important;
+            height: 30px !important;
+          }
+          .mobile-user-menu > div > button > div {
+            width: 30px !important;
+            height: 30px !important;
+            font-size: 12px !important;
+          }
+          .mobile-menu-button {
+            width: 36px !important;
+            height: 36px !important;
+            background: var(--surface-2) !important;
+            border: 1px solid rgba(148,163,184,0.3) !important;
+            color: var(--text) !important;
           }
         }
       `}</style>

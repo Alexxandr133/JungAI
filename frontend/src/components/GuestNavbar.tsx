@@ -101,15 +101,32 @@ export function GuestNavbar() {
         WebkitBackdropFilter: 'blur(12px)'
       }}
     >
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
-          {/* Logo */}
-          <BrandLogo to="/" />
+      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '0 16px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            height: 64,
+            gap: 12,
+            minWidth: 0
+          }}
+        >
+          <div className="guest-navbar-logo" style={{ flexShrink: 0, display: 'flex', alignItems: 'center', minWidth: 0 }}>
+            <BrandLogo to="/" />
+          </div>
 
           {/* Desktop Menu */}
           <div
             className="guest-desktop-menu"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              flex: 1,
+              minWidth: 0,
+              justifyContent: 'center'
+            }}
           >
             {menuItems.map((item) => {
               if (item.children) {
@@ -122,7 +139,7 @@ export function GuestNavbar() {
                   >
                     <div
                       style={{
-                        padding: '8px 16px',
+                        padding: '8px 12px',
                         borderRadius: 10,
                         cursor: 'pointer',
                         background: hoveredMenu === item.label ? 'var(--surface-2)' : 'transparent',
@@ -185,7 +202,7 @@ export function GuestNavbar() {
                   key={item.path || item.label}
                   to={item.path || '#'}
                   style={{
-                    padding: '8px 16px',
+                    padding: '8px 12px',
                     borderRadius: 10,
                     textDecoration: 'none',
                     color: 'var(--text)',
@@ -206,8 +223,18 @@ export function GuestNavbar() {
           </div>
 
           {/* Right side */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <ThemeMenuButton />
+          <div
+            className="navbar-right-actions"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              flexShrink: 0,
+              marginLeft: 'auto',
+              zIndex: 2,
+              position: 'relative'
+            }}
+          >
             {user ? (
               <Link 
                 to={
@@ -218,43 +245,58 @@ export function GuestNavbar() {
                   '/dashboard'
                 } 
                 className="button" 
-                style={{ padding: '8px 16px', fontSize: 14, textDecoration: 'none' }}
+                style={{ padding: '8px 14px', fontSize: 14, textDecoration: 'none', whiteSpace: 'nowrap' }}
               >
                 Личный кабинет
               </Link>
             ) : (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Link to="/login" className="button secondary" style={{ padding: '8px 16px', fontSize: 14, textDecoration: 'none' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'nowrap' }}>
+                <Link
+                  to="/login"
+                  className="button secondary"
+                  style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}
+                >
                   Войти
                 </Link>
-                <Link to="/register" className="button" style={{ padding: '8px 16px', fontSize: 14, textDecoration: 'none' }}>
+                <Link
+                  to="/register"
+                  className="button"
+                  style={{ padding: '8px 12px', fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}
+                >
                   Регистрация
                 </Link>
               </div>
             )}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              style={{
+                display: 'none',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                border: 'none',
+                background: 'var(--surface-2)',
+                color: 'var(--text)',
+                cursor: 'pointer',
+                fontSize: 20
+              }}
+              className="mobile-menu-button"
+              aria-label={mobileMenuOpen ? 'Закрыть меню' : 'Открыть меню'}
+            >
+              <span style={{ fontSize: 22, lineHeight: 1, fontWeight: 700 }}>
+                {mobileMenuOpen ? '×' : '☰'}
+              </span>
+            </button>
           </div>
-
-          {/* Mobile menu button */}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            style={{
-              display: 'none',
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text)',
-              fontSize: 24,
-              cursor: 'pointer',
-              padding: 8
-            }}
-            className="mobile-menu-btn"
-          >
-            <PlatformIcon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
-          </button>
         </div>
 
         {/* Mobile Menu - rendered via Portal */}
         {mobileMenuOpen && typeof document !== 'undefined' && createPortal(
           <div
+            className="mobile-menu"
             style={{
               position: 'fixed',
               inset: 0,
@@ -280,6 +322,25 @@ export function GuestNavbar() {
               }}
               onClick={e => e.stopPropagation()}
             >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0 10px', borderBottom: '1px solid var(--navbar-edge)', marginBottom: 8 }}>
+                <div style={{ fontWeight: 700 }}>Меню</div>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text)',
+                    fontSize: 24,
+                    lineHeight: 1,
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                  title="Закрыть"
+                >
+                  ×
+                </button>
+              </div>
               <div style={{ padding: '8px 0 12px', borderBottom: '1px solid var(--navbar-edge)' }}>
                 <ThemeMenuButton compact={false} />
               </div>
@@ -312,12 +373,48 @@ export function GuestNavbar() {
       </div>
 
       <style>{`
-        @media (max-width: 768px) {
-          .mobile-menu-btn {
-            display: block !important;
+        @media (max-width: 1024px) {
+          .mobile-menu-button {
+            display: flex !important;
           }
           .guest-desktop-menu {
             display: none !important;
+          }
+          .guest-navbar-logo img {
+            height: 44px !important;
+          }
+          .guest-navbar-logo .brand-logo-text {
+            font-size: 15px !important;
+          }
+          .guest-navbar-logo .brand-logo-link {
+            gap: 8px !important;
+          }
+          .navbar-right-actions {
+            gap: 8px !important;
+            margin-left: auto !important;
+            justify-content: flex-end !important;
+            flex-shrink: 0;
+          }
+          .mobile-menu-button {
+            width: 36px !important;
+            height: 36px !important;
+            background: var(--surface-2) !important;
+            border: 1px solid rgba(148,163,184,0.3) !important;
+            color: var(--text) !important;
+          }
+        }
+        @media (max-width: 520px) {
+          .guest-navbar-logo .brand-logo-text {
+            display: none !important;
+          }
+          .guest-navbar-logo img {
+            height: 40px !important;
+          }
+        }
+        @media (max-width: 380px) {
+          .navbar-right-actions .button {
+            padding: 7px 8px !important;
+            font-size: 12px !important;
           }
         }
       `}</style>

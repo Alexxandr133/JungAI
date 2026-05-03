@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 const QUERY = '(max-width: 768px)';
 
-/** Мобильная вёрстка: шаг «размер текста» в мастере темы скрыт. */
+/** Одна колонка / компактная вёрстка при ширине viewport ≤768px (темы, публикации и т.д.). */
 export function useIsNarrowViewport(): boolean {
   const [narrow, setNarrow] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia(QUERY).matches : false

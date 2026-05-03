@@ -16,6 +16,7 @@ import {
   CloudMoon,
   Drama,
   Eye,
+  Feather,
   Info,
   FileText,
   Fingerprint,
@@ -119,7 +120,8 @@ const ICON_MAP = {
   thumbsUp: ThumbsUp,
   eye: Eye
   ,
-  info: Info
+  info: Info,
+  feather: Feather
 } as const;
 
 export type PlatformIconName = keyof typeof ICON_MAP;

@@ -6,13 +6,15 @@ type BrandLogoProps = {
   to: string;
   /** Высота значка (рядом подпись JungAI) */
   height?: number;
+  showText?: boolean;
 };
 
-export function BrandLogo({ to, height = 64 }: BrandLogoProps) {
+export function BrandLogo({ to, height = 64, showText = true }: BrandLogoProps) {
   return (
     <Link
       to={to}
       aria-label="JungAI"
+      className="brand-logo-link"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -30,18 +32,21 @@ export function BrandLogo({ to, height = 64 }: BrandLogoProps) {
         style={{ height, width: 'auto', display: 'block', objectFit: 'contain', flexShrink: 0 }}
         decoding="async"
       />
-      <span
-        style={{
-          fontSize: 18,
-          fontWeight: 800,
-          letterSpacing: '-0.02em',
-          color: 'var(--text)',
-          lineHeight: 1.1,
-          whiteSpace: 'nowrap'
-        }}
-      >
-        JungAI
-      </span>
+      {showText && (
+        <span
+          className="brand-logo-text"
+          style={{
+            fontSize: 18,
+            fontWeight: 800,
+            letterSpacing: '-0.02em',
+            color: 'var(--text)',
+            lineHeight: 1.1,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          JungAI
+        </span>
+      )}
     </Link>
   );
 }

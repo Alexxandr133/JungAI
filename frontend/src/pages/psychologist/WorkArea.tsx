@@ -6,6 +6,9 @@ import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_WORK_AREA_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type Client = { 
   id: string; 
@@ -44,7 +47,7 @@ type WorkAreaProps = {
 };
 
 export default function WorkArea({ restrictedClientId, hideNavbar = false, noPadding = false }: WorkAreaProps = {}) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { t } = useI18n();
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
 
@@ -620,6 +623,20 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     setDragOverTab(null);
   }
 
+  usePsychologistPlatformTour({
+    tourId: 'workArea',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(
+      token &&
+      user?.role === 'psychologist' &&
+      isVerified === true &&
+      !loading &&
+      !restrictedClientId
+    ),
+    steps: PSYCHOLOGIST_WORK_AREA_TOUR_STEPS
+  });
+
   // Проверка верификации - показываем сообщение, если не верифицирован
   if (isVerified === false && token) {
     const verificationContent = (
@@ -699,7 +716,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       position: 'relative' 
     }}>
         {/* Top Header Bar with Client Selector */}
-        <div style={{ 
+        <div
+          data-tour="workarea-header"
+          style={{ 
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'space-between', 
@@ -708,7 +727,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           borderBottom: '1px solid rgba(255,255,255,0.08)',
           background: 'var(--surface)',
           flexShrink: 0
-        }}>
+        }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text)' }}>{t('workArea.title')}</h1>
             
@@ -916,6 +936,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           </div>
           
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            <PsychologistTourHelpButton tourId="workArea" steps={PSYCHOLOGIST_WORK_AREA_TOUR_STEPS} userId={user?.id} role={user?.role} />
             {restrictedClientId && (
               <span style={{ padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}>
                 🔓 Режим админа
@@ -984,7 +1005,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           )}
           {/* Left Sidebar - Tabs */}
           {!restrictedClientId && (
-            <div style={{ 
+            <div
+              data-tour="workarea-tabs"
+              style={{ 
               display: isMobileView ? (showTabContent ? 'none' : 'flex') : 'flex',
               flexDirection: 'column',
               borderRight: isMobileView ? 'none' : '1px solid rgba(255,255,255,0.08)',
@@ -994,7 +1017,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
               minWidth: isMobileView ? 'auto' : (expanded ? 0 : 240),
               transition: 'width 0.3s ease, min-width 0.3s ease',
               position: 'relative'
-            }}>
+            }}
+            >
               <div style={{ 
                 padding: '16px', 
                 borderBottom: theme === 'light' ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.08)',
@@ -1140,7 +1164,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           )}
 
           {/* Right Side - Editor Area */}
-          <div style={{ 
+          <div
+            data-tour="workarea-editor"
+            style={{ 
             display: isMobileView ? (showTabContent ? 'flex' : 'none') : 'flex', 
             flexDirection: 'column', 
             minWidth: 0, 
@@ -1148,7 +1174,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             overflow: 'hidden',
             background: 'var(--bg)',
             width: isMobileView ? '100%' : 'auto'
-          }}>
+          }}
+          >
             {/* Tab header with title and buttons */}
             {(!isMobileView || showTabContent) && (
               <div style={{ 

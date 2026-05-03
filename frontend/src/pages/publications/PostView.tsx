@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { useIsNarrowViewport } from '../../hooks/useIsNarrowViewport';
+import { api, resolvePublicFileUrl } from '../../lib/api';
 
 type PostDetails = {
   id: string;
@@ -10,13 +11,13 @@ type PostDetails = {
   content: string;
   imageUrl?: string | null;
   createdAt: string;
-  author?: { id: string; name?: string | null; email?: string | null; role?: string } | null;
+  author?: { id: string; name?: string | null; email?: string | null; role?: string; avatarUrl?: string | null } | null;
   community?: { id: string; slug: string; name: string } | null;
   comments: Array<{
     id: string;
     content: string;
     createdAt: string;
-    author?: { id: string; name?: string | null; email?: string | null; role?: string } | null;
+    author?: { id: string; name?: string | null; email?: string | null; role?: string; avatarUrl?: string | null } | null;
   }>;
   reactionsCount: number;
   likedByMe: boolean;
@@ -29,6 +30,7 @@ function canComment(role?: string) {
 export default function PostView() {
   const { id = '' } = useParams();
   const { token, user } = useAuth();
+  const narrow = useIsNarrowViewport();
   const [post, setPost] = useState<PostDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -79,21 +81,43 @@ export default function PostView() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
-      <main style={{ padding: '24px clamp(16px, 4vw, 42px)', flex: 1 }}>
+      <main style={{ padding: narrow ? '16px 12px' : '24px clamp(16px, 4vw, 42px)', flex: 1, overflowX: 'hidden' }}>
         {loading && <div className="small">Загрузка публикации...</div>}
         {error && <div className="card" style={{ padding: 12, color: '#ef4444' }}>{error}</div>}
 
         {post && (
-          <div style={{ maxWidth: 920, marginInline: 'auto', display: 'grid', gap: 12 }}>
-            <article className="card" style={{ padding: 18 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <h1 style={{ margin: 0, fontSize: 28 }}>{post.title}</h1>
-                  <div className="small" style={{ color: 'var(--text-muted)', marginTop: 8 }}>
-                    {(post.author?.name || post.author?.email || 'Автор')} • {post.author?.role || 'user'}
+          <div style={{ maxWidth: 920, marginInline: 'auto', display: 'grid', gap: 12, width: '100%', minWidth: 0 }}>
+            <article className="card" style={{ padding: narrow ? 14 : 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: '50%',
+                      overflow: 'hidden',
+                      background: 'rgba(255,255,255,0.08)',
+                      flexShrink: 0,
+                      display: 'grid',
+                      placeItems: 'center',
+                      fontWeight: 700,
+                      fontSize: 16
+                    }}
+                  >
+                    {resolvePublicFileUrl(post.author?.avatarUrl) ? (
+                      <img src={resolvePublicFileUrl(post.author?.avatarUrl) || ''} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      (post.author?.name || post.author?.email || 'A').slice(0, 1).toUpperCase()
+                    )}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <h1 style={{ margin: 0, fontSize: narrow ? 22 : 28, lineHeight: 1.25 }}>{post.title}</h1>
+                    <div className="small" style={{ color: 'var(--text-muted)', marginTop: 8 }}>
+                      {(post.author?.name || post.author?.email || 'Автор')} • {post.author?.role || 'user'}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <Link className="button secondary" to="/publications">Назад в ленту</Link>
                   {post.community?.slug && <Link className="button secondary" to={`/publications/community/${post.community.slug}`}>Сообщество</Link>}
                 </div>
@@ -101,7 +125,7 @@ export default function PostView() {
 
               {post.imageUrl && (
                 <div style={{ marginTop: 14, borderRadius: 14, overflow: 'hidden' }}>
-                  <img src={post.imageUrl} alt={post.title} style={{ width: '100%', maxHeight: 420, objectFit: 'cover' }} />
+                  <img src={resolvePublicFileUrl(post.imageUrl) || post.imageUrl} alt={post.title} style={{ width: '100%', maxHeight: 420, objectFit: 'cover' }} />
                 </div>
               )}
 
@@ -138,11 +162,33 @@ export default function PostView() {
 
               <div style={{ display: 'grid', gap: 10 }}>
                 {(post.comments || []).map((item) => (
-                  <div key={item.id} style={{ padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-                      {(item.author?.name || item.author?.email || 'Пользователь')} • {item.author?.role || 'user'}
+                  <div key={item.id} style={{ padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        overflow: 'hidden',
+                        background: 'rgba(255,255,255,0.08)',
+                        flexShrink: 0,
+                        display: 'grid',
+                        placeItems: 'center',
+                        fontSize: 13,
+                        fontWeight: 600
+                      }}
+                    >
+                      {resolvePublicFileUrl(item.author?.avatarUrl) ? (
+                        <img src={resolvePublicFileUrl(item.author?.avatarUrl) || ''} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        (item.author?.name || item.author?.email || 'U').slice(0, 1).toUpperCase()
+                      )}
                     </div>
-                    <div style={{ lineHeight: 1.55 }}>{item.content}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
+                        {(item.author?.name || item.author?.email || 'Пользователь')} • {item.author?.role || 'user'}
+                      </div>
+                      <div style={{ lineHeight: 1.55 }}>{item.content}</div>
+                    </div>
                   </div>
                 ))}
                 {(!post.comments || post.comments.length === 0) && (

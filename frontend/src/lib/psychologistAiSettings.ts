@@ -27,6 +27,11 @@ export type PsychologistAiSettings = {
   responseStyle: ResponseStyle;
   /** По умолчанию — календарный месяц (~30 дней) */
   dreamsContextRange: DreamsContextRange;
+  /**
+   * Подставлять ли сны и вкладку «Сны» в контекст ИИ.
+   * Если выключено — даже в юнгианской модальности данные снов не передаются, ассистент не должен их обсуждать.
+   */
+  includeDreamsInContext: boolean;
 };
 
 export const MODALITY_OPTIONS: Array<{ id: PsychologistModalityId; label: string }> = [
@@ -49,7 +54,8 @@ export const DEFAULT_PSYCHOLOGIST_AI_SETTINGS: PsychologistAiSettings = {
   modality: 'jungian_analytical',
   temperature: 0.7,
   responseStyle: 'balanced',
-  dreamsContextRange: '30d'
+  dreamsContextRange: '30d',
+  includeDreamsInContext: true
 };
 
 function clamp(n: number, min: number, max: number): number {
@@ -75,7 +81,11 @@ export function normalizeSettings(partial: Partial<PsychologistAiSettings>): Psy
     partial.dreamsContextRange === 'all'
       ? partial.dreamsContextRange
       : DEFAULT_PSYCHOLOGIST_AI_SETTINGS.dreamsContextRange;
-  return { modality, temperature, responseStyle, dreamsContextRange };
+  const includeDreamsInContext =
+    typeof partial.includeDreamsInContext === 'boolean'
+      ? partial.includeDreamsInContext
+      : DEFAULT_PSYCHOLOGIST_AI_SETTINGS.includeDreamsInContext;
+  return { modality, temperature, responseStyle, dreamsContextRange, includeDreamsInContext };
 }
 
 export function loadPsychologistAiSettings(): PsychologistAiSettings {

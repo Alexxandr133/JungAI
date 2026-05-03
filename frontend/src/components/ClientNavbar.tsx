@@ -4,7 +4,6 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
 import { MessagesBell } from './MessagesBell';
-import { LanguageSwitcher } from './LanguageSwitcher';
 import { BrandLogo } from './BrandLogo';
 import { ThemeMenuButton } from './ThemeMenuButton';
 import { PlatformIcon, type PlatformIconName } from './icons';
@@ -131,10 +130,16 @@ export function ClientNavbar() {
         alignItems: 'center',
         justifyContent: 'space-between',
         height: 64,
-        gap: 24
+        gap: 24,
+        position: 'relative'
       }}>
-        {/* Logo */}
-        <BrandLogo to="/client" />
+        <div className="navbar-mobile-left" style={{ display: 'none' }}>
+          <MessagesBell />
+        </div>
+
+        <div className="navbar-logo-wrap">
+          <BrandLogo to="/client" />
+        </div>
 
         {/* Desktop Menu */}
         <div
@@ -144,7 +149,8 @@ export function ClientNavbar() {
             alignItems: 'center',
             gap: 8,
             flex: 1,
-            justifyContent: 'center'
+            justifyContent: 'center',
+            minWidth: 0
           }}
         >
           {menuItems.map((item) => {
@@ -283,37 +289,44 @@ export function ClientNavbar() {
         </div>
 
         {/* Right Side Actions */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12
-        }}>
-          <ThemeMenuButton />
-          <MessagesBell />
-          <LanguageSwitcher />
-          <UserMenu user={user as any} />
-        </div>
-
-        {/* Mobile Menu Button */}
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+        <div
           style={{
-            display: 'none',
+            display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            width: 40,
-            height: 40,
-            borderRadius: 10,
-            border: 'none',
-            background: 'var(--surface-2)',
-            color: 'var(--text)',
-            cursor: 'pointer',
-            fontSize: 20
+            gap: 12
           }}
-          className="mobile-menu-button"
+          className="navbar-right-actions"
         >
-          <PlatformIcon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
-        </button>
+          <div className="navbar-desktop-icons" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <MessagesBell />
+          </div>
+          <div className="mobile-user-menu">
+            <UserMenu user={user as any} includeMobileMessagesItem />
+          </div>
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              border: 'none',
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+              cursor: 'pointer',
+              fontSize: 20
+            }}
+            className="mobile-menu-button"
+            aria-label={mobileMenuOpen ? 'Закрыть меню' : 'Открыть меню'}
+          >
+            <span style={{ fontSize: 22, lineHeight: 1, fontWeight: 700 }}>
+              {mobileMenuOpen ? '×' : '☰'}
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Mobile Menu - rendered via Portal */}
@@ -345,6 +358,25 @@ export function ClientNavbar() {
             }}
             onClick={e => e.stopPropagation()}
           >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0 10px', borderBottom: '1px solid var(--navbar-edge)', marginBottom: 8 }}>
+              <div style={{ fontWeight: 700 }}>Меню</div>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  fontSize: 24,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+                title="Закрыть"
+              >
+                ×
+              </button>
+            </div>
             <div style={{ padding: '8px 0 12px', borderBottom: '1px solid var(--navbar-edge)' }}>
               <ThemeMenuButton compact={false} />
             </div>
@@ -435,6 +467,63 @@ export function ClientNavbar() {
           }
           .navbar-desktop-menu {
             display: none !important;
+          }
+          .navbar-desktop-icons {
+            display: none !important;
+          }
+          .navbar-mobile-left {
+            display: flex !important;
+            align-items: center;
+            width: 40px;
+            min-width: 40px;
+            z-index: 2;
+            position: relative;
+          }
+          .navbar-logo-wrap {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 0;
+            pointer-events: none;
+            background: var(--surface);
+            border-radius: 0 0 18px 18px;
+            padding: 0 10px 0;
+            box-shadow: 0 6px 18px rgba(2, 6, 23, 0.28);
+            border-left: 1px solid rgba(148,163,184,0.2);
+            border-right: 1px solid rgba(148,163,184,0.2);
+            border-bottom: 1px solid rgba(148,163,184,0.2);
+          }
+          .navbar-logo-wrap .brand-logo-link {
+            pointer-events: auto;
+          }
+          .navbar-logo-wrap .brand-logo-text {
+            display: none !important;
+          }
+          .navbar-logo-wrap img {
+            height: 64px !important;
+          }
+          .navbar-right-actions {
+            gap: 8px !important;
+            z-index: 2;
+            position: relative;
+            margin-left: auto;
+            justify-content: flex-end;
+          }
+          .mobile-user-menu img {
+            width: 30px !important;
+            height: 30px !important;
+          }
+          .mobile-user-menu > div > button > div {
+            width: 30px !important;
+            height: 30px !important;
+            font-size: 12px !important;
+          }
+          .mobile-menu-button {
+            width: 36px !important;
+            height: 36px !important;
+            background: var(--surface-2) !important;
+            border: 1px solid rgba(148,163,184,0.3) !important;
+            color: var(--text) !important;
           }
         }
       `}</style>

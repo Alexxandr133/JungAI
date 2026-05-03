@@ -7,6 +7,9 @@ import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import { useAppearance } from '../../context/AppearanceContext';
 import { CalendarClock, CalendarPlus, CircleAlert, Clock3, Video } from 'lucide-react';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_SESSIONS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 export default function EventsPage() {
   const { token, user } = useAuth();
@@ -34,6 +37,17 @@ export default function EventsPage() {
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [narrowLayout, setNarrowLayout] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth <= 720 : false
+  );
+
+  useEffect(() => {
+    function onResize() {
+      setNarrowLayout(window.innerWidth <= 720);
+    }
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const TYPE_OPTIONS = [
     { value: 'video', label: 'Видеовстреча' },
@@ -94,6 +108,14 @@ export default function EventsPage() {
   }, [token, isVerified]);
   useEffect(() => { loadClients(); }, [token, user]);
   useEffect(() => { loadRequiresAttention(); }, [token, user]);
+
+  usePsychologistPlatformTour({
+    tourId: 'sessions',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && user?.role === 'psychologist' && isVerified === true),
+    steps: PSYCHOLOGIST_SESSIONS_TOUR_STEPS
+  });
 
   async function createEvent(e: React.FormEvent) {
     e.preventDefault(); setError(null);
@@ -245,6 +267,153 @@ export default function EventsPage() {
       .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0] || null;
   }, [activeItems]);
 
+  function renderUpcomingEventRow(ev: any) {
+    const actualStartTime = ev.actualStartTime ? new Date(ev.actualStartTime) : null;
+    const timeLabel = `${new Date(ev.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${ev.endsAt ? `–${new Date(ev.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`;
+    const statusBits = (
+      <>
+        {ev.sessionStatus === 'pending' && (
+          <span className="small" style={{ background: 'rgba(255, 193, 7, 0.2)', color: '#ffc107', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Ожидает</span>
+        )}
+        {ev.sessionStatus === 'accepted' && (
+          <span className="small" style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#4caf50', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Принята</span>
+        )}
+        {ev.sessionStatus === 'declined' && (
+          <span className="small" style={{ background: 'rgba(244, 67, 54, 0.2)', color: '#f44336', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Отклонена</span>
+        )}
+        {actualStartTime && (
+          <span className="small" style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#4caf50', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Начата</span>
+        )}
+      </>
+    );
+
+    if (narrowLayout) {
+      return (
+        <div key={ev.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <span className="small" style={{ color: 'var(--text)', fontWeight: 600 }}>{timeLabel}</span>
+            <span
+              className="small"
+              style={{
+                background: 'var(--surface-2)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 999,
+                padding: '2px 10px',
+                maxWidth: '100%',
+                whiteSpace: 'normal',
+                lineHeight: 1.3
+              }}
+            >
+              {typeLabel(String(ev.type))}
+            </span>
+          </div>
+          <div style={{ fontWeight: 700, lineHeight: 1.35, wordBreak: 'break-word' }}>{ev.title}</div>
+          {(ev.sessionStatus || actualStartTime) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{statusBits}</div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+            {ev.voiceRoom && (
+              <a
+                href={ev.voiceRoom.roomUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="button"
+                style={{ padding: '6px 10px', fontSize: 12, whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                title="Открыть голосовую комнату"
+              >
+                <Video size={14} />
+                Комната
+              </a>
+            )}
+            {(String(ev.type) === 'video' || String(ev.type) === 'call') && ev.voiceRoom?.roomUrl && (
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => copyGuestInviteLink(ev.voiceRoom.roomUrl)}
+                style={{ padding: '6px 10px', fontSize: 12 }}
+                title="Скопировать ссылку для гостевого доступа"
+              >
+                Приглашение
+              </button>
+            )}
+            {(user?.role === 'psychologist' || user?.role === 'researcher' || user?.role === 'admin') && (
+              <button type="button" className="button danger" onClick={() => deleteEvent(ev.id)} style={{ padding: '6px 10px', fontSize: 12 }}>
+                Удалить
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={ev.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr auto auto auto', alignItems: 'center', gap: 8, padding: '4px 12px' }}>
+        <div className="small" style={{ color: 'var(--text)' }}>{timeLabel}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1, flexWrap: 'wrap' }}>
+          <span className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: '2px 8px', textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{typeLabel(String(ev.type))}</span>
+          <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{ev.title}</div>
+          {statusBits}
+        </div>
+        {ev.voiceRoom && (
+          <a
+            href={ev.voiceRoom.roomUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="button"
+            style={{ padding: '4px 12px', fontSize: 12, whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="Открыть голосовую комнату"
+          >
+            <Video size={14} />
+            Комната
+          </a>
+        )}
+        {(String(ev.type) === 'video' || String(ev.type) === 'call') && ev.voiceRoom?.roomUrl && (
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => copyGuestInviteLink(ev.voiceRoom.roomUrl)}
+            style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
+            title="Скопировать ссылку для гостевого доступа"
+          >
+            Скопировать приглашение
+          </button>
+        )}
+        {(user?.role === 'psychologist' || user?.role === 'researcher' || user?.role === 'admin') && (
+          <button type="button" className="button danger" onClick={() => deleteEvent(ev.id)} style={{ padding: '4px 8px', fontSize: 12 }}>Удалить</button>
+        )}
+      </div>
+    );
+  }
+
+  function renderHistoryEventRow(ev: any) {
+    if (narrowLayout) {
+      return (
+        <div key={ev.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', borderBottom: '1px solid rgba(148,163,184,0.18)', opacity: 0.85 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+            <span className="small" style={{ color: 'var(--text-muted)', fontWeight: 600 }}>
+              {new Date(ev.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+            <span className="small" style={{ background: 'rgba(148,163,184,0.2)', borderRadius: 999, padding: '2px 10px', maxWidth: '100%', whiteSpace: 'normal', lineHeight: 1.3 }}>
+              {typeLabel(String(ev.type))}
+            </span>
+            <span className="small" style={{ color: 'var(--text-muted)' }}>Прошла</span>
+          </div>
+          <div style={{ fontWeight: 600, lineHeight: 1.35, wordBreak: 'break-word' }}>{ev.title}</div>
+        </div>
+      );
+    }
+    return (
+      <div key={ev.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr auto', alignItems: 'center', gap: 8, padding: '4px 12px', opacity: 0.75 }}>
+        <div className="small" style={{ color: 'var(--text-muted)' }}>{new Date(ev.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span className="small" style={{ background: 'rgba(148,163,184,0.2)', borderRadius: 999, padding: '2px 8px', display: 'inline-flex', alignItems: 'center' }}>{typeLabel(String(ev.type))}</span>
+          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</div>
+        </div>
+        <span className="small" style={{ color: 'var(--text-muted)' }}>Прошла</span>
+      </div>
+    );
+  }
+
   // Show verification required message
   if (token && isVerified === false) {
     return (
@@ -267,54 +436,88 @@ export default function EventsPage() {
         }}
       >
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', alignItems: 'center', gap: 16, marginBottom: 32 }}>
+        <div
+          data-tour="events-header"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 16,
+            marginBottom: 32,
+            flexWrap: 'wrap'
+          }}
+        >
           <div>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Сессии и встречи</h1>
             <span className="small" style={{ color: 'var(--text-muted)' }}>Часовой пояс: {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
           </div>
+          <PsychologistTourHelpButton tourId="sessions" steps={PSYCHOLOGIST_SESSIONS_TOUR_STEPS} userId={user?.id} role={user?.role} />
         </div>
 
         {error && <div style={{ color: 'red', marginTop: 10 }}>{error}</div>}
 
-        {/* Type filters */}
-        <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {['video','supervision','webinar','session'].map(t => {
-            const active = typeFilters.includes(t);
-            return (
-              <button key={t} className={active ? 'button' : 'button secondary'} style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => setTypeFilters(prev => active ? prev.filter(x => x !== t) : [...prev, t])}>
-                {typeLabel(t)}
-              </button>
-            );
-          })}
-          {typeFilters.length > 0 && <button className="button danger" onClick={() => setTypeFilters([])} style={{ padding: '4px 8px', fontSize: 12 }}>Сбросить</button>}
+        {/* Type filters + actions: на узких экранах кнопки «История» / «Запланировать» — отдельный ряд на всю ширину (50/50) */}
+        <div
+          data-tour="events-toolbar"
+          style={{
+            marginTop: 8,
+            display: 'flex',
+            flexDirection: narrowLayout ? 'column' : 'row',
+            gap: narrowLayout ? 10 : 8,
+            flexWrap: narrowLayout ? 'nowrap' : 'wrap',
+            alignItems: narrowLayout ? 'stretch' : 'center'
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flex: narrowLayout ? undefined : 1, minWidth: 0 }}>
+            {['video','supervision','webinar','session'].map(t => {
+              const active = typeFilters.includes(t);
+              return (
+                <button key={t} className={active ? 'button' : 'button secondary'} style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => setTypeFilters(prev => active ? prev.filter(x => x !== t) : [...prev, t])}>
+                  {typeLabel(t)}
+                </button>
+              );
+            })}
+            {typeFilters.length > 0 && <button className="button danger" onClick={() => setTypeFilters([])} style={{ padding: '4px 8px', fontSize: 12 }}>Сбросить</button>}
+          </div>
           {canCreate && (
-            <button
-              className={showHistory ? 'button' : 'button secondary'}
-              onClick={() => setShowHistory(prev => !prev)}
-              style={{ padding: '10px 14px', fontSize: 13, borderRadius: 12, marginLeft: 'auto' }}
-            >
-              {showHistory ? 'Актуальные' : 'История'}
-            </button>
-          )}
-          {canCreate && (
-            <button
-              className="button"
-              onClick={() => setShowModal(true)}
+            <div
               style={{
-                padding: '10px 18px',
-                fontSize: 14,
-                borderRadius: 12,
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
+                display: 'grid',
+                gridTemplateColumns: narrowLayout ? '1fr 1fr' : 'auto auto',
                 gap: 8,
-                background: 'linear-gradient(135deg, var(--primary), var(--accent))',
-                boxShadow: isLight ? '0 8px 20px rgba(79,70,229,0.2)' : '0 10px 24px rgba(79,70,229,0.3)'
+                width: narrowLayout ? '100%' : 'auto',
+                flexShrink: 0,
+                marginLeft: narrowLayout ? undefined : 'auto'
               }}
             >
-              <CalendarPlus size={16} />
-              Запланировать
-            </button>
+              <button
+                className={showHistory ? 'button' : 'button secondary'}
+                onClick={() => setShowHistory(prev => !prev)}
+                style={{ padding: '10px 14px', fontSize: 13, borderRadius: 12, width: narrowLayout ? '100%' : 'auto', justifySelf: 'stretch' }}
+              >
+                {showHistory ? 'Актуальные' : 'История'}
+              </button>
+              <button
+                className="button"
+                onClick={() => setShowModal(true)}
+                style={{
+                  padding: '10px 18px',
+                  fontSize: 14,
+                  borderRadius: 12,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  width: narrowLayout ? '100%' : 'auto',
+                  background: 'linear-gradient(135deg, var(--primary), var(--accent))',
+                  boxShadow: isLight ? '0 8px 20px rgba(79,70,229,0.2)' : '0 10px 24px rgba(79,70,229,0.3)'
+                }}
+              >
+                <CalendarPlus size={16} />
+                Запланировать
+              </button>
+            </div>
           )}
         </div>
         {nearestUpcoming && (
@@ -332,20 +535,37 @@ export default function EventsPage() {
 
         {/* Требуют внимания */}
         {!showHistory && requiresAttention && requiresAttention.clientsWithoutSessions.length > 0 && (
-          <div className="card" style={{ marginTop: 16, padding: 20, background: 'rgba(255, 193, 7, 0.1)', border: '1px solid rgba(255, 193, 7, 0.3)' }}>
-            <h3 style={{ marginTop: 0, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><CircleAlert size={18} />Требуют внимания</h3>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>Клиенты без сессий {'>'}2 недель:</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div
+            className="card"
+            style={{
+              marginTop: 16,
+              padding: narrowLayout ? 12 : 20,
+              background: 'rgba(255, 193, 7, 0.1)',
+              border: '1px solid rgba(255, 193, 7, 0.3)'
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: narrowLayout ? 10 : 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: narrowLayout ? 16 : undefined }}>
+              <CircleAlert size={narrowLayout ? 16 : 18} />
+              Требуют внимания
+            </h3>
+            <div style={{ marginBottom: narrowLayout ? 0 : 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: narrowLayout ? 6 : 8, fontSize: narrowLayout ? 13 : undefined }}>Клиенты без сессий {'>'}2 недель:</div>
+              <div style={{ display: 'flex', gap: narrowLayout ? 6 : 8, flexWrap: 'wrap' }}>
                 {requiresAttention.clientsWithoutSessions.map(client => (
                   <button
                     key={client.id}
                     onClick={() => openCreateSessionForClient(client.id, client.name)}
                     className="button"
-                    style={{ padding: '8px 14px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    style={{
+                      padding: narrowLayout ? '5px 10px' : '8px 14px',
+                      fontSize: narrowLayout ? 12 : 13,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: narrowLayout ? 6 : 8
+                    }}
                   >
-                    <CalendarPlus size={14} />
-                    Создать сессию: {client.name}
+                    <CalendarPlus size={narrowLayout ? 12 : 14} />
+                    Сессия: {client.name}
                   </button>
                 ))}
               </div>
@@ -354,7 +574,7 @@ export default function EventsPage() {
         )}
 
         {/* Compact agenda view */}
-        <div style={{ marginTop: 12 }}>
+        <div data-tour="events-list" style={{ marginTop: 12 }}>
           {!showHistory && grouped.length === 0 && (
             <div className="card" style={{ padding: 16 }}>
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Нет запланированных событий</div>
@@ -363,66 +583,45 @@ export default function EventsPage() {
           )}
           {!showHistory && grouped.length > 0 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 0 }}>
-                {grouped.map(([day, events]) => (
-                  <React.Fragment key={day}>
-                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>{new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}</div>
-                    <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                      {events.sort((a: any, b: any) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()).map((ev: any) => {
-                        const actualStartTime = ev.actualStartTime ? new Date(ev.actualStartTime) : null;
-                        
-                        return (
-                          <div key={ev.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr auto auto auto', alignItems: 'center', gap: 8, padding: '4px 12px' }}>
-                            <div className="small" style={{ color: 'var(--text)' }}>{new Date(ev.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{ev.endsAt ? `–${new Date(ev.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
-                              <span className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: '2px 8px', textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{typeLabel(String(ev.type))}</span>
-                              <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</div>
-                              {ev.sessionStatus === 'pending' && (
-                                <span className="small" style={{ background: 'rgba(255, 193, 7, 0.2)', color: '#ffc107', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Ожидает</span>
-                              )}
-                              {ev.sessionStatus === 'accepted' && (
-                                <span className="small" style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#4caf50', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Принята</span>
-                              )}
-                              {ev.sessionStatus === 'declined' && (
-                                <span className="small" style={{ background: 'rgba(244, 67, 54, 0.2)', color: '#f44336', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Отклонена</span>
-                              )}
-                              {actualStartTime && (
-                                <span className="small" style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#4caf50', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>Начата</span>
-                              )}
-                            </div>
-                            {ev.voiceRoom && (
-                              <a
-                                href={ev.voiceRoom.roomUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="button"
-                                style={{ padding: '4px 12px', fontSize: 12, whiteSpace: 'nowrap', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                                title="Открыть голосовую комнату"
-                              >
-                                <Video size={14} />
-                                Комната
-                              </a>
-                            )}
-                            {(String(ev.type) === 'video' || String(ev.type) === 'call') && ev.voiceRoom?.roomUrl && (
-                              <button
-                                className="button secondary"
-                                onClick={() => copyGuestInviteLink(ev.voiceRoom.roomUrl)}
-                                style={{ padding: '4px 10px', fontSize: 12, whiteSpace: 'nowrap' }}
-                                title="Скопировать ссылку для гостевого доступа"
-                              >
-                                Скопировать приглашение
-                              </button>
-                            )}
-                            {(user?.role === 'psychologist' || user?.role === 'researcher' || user?.role === 'admin') && (
-                              <button className="button danger" onClick={() => deleteEvent(ev.id)} style={{ padding: '4px 8px', fontSize: 12 }}>Удалить</button>
-                            )}
-                          </div>
-                        );
-                      })}
+              {narrowLayout ? (
+                <div>
+                  {grouped.map(([day, events]) => (
+                    <div key={day} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div
+                        style={{
+                          padding: '8px 12px',
+                          background: isLight ? 'rgba(15,23,42,0.05)' : 'rgba(255,255,255,0.05)',
+                          color: 'var(--text-muted)',
+                          fontWeight: 700,
+                          fontSize: 13
+                        }}
+                      >
+                        {new Date(day).toLocaleDateString(undefined, { weekday: 'long', day: '2-digit', month: 'long' })}
+                      </div>
+                      <div>
+                        {events
+                          .sort((a: any, b: any) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+                          .map((ev: any) => renderUpcomingEventRow(ev))}
+                      </div>
                     </div>
-                  </React.Fragment>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 0 }}>
+                  {grouped.map(([day, events]) => (
+                    <React.Fragment key={day}>
+                      <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>
+                        {new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}
+                      </div>
+                      <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                        {events
+                          .sort((a: any, b: any) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+                          .map((ev: any) => renderUpcomingEventRow(ev))}
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {showHistory && historyGrouped.length === 0 && (
@@ -433,25 +632,45 @@ export default function EventsPage() {
           )}
           {showHistory && historyGrouped.length > 0 && (
             <div className="card" style={{ padding: 0, overflow: 'hidden', background: isLight ? 'rgba(148,163,184,0.08)' : 'rgba(100,116,139,0.12)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 0 }}>
-                {historyGrouped.map(([day, events]) => (
-                  <React.Fragment key={day}>
-                    <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(148,163,184,0.18)', color: 'var(--text-muted)' }}>{new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}</div>
-                    <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(148,163,184,0.18)' }}>
-                      {events.sort((a: any, b: any) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime()).map((ev: any) => (
-                        <div key={ev.id} style={{ display: 'grid', gridTemplateColumns: '90px 1fr auto', alignItems: 'center', gap: 8, padding: '4px 12px', opacity: 0.75 }}>
-                          <div className="small" style={{ color: 'var(--text-muted)' }}>{new Date(ev.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                            <span className="small" style={{ background: 'rgba(148,163,184,0.2)', borderRadius: 999, padding: '2px 8px', display: 'inline-flex', alignItems: 'center' }}>{typeLabel(String(ev.type))}</span>
-                            <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</div>
-                          </div>
-                          <span className="small" style={{ color: 'var(--text-muted)' }}>Прошла</span>
-                        </div>
-                      ))}
+              {narrowLayout ? (
+                <div>
+                  {historyGrouped.map(([day, events]) => (
+                    <div key={day} style={{ borderBottom: '1px solid rgba(148,163,184,0.18)' }}>
+                      <div
+                        style={{
+                          padding: '8px 12px',
+                          background: isLight ? 'rgba(148,163,184,0.12)' : 'rgba(100,116,139,0.18)',
+                          color: 'var(--text-muted)',
+                          fontWeight: 700,
+                          fontSize: 13
+                        }}
+                      >
+                        {new Date(day).toLocaleDateString(undefined, { weekday: 'long', day: '2-digit', month: 'long' })}
+                      </div>
+                      <div>
+                        {events
+                          .sort((a: any, b: any) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime())
+                          .map((ev: any) => renderHistoryEventRow(ev))}
+                      </div>
                     </div>
-                  </React.Fragment>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 0 }}>
+                  {historyGrouped.map(([day, events]) => (
+                    <React.Fragment key={day}>
+                      <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(148,163,184,0.18)', color: 'var(--text-muted)' }}>
+                        {new Date(day).toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short' })}
+                      </div>
+                      <div style={{ padding: '6px 0', borderBottom: '1px solid rgba(148,163,184,0.18)' }}>
+                        {events
+                          .sort((a: any, b: any) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime())
+                          .map((ev: any) => renderHistoryEventRow(ev))}
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

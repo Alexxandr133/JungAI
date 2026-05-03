@@ -21,6 +21,10 @@ import {
   savePersonalityText
 } from '../../lib/psychologistAiPersonality';
 import { PsychologistAiPersonalityModal } from './PsychologistAiPersonalityModal';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_AI_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
+import { checkVerification } from '../../utils/verification';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -85,6 +89,7 @@ const EMOJI_CATEGORIES = [
 
 export default function PsychologistAIChat() {
   const { token, user } = useAuth();
+  const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -176,6 +181,14 @@ export default function PsychologistAIChat() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  useEffect(() => {
+    if (!token) {
+      setIsVerified(null);
+      return;
+    }
+    checkVerification(token).then((r) => setIsVerified(r.isVerified));
+  }, [token]);
+
   async function loadClients() {
     if (!token) return;
     setLoadingClients(true);
@@ -248,6 +261,14 @@ export default function PsychologistAIChat() {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showEmojiPicker]);
+
+  usePsychologistPlatformTour({
+    tourId: 'ai',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && user),
+    steps: PSYCHOLOGIST_AI_TOUR_STEPS
+  });
 
   async function loadChats() {
     if (!token) return;
@@ -675,6 +696,7 @@ export default function PsychologistAIChat() {
             temperature: aiSettings.temperature,
             responseStyle: aiSettings.responseStyle,
             dreamsContextRange: aiSettings.dreamsContextRange,
+            includeDreamsInContext: aiSettings.includeDreamsInContext,
             personalization: personalityText.trim()
           }
         }
@@ -746,6 +768,7 @@ export default function PsychologistAIChat() {
         )}
         {/* Sidebar */}
         <div
+          data-tour="ai-sidebar"
           style={{
             width: sidebarOpen ? (isMobileView ? '100%' : 280) : 0,
             background: 'var(--surface)',
@@ -1223,6 +1246,62 @@ export default function PsychologistAIChat() {
                 background: 'var(--surface-2)',
                 marginTop: 'auto'
               }}>
+                <div
+                  style={{
+                    marginBottom: 12,
+                    padding: '12px',
+                    background: 'var(--surface)',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,0.08)'
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: isMobileView ? 11 : 13,
+                      color: 'var(--text)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={aiSettings.includeDreamsInContext}
+                      onChange={e => {
+                        const next = normalizeSettings({
+                          ...aiSettings,
+                          includeDreamsInContext: e.target.checked
+                        });
+                        setAiSettings(next);
+                        savePsychologistAiSettings(next);
+                        setAiDraft(next);
+                      }}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        cursor: 'pointer',
+                        accentColor: 'var(--primary)'
+                      }}
+                    />
+                    <span>Работа со снами в контексте ИИ</span>
+                  </label>
+                  <div
+                    style={{
+                      fontSize: isMobileView ? 10 : 11,
+                      color: 'var(--text-muted)',
+                      paddingLeft: 30,
+                      marginTop: 6,
+                      lineHeight: 1.4
+                    }}
+                  >
+                    {aiSettings.includeDreamsInContext
+                      ? 'Тексты снов и вкладка «Сны» уходят в запрос, если модальность это допускает.'
+                      : 'Сны не передаются в модель и не используются в ответах.'}
+                  </div>
+                </div>
+
                 {/* Client selector - показываем только если режим работы с клиентами включен */}
                 {clientModeEnabled && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
@@ -1418,7 +1497,7 @@ export default function PsychologistAIChat() {
         )}
 
         {/* Main chat area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%', position: 'relative' }}>
+        <div data-tour="ai-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%', position: 'relative' }}>
           {/* Верхняя панель: заголовок + настройки ИИ */}
           <div
             style={{
@@ -1439,32 +1518,35 @@ export default function PsychologistAIChat() {
                 {MODALITY_OPTIONS.find(m => m.id === aiSettings.modality)?.label ?? aiSettings.modality}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setAiDraft(aiSettings);
-                setSettingsOpen(true);
-              }}
-              title="Настройки ИИ"
-              style={{
-                flexShrink: 0,
-                width: 40,
-                height: 40,
-                borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 0,
-                lineHeight: 0,
-                boxSizing: 'border-box'
-              }}
-            >
-              <PlatformIcon name="settings" size={20} strokeWidth={1.75} style={{ display: 'block', flexShrink: 0 }} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <PsychologistTourHelpButton tourId="ai" steps={PSYCHOLOGIST_AI_TOUR_STEPS} userId={user?.id} role={user?.role} />
+              <button
+                type="button"
+                onClick={() => {
+                  setAiDraft(aiSettings);
+                  setSettingsOpen(true);
+                }}
+                title="Настройки ИИ"
+                style={{
+                  flexShrink: 0,
+                  width: 40,
+                  height: 40,
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'var(--surface-2)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  lineHeight: 0,
+                  boxSizing: 'border-box'
+                }}
+              >
+                <PlatformIcon name="settings" size={20} strokeWidth={1.75} style={{ display: 'block', flexShrink: 0 }} />
+              </button>
+            </div>
           </div>
 
           <PsychologistAiPersonalityModal
@@ -1587,9 +1669,13 @@ export default function PsychologistAIChat() {
                 </div>
                 <h2 style={{ fontSize: isMobileView ? 20 : 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент психолога</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 13 : 16, lineHeight: 1.6, marginBottom: 32 }}>
-                  {clientModeEnabled 
-                    ? 'Задавайте вопросы о клиентах, их снах, заметках, сессиях. Я помогу вам с амплификациями, анализом символов, выявлением архетипических паттернов и интерпретацией снов пациентов.'
-                    : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я помогу вам как обобщенный ассистент психолога без доступа к данным конкретных клиентов.'
+                  {clientModeEnabled
+                    ? aiSettings.includeDreamsInContext
+                      ? 'Задавайте вопросы о клиентах, их снах, заметках, сессиях. Акценты задаёт выбранная модальность.'
+                      : 'Задавайте вопросы о клиентах, заметках, сессиях и документах. Сны в контекст не передаются — тумблер «работа со снами» выключен.'
+                    : aiSettings.includeDreamsInContext
+                      ? 'Задавайте общие вопросы по психологии и работе с клиентами. Я помогу как обобщённый ассистент без доступа к данным конкретных клиентов.'
+                      : 'Задавайте общие вопросы по психологии. Сны в запрос не включаются, пока не включите «работу со снами» в боковой панели.'
                   }
                 </p>
                 <button
@@ -1628,8 +1714,12 @@ export default function PsychologistAIChat() {
                         </h3>
                         <p style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 12 : 15, lineHeight: 1.6, marginBottom: 24 }}>
                           {clientModeEnabled
-                            ? 'Задавайте вопросы о клиентах, их снах, заметках и сессиях. Я помогу вам с анализом, интерпретацией и подготовкой к работе с пациентами.'
-                            : 'Задавайте общие вопросы по психологии, аналитической психологии, работе с клиентами, интерпретации снов и архетипам. Я работаю как обобщенный ассистент без доступа к данным конкретных клиентов.'
+                            ? aiSettings.includeDreamsInContext
+                              ? 'Задавайте вопросы о клиентах, снах, заметках и сессиях — в рамках выбранной модальности.'
+                              : 'Сны отключены в настройках: спрашивайте про заметки, сессии, документы и карточку клиента без сновиденческого материала.'
+                            : aiSettings.includeDreamsInContext
+                              ? 'Общие вопросы по психологии без доступа к данным клиентов.'
+                              : 'Общие вопросы по психологии. Сны в контекст запроса не входят, пока вы не включите «работу со снами».'
                           }
                         </p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
@@ -1656,6 +1746,7 @@ export default function PsychologistAIChat() {
                                 }}>
                                   "Дай сводку по клиенту..."
                                 </div>
+                                {aiSettings.includeDreamsInContext && (
                                 <div style={{ 
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 
@@ -1667,6 +1758,7 @@ export default function PsychologistAIChat() {
                                 }}>
                                   "Проанализируй последние сны..."
                                 </div>
+                                )}
                                 <div style={{ 
                                   padding: '10px 14px', 
                                   background: 'var(--surface-2)', 

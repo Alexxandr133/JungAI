@@ -4,6 +4,8 @@ import TotalClientsWidget from './widgets/TotalClientsWidget.tsx';
 import ActiveSessionsWidget from './widgets/ActiveSessionsWidget.tsx';
 import NewDreamsWidget from './widgets/NewDreamsWidget.tsx';
 import NewJournalEntriesWidget from './widgets/NewJournalEntriesWidget.tsx';
+import AttentionClientsWidget from './widgets/AttentionClientsWidget.tsx';
+import UnanalyzedDreamsWidget from './widgets/UnanalyzedDreamsWidget.tsx';
 import TopClientsWidget from './widgets/TopClientsWidget.tsx';
 import TopSymbolsWidget from './widgets/TopSymbolsWidget.tsx';
 import RequiresAttentionWidget from './widgets/RequiresAttentionWidget.tsx';
@@ -63,6 +65,10 @@ export default function WidgetRenderer({
         return <NewDreamsWidget {...commonProps} />;
       case 'newJournalEntries':
         return <NewJournalEntriesWidget {...commonProps} />;
+      case 'attentionClients':
+        return <AttentionClientsWidget {...commonProps} />;
+      case 'unanalyzedDreams':
+        return <UnanalyzedDreamsWidget {...commonProps} />;
       case 'topClients':
         return <TopClientsWidget {...commonProps} />;
       case 'topSymbols':
@@ -113,11 +119,11 @@ export default function WidgetRenderer({
   };
 
   // Определяем, кликабелен ли виджет
-  const isClickable = onClick && ['totalClients', 'activeSessions', 'newDreams', 'newJournalEntries', 'topClients', 'topSymbols', 'requiresAttention', 'sessionsCalendar', 'dreamsStats'].includes(widget.type);
+  const isClickable = onClick && ['totalClients', 'activeSessions', 'newDreams', 'newJournalEntries', 'attentionClients', 'unanalyzedDreams', 'topClients', 'topSymbols', 'requiresAttention', 'sessionsCalendar', 'dreamsStats'].includes(widget.type);
 
 
   return (
-    <div
+      <div
       ref={widgetRef}
       className="card"
       draggable={!!onDragStart}
@@ -162,7 +168,10 @@ export default function WidgetRenderer({
         opacity: isDragged ? 0.5 : 1,
         transform: isDragOver ? 'scale(1.02)' : 'none',
         transition: isDragged ? 'none' : 'transform 0.2s, opacity 0.2s, box-shadow 0.2s',
-        border: isDragOver ? '2px solid var(--primary)' : 'none',
+        border: isDragOver ? '2px solid var(--primary)' : '1px solid rgba(148,163,184,0.4)',
+        borderRadius: 14,
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',
+        boxShadow: isDragOver ? '0 0 0 3px rgba(59,130,246,0.18)' : '0 8px 24px rgba(2, 6, 23, 0.18)',
         ...getGridStyle()
       }}
       onMouseEnter={() => {
@@ -178,6 +187,8 @@ export default function WidgetRenderer({
         }
       }}
     >
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 14, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }} />
+
       {/* Drag handle */}
       <div
         data-widget-control

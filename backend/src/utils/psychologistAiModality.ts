@@ -21,6 +21,8 @@ export type PsychologistAiModalityId = (typeof PSYCHOLOGIST_AI_MODALITIES)[numbe
 type ModalityPolicy = {
   allowDreams: boolean;
   allowSynchronicities: boolean;
+  /** Юнгианская архетипика, КБ, анима/тень и т.п. — для КПТ и др. должно быть false */
+  allowArchetypeAndJungianTerms: boolean;
   focus: string[];
   doNotUse: string[];
 };
@@ -29,78 +31,91 @@ const MODALITY_POLICY: Record<PsychologistAiModalityId, ModalityPolicy> = {
   jungian_analytical: {
     allowDreams: true,
     allowSynchronicities: true,
+    allowArchetypeAndJungianTerms: true,
     focus: ['архетипы', 'символы', 'амплификация', 'компенсация', 'индивидуация'],
     doNotUse: []
   },
   psychoanalysis: {
     allowDreams: true,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['бессознательные конфликты', 'защиты', 'перенос/контрперенос', 'сопротивление'],
     doNotUse: ['юнгианские архетипы', 'синхронии как диагностический материал']
   },
   existential: {
     allowDreams: false,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['смысл', 'выбор', 'ответственность', 'экзистенциальная тревога', 'ценности'],
     doNotUse: ['интерпретация снов', 'архетипическая символика', 'метафизические объяснения']
   },
   transpersonal: {
     allowDreams: true,
     allowSynchronicities: true,
+    allowArchetypeAndJungianTerms: true,
     focus: ['интеграция духовного опыта', 'кризисы развития', 'ресурсные практики осознанности'],
     doNotUse: ['жесткие патологизирующие выводы без достаточных данных']
   },
   transactional_analysis: {
     allowDreams: false,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['состояния Я', 'транзакции', 'игры', 'сценарии', 'контракт'],
     doNotUse: ['интерпретация снов', 'архетипическая интерпретация']
   },
   symbol_drama: {
     allowDreams: true,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: true,
     focus: ['образы', 'мотивы', 'динамика воображения', 'эмоциональные реакции'],
     doNotUse: ['синхронии как фактологические доказательства']
   },
   systemic_family: {
     allowDreams: false,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['паттерны взаимодействия', 'границы', 'правила системы', 'циркулярные гипотезы'],
     doNotUse: ['интерпретация снов как центральный инструмент']
   },
   psychosynthesis: {
     allowDreams: false,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['субличности', 'воля', 'дезидентификация', 'интеграция частей'],
     doNotUse: ['юнгианская архетипизация как основной метод']
   },
   religious_oriented: {
     allowDreams: false,
     allowSynchronicities: true,
+    allowArchetypeAndJungianTerms: false,
     focus: ['религиозные ценности', 'этика', 'поддерживающие смыслы'],
     doNotUse: ['психологические выводы, противоречащие выбранной конфессиональной рамке']
   },
   cbt: {
     allowDreams: false,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['автоматические мысли', 'убеждения', 'искажения', 'поведенческие эксперименты', 'домашние задания'],
     doNotUse: ['юнгианство', 'архетипы', 'интерпретация снов', 'синхронии']
   },
   spiritual_oriented: {
     allowDreams: false,
     allowSynchronicities: true,
+    allowArchetypeAndJungianTerms: false,
     focus: ['духовные ценности', 'смыслы', 'осознанность', 'ресурсы'],
     doNotUse: ['догматичные интерпретации переживаний']
   },
   art_therapy: {
     allowDreams: true,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: true,
     focus: ['образное выражение', 'проективные техники', 'символика творчества'],
     doNotUse: ['синхронии как диагностическое ядро']
   },
   gestalt: {
     allowDreams: true,
     allowSynchronicities: false,
+    allowArchetypeAndJungianTerms: false,
     focus: ['здесь-и-сейчас', 'контакт', 'прерывания контакта', 'эксперимент'],
     doNotUse: ['длинные каузальные интерпретации без феноменологического основания']
   }
@@ -208,15 +223,27 @@ const CLIENT_INTRO: Record<PsychologistAiModalityId, string> = {
   gestalt: `Ты — ассистент психолога в гештальт-подходе. Помогай замечать процессы контакта, фигуру-фон, прерывания контакта, эксперименты «здесь и сейчас» — опираясь на данные ниже.`
 };
 
-const CLIENT_SUFFIX = `
+const CLIENT_SUFFIX_WITH_DREAMS = `
 
 Ты имеешь доступ к:
-1. Базе данных снов пациентов
+1. Базе данных снов пациентов (тексты за выбранный период, если модальность допускает сны и включена настройка «работа со снами»)
 2. Базе данных клиентов психолога
 3. Рабочей области: заметкам о клиентах и сессиям терапии
 4. Документам рабочей области: записям о пациентах. Стандартные вкладки: ведение клиента, запрос, анамнез, ценности/кредо, раздражители, сны, записи, Дневник клиента, Синхронии. Также могут быть кастомные вкладки, созданные психологом для конкретного клиента.
 
 Можешь отвечать на вопросы о клиентах, их снах, заметках, сессиях, документах рабочей области, анализировать паттерны и предлагать гипотезы в выбранной модальности.
+
+Отвечай на русском языке, профессионально, но доступно.`;
+
+const CLIENT_SUFFIX_NO_DREAMS = `
+
+Ты имеешь доступ к:
+1. (Сны: в этот запрос данные снов НЕ передаются — у психолога выключена настройка «работа со снами».) Не обсуждай сны, не интерпретируй их и не выдумывай содержание сновидений. Если психолог спросит про сны — поясни, что в текущем режиме сновиденческий материал в контекст не включён.
+2. Базе данных клиентов психолога
+3. Рабочей области: заметкам о клиентах и сессиям терапии
+4. Документам рабочей области (вкладка «Сны» при выключенной настройке в контекст не подставляется).
+
+Можешь отвечать на вопросы о клиентах, заметках, сессиях и документах — в рамках выбранной модальности, без опоры на сновиденческий материал в этом режиме.
 
 Отвечай на русском языке, профессионально, но доступно.`;
 
@@ -231,8 +258,25 @@ export function buildGeneralModalityPrompt(modality: PsychologistAiModalityId): 
   return `${base}\n\n${modalityBoundaries(modality)}`;
 }
 
-export function buildClientModalityPrompt(modality: PsychologistAiModalityId): string {
-  return `${CLIENT_INTRO[modality] ?? CLIENT_INTRO.jungian_analytical}${CLIENT_SUFFIX}\n\n${modalityBoundaries(modality)}`;
+export type BuildClientModalityPromptOptions = {
+  /** false — данные снов не передаются; промпт запрещает обсуждать сны */
+  includeDreamsInContext?: boolean;
+};
+
+export function buildClientModalityPrompt(
+  modality: PsychologistAiModalityId,
+  opts?: BuildClientModalityPromptOptions
+): string {
+  const includeDreams = opts?.includeDreamsInContext !== false;
+  const suffix = includeDreams ? CLIENT_SUFFIX_WITH_DREAMS : CLIENT_SUFFIX_NO_DREAMS;
+  return `${CLIENT_INTRO[modality] ?? CLIENT_INTRO.jungian_analytical}${suffix}\n\n${modalityBoundaries(modality)}`;
+}
+
+/** Усиливает запрет юнгианской лексики для модальностей вроде КПТ, экзистенциальной и т.д. */
+export function appendArchetypeLanguageGuard(modality: PsychologistAiModalityId, systemPrompt: string): string {
+  const p = getModalityPolicy(modality);
+  if (p.allowArchetypeAndJungianTerms) return systemPrompt;
+  return `${systemPrompt}\n\nЯзык ответа: не используй юнгианскую аналитическую терминологию (архетип, анима/анимус, тень, самость, коллективное бессознательное, амплификация в смысле Юнга, индивидуация как у Юнга), если психолог явно не просит об этом. Опирайся на фокус выбранной модальности и профессиональную лексику этого подхода.`;
 }
 
 export function getModalityPolicy(modality: PsychologistAiModalityId): ModalityPolicy {

@@ -139,15 +139,17 @@ export default function ClientProfile() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <ClientNavbar />
       <main
+        className="client-profile-main"
         style={{
           flex: 1,
           padding: '24px clamp(16px, 5vw, 48px)',
           maxWidth: '100%',
-          overflowX: 'hidden'
+          overflowX: 'hidden',
+          boxSizing: 'border-box'
         }}
       >
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Профиль</h1>
+        <div style={{ marginBottom: 24 }} className="client-profile-header">
+          <h1 className="client-profile-page-title" style={{ margin: 0, fontSize: 'clamp(22px, 5vw, 32px)', fontWeight: 800, marginBottom: 8 }}>Профиль</h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>Управление личной информацией</div>
         </div>
 
@@ -163,17 +165,21 @@ export default function ClientProfile() {
           </div>
         )}
 
-        {/* Main content: Two-column layout */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 320px) 1fr', gap: 32, alignItems: 'flex-start', marginBottom: 32 }}>
-          {/* Left column: Avatar */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, position: 'sticky', top: 100 }}>
-            <div className="card" style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+        {/* Main content: desktop — две колонки; мобилка — одна колонка */}
+        <div
+          className="client-profile-grid"
+          style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 320px) 1fr', gap: 32, alignItems: 'flex-start', marginBottom: 32 }}
+        >
+          {/* Колонка аватара */}
+          <div className="client-profile-avatar-col" style={{ display: 'flex', flexDirection: 'column', gap: 24, position: 'sticky', top: 100 }}>
+            <div className="card client-profile-avatar-card" style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
               {/* Avatar */}
               <div style={{ marginBottom: 20, position: 'relative' }}>
                 {getAvatarUrl(avatarUrl) ? (
                   <img
                     src={getAvatarUrl(avatarUrl) || ''}
                     alt={name || 'Аватар'}
+                    className="client-profile-avatar-img"
                     style={{
                       width: 160,
                       height: 160,
@@ -196,7 +202,9 @@ export default function ClientProfile() {
                     }}
                   />
                 ) : (
-                  <div style={{
+                  <div
+                    className="client-profile-avatar-fallback"
+                    style={{
                     width: 160,
                     height: 160,
                     borderRadius: '50%',
@@ -211,7 +219,7 @@ export default function ClientProfile() {
                   }}>
                     {(name || '?').trim().charAt(0).toUpperCase()}
                   </div>
-                )}
+                  )}
               </div>
 
               {/* Avatar upload button */}
@@ -252,13 +260,15 @@ export default function ClientProfile() {
           {/* Right column: Form */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             {/* Основная информация */}
-            <div className="card" style={{ padding: 32 }}>
-              <h2 style={{ margin: 0, marginBottom: 24, fontSize: 22, fontWeight: 700 }}>Основная информация</h2>
-              <div className="card" style={{ padding: 14, marginBottom: 20, background: 'var(--surface-2)' }}>
+            <div className="card client-profile-form-card" style={{ padding: 32 }}>
+              <h2 className="client-profile-section-title" style={{ margin: 0, marginBottom: 24, fontSize: 'clamp(18px, 4vw, 22px)', fontWeight: 700 }}>Основная информация</h2>
+              <div className="card client-profile-email-card" style={{ padding: 14, marginBottom: 20, background: 'var(--surface-2)' }}>
                 <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>Email аккаунта</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <strong>{user?.email || '—'}</strong>
-                  <EmailChangeFlow />
+                <div className="client-profile-email-row">
+                  <strong style={{ wordBreak: 'break-word' }}>{user?.email || '—'}</strong>
+                  <div className="client-profile-email-actions">
+                    <EmailChangeFlow />
+                  </div>
                 </div>
               </div>
               <form onSubmit={saveProfile} style={{ display: 'grid', gap: 20 }}>
@@ -273,7 +283,7 @@ export default function ClientProfile() {
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="client-profile-form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   <div>
                     <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Возраст</label>
                     <input
@@ -319,7 +329,7 @@ export default function ClientProfile() {
                   />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 8 }}>
+                <div className="client-profile-actions" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
                   <button 
                     className="button danger" 
                     onClick={() => setShowDeleteModal(true)}
@@ -395,6 +405,61 @@ export default function ClientProfile() {
             </div>
           </div>
         )}
+
+      <style>{`
+        .client-profile-email-row {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+        }
+        @media (max-width: 768px) {
+          .client-profile-main {
+            padding: 16px 14px 28px !important;
+          }
+          .client-profile-grid {
+            grid-template-columns: 1fr !important;
+            gap: 20px !important;
+          }
+          .client-profile-avatar-col {
+            position: static !important;
+            top: auto !important;
+          }
+          .client-profile-avatar-card {
+            padding: 18px 16px !important;
+          }
+          .client-profile-form-card {
+            padding: 20px 16px !important;
+          }
+          .client-profile-avatar-img,
+          .client-profile-avatar-fallback {
+            width: 128px !important;
+            height: 128px !important;
+          }
+          .client-profile-avatar-fallback {
+            font-size: 40px !important;
+          }
+          .client-profile-form-row {
+            grid-template-columns: 1fr !important;
+          }
+          .client-profile-email-row {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          .client-profile-email-actions button {
+            width: 100%;
+          }
+          .client-profile-actions {
+            flex-direction: column-reverse;
+            align-items: stretch;
+          }
+          .client-profile-actions .button {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+      `}</style>
       </main>
     </div>
   );

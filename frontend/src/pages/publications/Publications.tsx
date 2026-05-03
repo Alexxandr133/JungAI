@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlignCenter, AlignLeft, AlignRight, List, ListOrdered, Redo2, Undo2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { useIsNarrowViewport } from '../../hooks/useIsNarrowViewport';
+import { api, resolvePublicFileUrl } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
 import { PlatformIcon } from '../../components/icons';
 import { PostModal } from './PostModal';
@@ -83,6 +84,7 @@ function sanitizePastedRichHtml(html: string): string {
 export default function PublicationsPage() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
+  const narrow = useIsNarrowViewport();
   const isCreator = canCreate(user?.role);
 
   const [communities, setCommunities] = useState<Community[]>([]);
@@ -102,6 +104,7 @@ export default function PublicationsPage() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [commentsOnlyPostId, setCommentsOnlyPostId] = useState<string | null>(null);
   const [fontSizePx, setFontSizePx] = useState(16);
   const [textColor, setTextColor] = useState('#1f2937');
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -343,9 +346,16 @@ export default function PublicationsPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
-      <main style={{ flex: 1, padding: '24px clamp(16px, 4vw, 42px)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '300px minmax(0, 1fr)', gap: 16 }}>
-          <aside className="card" style={{ padding: 16, alignSelf: 'start' }}>
+      <main style={{ flex: 1, padding: narrow ? '16px 12px' : '24px clamp(16px, 4vw, 42px)', overflowX: 'hidden' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(260px, 300px) minmax(0, 1fr)',
+            gap: narrow ? 18 : 16,
+            alignItems: 'start'
+          }}
+        >
+          <aside className="card" style={{ padding: narrow ? 14 : 16, alignSelf: 'start', width: '100%', minWidth: 0 }}>
             <div style={{ fontWeight: 800, marginBottom: 8 }}>Мой профиль</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 14 }}>
               <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'grid', placeItems: 'center', fontWeight: 700 }}>
@@ -379,7 +389,7 @@ export default function PublicationsPage() {
                 </div>
               </div>
             )}
-            <div style={{ display: 'grid', gap: 10, maxHeight: '65vh', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gap: 10, maxHeight: narrow ? undefined : '65vh', overflowY: narrow ? undefined : 'auto' }}>
               {communities.map((community) => (
                 <div
                   key={community.id}
@@ -404,8 +414,8 @@ export default function PublicationsPage() {
                         placeItems: 'center'
                       }}
                     >
-                      {community.avatarUrl ? (
-                        <img src={community.avatarUrl} alt={community.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {resolvePublicFileUrl(community.avatarUrl) ? (
+                        <img src={resolvePublicFileUrl(community.avatarUrl) || ''} alt={community.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
                         <PlatformIcon name="users" size={16} strokeWidth={2} />
                       )}
@@ -422,11 +432,11 @@ export default function PublicationsPage() {
             </div>
           </aside>
 
-          <section>
-            <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+          <section style={{ minWidth: 0, width: '100%' }}>
+            <div className="card" style={{ padding: narrow ? 14 : 18, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <h1 style={{ margin: 0, fontSize: 28 }}>Публикации</h1>
+                <div style={{ minWidth: 0 }}>
+                  <h1 style={{ margin: 0, fontSize: narrow ? 22 : 28, lineHeight: 1.2 }}>Публикации</h1>
                   <div className="small" style={{ color: 'var(--text-muted)', marginTop: 6 }}>
                     Ваши публикации, комментарии и реакции
                   </div>
@@ -467,18 +477,19 @@ export default function PublicationsPage() {
                 <div
                   style={{
                     border: '1px solid rgba(148,163,184,0.28)',
-                    borderRadius: 12,
-                    background: 'linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
-                    padding: 10,
-                    display: 'grid',
-                    gap: 8
+                    borderRadius: 10,
+                    background: 'linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+                    padding: narrow ? 8 : 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6
                   }}
                 >
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
                     <select
                       value={fontSizePx}
                       onChange={(e) => applyFontSize(Number(e.target.value))}
-                      style={{ ...fieldStyle, width: 110, padding: '8px 10px', borderRadius: 10 }}
+                      style={{ ...fieldStyle, width: narrow ? 76 : 100, padding: narrow ? '4px 8px' : '8px 10px', borderRadius: 8, fontSize: 12 }}
                       title="Размер текста"
                     >
                       {[12, 14, 16, 18, 20, 24, 28, 32].map((size) => (
@@ -490,41 +501,45 @@ export default function PublicationsPage() {
                       value={textColor}
                       onChange={(e) => applyTextColor(e.target.value)}
                       title="Цвет текста"
-                      style={{ width: 40, height: 36, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                      style={{ width: narrow ? 28 : 34, height: narrow ? 28 : 32, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
                     />
-                    <button className="button secondary" type="button" onClick={() => applyHeading('p')}>P</button>
-                    <button className="button secondary" type="button" onClick={() => applyHeading('h2')}>H2</button>
-                    <button className="button secondary" type="button" onClick={() => applyHeading('h3')}>H3</button>
-                    <button className="button secondary" type="button" onClick={() => applyHeading('blockquote')}>Цитата</button>
-                    <button className="button secondary" type="button" onClick={insertLink}>Ссылка</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('p')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8 }}>P</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('h2')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8 }}>H2</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('h3')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8 }}>H3</button>
+                    <button className="button secondary" type="button" onClick={() => applyHeading('blockquote')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8 }}>«»</button>
+                    <button className="button secondary" type="button" onClick={insertLink} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8 }} title="Ссылка">
+                      URL
+                    </button>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('bold')}><b>B</b></button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('italic')}><i>I</i></button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('underline')}><u>U</u></button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('strikeThrough')}><s>S</s></button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertUnorderedList')} title="Маркированный список" aria-label="Маркированный список">
-                      <List size={16} strokeWidth={2} />
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('bold')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8, minWidth: 28 }} title="Жирный"><b>B</b></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('italic')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8, minWidth: 28 }} title="Курсив"><i>I</i></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('underline')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8, minWidth: 28 }} title="Подчёркивание"><u>U</u></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('strikeThrough')} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8, minWidth: 28 }} title="Зачёркнутый"><s>S</s></button>
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertUnorderedList')} title="Маркированный список" aria-label="Маркированный список" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <List size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertOrderedList')} title="Нумерованный список" aria-label="Нумерованный список">
-                      <ListOrdered size={16} strokeWidth={2} />
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('insertOrderedList')} title="Нумерованный список" aria-label="Нумерованный список" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <ListOrdered size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyLeft')} title="Выровнять по левому краю" aria-label="Выровнять по левому краю">
-                      <AlignLeft size={16} strokeWidth={2} />
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyLeft')} title="Влево" aria-label="Выровнять по левому краю" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <AlignLeft size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyCenter')} title="Выровнять по центру" aria-label="Выровнять по центру">
-                      <AlignCenter size={16} strokeWidth={2} />
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyCenter')} title="По центру" aria-label="Выровнять по центру" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <AlignCenter size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyRight')} title="Выровнять по правому краю" aria-label="Выровнять по правому краю">
-                      <AlignRight size={16} strokeWidth={2} />
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('justifyRight')} title="Вправо" aria-label="Выровнять по правому краю" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <AlignRight size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('undo')} title="Отменить" aria-label="Отменить">
-                      <Undo2 size={16} strokeWidth={2} />
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('undo')} title="Отменить" aria-label="Отменить" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <Undo2 size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('redo')} title="Повторить" aria-label="Повторить">
-                      <Redo2 size={16} strokeWidth={2} />
+                    <button className="button secondary" type="button" onClick={() => applyEditorCommand('redo')} title="Повторить" aria-label="Повторить" style={{ padding: '4px 8px', minHeight: 28, borderRadius: 8 }}>
+                      <Redo2 size={narrow ? 14 : 15} strokeWidth={2} />
                     </button>
-                    <button className="button secondary" type="button" onClick={clearFormatting}>Очистить формат</button>
+                    <button className="button secondary" type="button" onClick={clearFormatting} style={{ padding: '4px 8px', fontSize: 11, minHeight: 28, borderRadius: 8 }} title="Очистить формат">
+                      Сброс
+                    </button>
                   </div>
                 </div>
                 <div
@@ -571,12 +586,28 @@ export default function PublicationsPage() {
                 <article
                   key={post.id}
                   className="card"
-                  style={{ padding: 16, cursor: 'pointer', overflow: 'hidden' }}
-                  onClick={() => setSelectedPostId(post.id)}
+                  style={{ padding: 16, cursor: narrow ? 'default' : 'pointer', overflow: 'hidden' }}
+                  onClick={narrow ? undefined : () => setSelectedPostId(post.id)}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      marginBottom: 8,
+                      minWidth: 0,
+                      flexDirection: narrow ? 'column' : 'row',
+                      alignItems: narrow ? 'stretch' : 'flex-start'
+                    }}
+                  >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700 }}>{post.title}</div>
+                      {narrow ? (
+                        <Link to={`/publications/post/${post.id}`} style={{ color: 'inherit', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ fontWeight: 700 }}>{post.title}</div>
+                        </Link>
+                      ) : (
+                        <div style={{ fontWeight: 700 }}>{post.title}</div>
+                      )}
                       <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                         {post.authorMode === 'community' && post.community
                           ? `${post.community.name} (сообщество)`
@@ -589,7 +620,14 @@ export default function PublicationsPage() {
                     {post.community?.slug && (
                       <button
                         className="button secondary"
-                        style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}
+                        style={{
+                          maxWidth: narrow ? '100%' : 220,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flexShrink: narrow ? undefined : 0,
+                          alignSelf: narrow ? 'stretch' : undefined
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/publications/community/${post.community?.slug}`);
@@ -601,7 +639,7 @@ export default function PublicationsPage() {
                   </div>
                   {post.imageUrl && (
                     <div style={{ borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
-                      <img src={post.imageUrl} alt={post.title} style={{ width: '100%', maxHeight: 340, objectFit: 'cover' }} />
+                      <img src={resolvePublicFileUrl(post.imageUrl) || post.imageUrl || ''} alt={post.title} style={{ width: '100%', maxHeight: 340, objectFit: 'cover' }} />
                     </div>
                   )}
                   {editingPostId === post.id ? (
@@ -621,8 +659,35 @@ export default function PublicationsPage() {
                   ) : (
                     <div style={{ lineHeight: 1.6, marginBottom: 12, direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext', maxWidth: '100%', overflowWrap: 'anywhere', wordBreak: 'break-word' }} dangerouslySetInnerHTML={{ __html: post.content }} />
                   )}
-                  <div className="small" style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <PlatformIcon name="message" size={14} strokeWidth={2} /> {post.commentsCount} комментариев • Открыть статью
+                  <div className="small" style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (narrow) setCommentsOnlyPostId(post.id);
+                        else setSelectedPostId(post.id);
+                      }}
+                      style={{
+                        border: 'none',
+                        background: 'transparent',
+                        cursor: 'pointer',
+                        color: 'inherit',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: 0,
+                        font: 'inherit'
+                      }}
+                    >
+                      <PlatformIcon name="message" size={14} strokeWidth={2} /> {post.commentsCount} комментариев
+                      {!narrow && ' • Открыть статью'}
+                    </button>
+                    {narrow && (
+                      <Link to={`/publications/post/${post.id}`} className="small" style={{ color: 'var(--primary)' }} onClick={(e) => e.stopPropagation()}>
+                        Читать полностью
+                      </Link>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
                     {editingPostId === post.id ? (
@@ -709,6 +774,9 @@ export default function PublicationsPage() {
         </div>
       )}
       {selectedPostId && <PostModal postId={selectedPostId} onClose={() => setSelectedPostId(null)} />}
+      {commentsOnlyPostId && (
+        <PostModal postId={commentsOnlyPostId} variant="commentsOnly" onClose={() => setCommentsOnlyPostId(null)} />
+      )}
     </div>
   );
 }

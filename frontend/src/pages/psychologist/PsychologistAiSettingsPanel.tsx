@@ -106,6 +106,43 @@ export function PsychologistAiSettingsPanel({
             </p>
           </div>
 
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'var(--surface-2)'
+            }}
+          >
+            <label
+              style={{
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                color: 'var(--text)'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={draft.includeDreamsInContext}
+                onChange={e =>
+                  setDraft(d => ({
+                    ...d,
+                    includeDreamsInContext: e.target.checked
+                  }))
+                }
+                style={{ width: 18, height: 18, accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }}
+              />
+              Работа со снами в контексте ИИ
+            </label>
+            <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
+              Выключите, чтобы сны и вкладка «Сны» не попадали в запрос к модели.
+            </p>
+          </div>
+
           <div>
             <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
               Температура (креативность): {draft.temperature.toFixed(2)}
@@ -125,12 +162,13 @@ export function PsychologistAiSettingsPanel({
             </div>
           </div>
 
-          <div>
+          <div style={{ opacity: draft.includeDreamsInContext ? 1 : 0.55 }}>
             <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
-              Сны в контексте ИИ
+              Сны в контексте ИИ — период
             </label>
             <select
               value={draft.dreamsContextRange}
+              disabled={!draft.includeDreamsInContext}
               onChange={e =>
                 setDraft(d => ({
                   ...d,
@@ -152,7 +190,12 @@ export function PsychologistAiSettingsPanel({
               <option value="365d">Последний год</option>
               <option value="all">Все сны за всё время</option>
             </select>
-            {draft.dreamsContextRange !== '30d' && (
+            {!draft.includeDreamsInContext && (
+              <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', marginBottom: 0 }}>
+                Включите «Работа со снами», чтобы передавать тексты снов в модель.
+              </p>
+            )}
+            {draft.includeDreamsInContext && draft.dreamsContextRange !== '30d' && (
               <div
                 style={{
                   marginTop: 10,
@@ -189,9 +232,11 @@ export function PsychologistAiSettingsPanel({
                 </span>
               </div>
             )}
-            <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
-              В режиме клиента в контекст подставляются сны за выбранный период (полный текст), по дате записи.
-            </p>
+            {draft.includeDreamsInContext && (
+              <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
+                В режиме клиента в контекст подставляются сны за выбранный период (полный текст), по дате записи.
+              </p>
+            )}
           </div>
 
           <div>

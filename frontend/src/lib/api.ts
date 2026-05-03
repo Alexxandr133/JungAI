@@ -13,6 +13,21 @@ export function getApiBaseUrl(): string {
   return baseOrigin.replace(/\/$/, '');
 }
 
+/**
+ * Полный URL для файлов с API (аватарки, загрузки), когда бэкенд отдаёт путь вида `/uploads/...`.
+ * Без этого браузер запрашивает файл с origin фронтенда и картинка не находится.
+ */
+export function resolvePublicFileUrl(url: string | null | undefined): string | null {
+  if (url == null || typeof url !== 'string') return null;
+  const t = url.trim();
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) return t;
+  if (t.startsWith('data:') || t.startsWith('blob:')) return t;
+  const base = getApiBaseUrl().replace(/\/$/, '');
+  const path = t.startsWith('/') ? t : `/${t}`;
+  return `${base}${path}`;
+}
+
 export async function api<T = unknown>(path: string, options: { method?: HttpMethod; token?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const env = (import.meta as any).env || {};
   let baseOrigin: string = env.VITE_API_ORIGIN || env.VITE_API_URL || '';

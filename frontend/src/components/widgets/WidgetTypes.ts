@@ -5,6 +5,8 @@ export type WidgetType =
   | 'activeSessions'
   | 'newDreams'
   | 'newJournalEntries'
+  | 'attentionClients'
+  | 'unanalyzedDreams'
   | 'topClients'
   | 'topSymbols'
   | 'requiresAttention'
@@ -72,6 +74,26 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     title: 'Записи в дневниках',
     icon: 'clipboard',
     description: 'Новые записи в дневниках клиентов',
+    defaultSize: 'small',
+    minSize: 'small',
+    maxSize: 'small'
+  },
+  attentionClients: {
+    id: 'attentionClients',
+    type: 'attentionClients',
+    title: 'Клиенты без сессий',
+    icon: 'alertTriangle',
+    description: 'Клиенты, которым нужно назначить сессию',
+    defaultSize: 'small',
+    minSize: 'small',
+    maxSize: 'small'
+  },
+  unanalyzedDreams: {
+    id: 'unanalyzedDreams',
+    type: 'unanalyzedDreams',
+    title: 'Сны без анализа',
+    icon: 'moon',
+    description: 'Новые сны, требующие вашего разбора',
     defaultSize: 'small',
     minSize: 'small',
     maxSize: 'small'

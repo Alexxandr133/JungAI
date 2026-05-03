@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { useIsNarrowViewport } from '../../hooks/useIsNarrowViewport';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { api, resolvePublicFileUrl } from '../../lib/api';
 import { PostModal } from './PostModal';
 
 type Community = {
@@ -32,6 +33,7 @@ export default function CommunityView() {
   const { slug = '' } = useParams();
   const { token, user } = useAuth();
   const navigate = useNavigate();
+  const narrow = useIsNarrowViewport();
   const [community, setCommunity] = useState<Community | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
@@ -124,19 +126,21 @@ export default function CommunityView() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
-      <main style={{ padding: '24px clamp(16px, 4vw, 42px)', flex: 1 }}>
+      <main style={{ padding: narrow ? '16px 12px' : '24px clamp(16px, 4vw, 42px)', flex: 1, overflowX: 'hidden' }}>
         <div className="card" style={{ padding: 0, marginBottom: 14, overflow: 'hidden' }}>
           <div
             style={{
               height: 160,
-              backgroundImage: community?.coverUrl ? `url(${community.coverUrl})` : 'linear-gradient(135deg, rgba(124,58,237,0.4), rgba(59,130,246,0.4))',
+              backgroundImage: community?.coverUrl
+                ? `url(${resolvePublicFileUrl(community.coverUrl) || community.coverUrl})`
+                : 'linear-gradient(135deg, rgba(124,58,237,0.4), rgba(59,130,246,0.4))',
               backgroundSize: 'cover',
               backgroundPosition: 'center'
             }}
           />
-          <div style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: 12 }}>
-            <div>
+          <div style={{ padding: narrow ? 14 : 18 }}>
+          <div style={{ display: 'flex', alignItems: 'start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0, flex: '1 1 240px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                 <div
                   style={{
@@ -149,14 +153,14 @@ export default function CommunityView() {
                     background: 'rgba(255,255,255,0.1)'
                   }}
                 >
-                  {community?.avatarUrl ? (
-                    <img src={community.avatarUrl} alt={community.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {resolvePublicFileUrl(community?.avatarUrl) ? (
+                    <img src={resolvePublicFileUrl(community?.avatarUrl) || ''} alt={community.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   ) : (
                     <span style={{ fontWeight: 700 }}>{(community?.name || 'C').slice(0, 1)}</span>
                   )}
                 </div>
               </div>
-              <h1 style={{ margin: 0 }}>{community?.name || 'Сообщество'}</h1>
+              <h1 style={{ margin: 0, fontSize: narrow ? 22 : undefined, lineHeight: 1.2 }}>{community?.name || 'Сообщество'}</h1>
               <div className="small" style={{ color: 'var(--text-muted)', marginTop: 6 }}>
                 {community?.description || 'Описание сообщества'}
               </div>
@@ -166,7 +170,7 @@ export default function CommunityView() {
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: narrow ? 'flex-start' : 'flex-end', flex: narrow ? '1 1 100%' : undefined }}>
               <Link className="button secondary" to="/feed">Назад в ленту</Link>
               <button className="button secondary" onClick={toggleSubscription}>
                 {community?.isSubscribed ? 'Отписаться' : 'Подписаться'}
@@ -179,15 +183,22 @@ export default function CommunityView() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: 12 }}>
-          <aside className="card" style={{ padding: 12, alignSelf: 'start' }}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(260px, 320px) minmax(0, 1fr)',
+            gap: 12,
+            alignItems: 'start'
+          }}
+        >
+          <aside className="card" style={{ padding: 12, alignSelf: 'start', order: narrow ? 1 : undefined, width: '100%', minWidth: 0 }}>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Подписчики</div>
             <div style={{ display: 'grid', gap: 8 }}>
               {(showAllMembers ? members : members.slice(0, 12)).map((item) => (
                 <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.08)', display: 'grid', placeItems: 'center' }}>
-                    {item.user?.avatarUrl ? (
-                      <img src={item.user.avatarUrl} alt={item.user?.name || item.user?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    {resolvePublicFileUrl(item.user?.avatarUrl) ? (
+                      <img src={resolvePublicFileUrl(item.user?.avatarUrl) || ''} alt={item.user?.name || item.user?.email || 'U'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                       <span style={{ fontSize: 12 }}>{(item.user?.name || item.user?.email || 'U').slice(0, 1).toUpperCase()}</span>
                     )}
@@ -206,19 +217,30 @@ export default function CommunityView() {
             </div>
           </aside>
 
-          <section>
+          <section style={{ order: narrow ? -1 : undefined, minWidth: 0, width: '100%' }}>
             {loading && <div className="small">Загрузка...</div>}
             {error && <div className="card" style={{ padding: 12, color: '#ef4444' }}>{error}</div>}
             <div style={{ display: 'grid', gap: 10 }}>
           {posts.map((post) => (
-            <article key={post.id} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => setSelectedPostId(post.id)}>
-              <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{post.title}</div>
+            <article
+              key={post.id}
+              className="card"
+              style={{ padding: 14, cursor: narrow ? 'default' : 'pointer' }}
+              onClick={narrow ? undefined : () => setSelectedPostId(post.id)}
+            >
+              {narrow ? (
+                <Link to={`/publications/post/${post.id}`} style={{ color: 'inherit', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>
+                  <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{post.title}</div>
+                </Link>
+              ) : (
+                <div style={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{post.title}</div>
+              )}
               <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
                 {(post.author?.name || post.author?.email || 'Автор')} • {post.author?.role || 'user'}
               </div>
               {post.imageUrl && (
                 <div style={{ marginTop: 10, borderRadius: 10, overflow: 'hidden' }}>
-                  <img src={post.imageUrl} alt={post.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover' }} />
+                  <img src={resolvePublicFileUrl(post.imageUrl) || post.imageUrl || ''} alt={post.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover' }} />
                 </div>
               )}
               <div style={{ marginTop: 10, lineHeight: 1.6, overflowWrap: 'anywhere', direction: 'ltr', textAlign: 'left', unicodeBidi: 'plaintext' }} dangerouslySetInnerHTML={{ __html: post.content }} />
