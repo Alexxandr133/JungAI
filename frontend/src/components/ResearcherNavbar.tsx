@@ -174,6 +174,7 @@ export function ResearcherNavbar() {
                       alignItems: 'center',
                       gap: 6,
                       padding: '10px 16px',
+                      whiteSpace: 'nowrap',
                       borderRadius: 10,
                       textDecoration: 'none',
                       color: itemIsActive ? 'var(--primary)' : 'var(--text)',
@@ -189,7 +190,7 @@ export function ResearcherNavbar() {
                     }}
                   >
                     {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
-                    <span>{item.label}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>
                   </Link>
                 ) : (
                   <button
@@ -198,6 +199,7 @@ export function ResearcherNavbar() {
                       alignItems: 'center',
                       gap: 6,
                       padding: '10px 16px',
+                      whiteSpace: 'nowrap',
                       borderRadius: 10,
                       background: itemIsActive
                         ? 'rgba(91, 124, 250, 0.12)'
@@ -213,7 +215,7 @@ export function ResearcherNavbar() {
                     }}
                   >
                     {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
-                    <span>{item.label}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>
                     {hasChildren && (
                       <span style={{
                         marginLeft: 4,
@@ -441,6 +443,18 @@ export function ResearcherNavbar() {
           }
           .navbar-desktop-menu {
             display: none !important;
+          }
+        }
+        @media (max-width: 1570px) and (min-width: 1025px) {
+          .navbar-desktop-menu a,
+          .navbar-desktop-menu button {
+            padding: 8px 10px !important;
+            font-size: 13px !important;
+            gap: 4px !important;
+          }
+          .navbar-desktop-menu svg {
+            width: 16px !important;
+            height: 16px !important;
           }
         }
       `}</style>

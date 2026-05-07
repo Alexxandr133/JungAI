@@ -12,6 +12,9 @@ model User {
   email     String
   password  String
   role      String
+  aiTokenPlan String @default("standard") // standard | medium | large
+  aiTokensUsed Int @default(0) // Расход токенов за текущий расчётный период
+  aiTokensResetAt DateTime @default(now()) // Время следующего сброса лимита
   isVerified Boolean @default(false) // Верифицирован ли психолог
   emailVerified Boolean @default(false)
   emailVerificationCode String?

@@ -174,7 +174,7 @@ JingAI — monorepo-платформа для психологов и клиен
 2. backup БД (`sqlite .backup`)
 3. `git pull`
 4. `npm ci` (root + workspaces при необходимости)
-5. `npx prisma generate`
+5. `npm -w backend run prisma:generate` из корня монорепо (**никогда** голый `npx prisma` — подтянется Prisma 7 и сломается схема)
 6. `npm run build:backend && npm run build:frontend`
 7. `pm2 restart jingai-backend --update-env`
 8. `pm2 logs ...` (только свежие)

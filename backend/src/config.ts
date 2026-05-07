@@ -17,6 +17,14 @@ export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
   hfToken: process.env.HF_TOKEN || '',
+  openRouterApiKey: process.env.OPENROUTER_API_KEY || '',
+  openRouterSiteUrl: process.env.OPENROUTER_SITE_URL || '',
+  openRouterSiteName: process.env.OPENROUTER_SITE_NAME || '',
+  aiModelDefault: process.env.AI_MODEL_DEFAULT || 'deepseek/deepseek-chat-v3-0324',
+  aiAllowedModels: (process.env.AI_ALLOWED_MODELS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   deepseekApiKey: process.env.DEEPSEEK_API_KEY || '',
   agoraAppId: process.env.AGORA_APP_ID || '36524043ba1c4297bc6f950f5f81cc09',
   agoraAppCertificate: process.env.AGORA_APP_CERTIFICATE || '',
@@ -26,6 +34,8 @@ export const config = {
   livekitApiKey: process.env.LIVEKIT_API_KEY || (process.env.NODE_ENV === 'development' ? 'devkey' : ''),
   livekitApiSecret: process.env.LIVEKIT_API_SECRET || (process.env.NODE_ENV === 'development' ? 'supersecret' : ''),
   livekitTokenTtlSec: Number(process.env.LIVEKIT_TOKEN_TTL_SEC || 3600),
+  appTimeZone: process.env.APP_TIME_ZONE || 'Europe/Moscow',
+  eventTimezoneOffsetMinutes: Number(process.env.EVENT_TIMEZONE_OFFSET_MINUTES || 180),
   // Frontend URL для генерации ссылок регистрации
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   smtpHost: process.env.SMTP_HOST || '',
@@ -45,8 +55,11 @@ export const config = {
 };
 
 // Логирование для отладки (только первые символы токена для безопасности)
-if (config.hfToken) {
+if (config.openRouterApiKey) {
+  console.log(`[Config] OPENROUTER_API_KEY loaded: ${config.openRouterApiKey.substring(0, 10)}... (length: ${config.openRouterApiKey.length})`);
+} else if (config.hfToken) {
+  // Backward compatibility during migration
   console.log(`[Config] HF_TOKEN loaded: ${config.hfToken.substring(0, 10)}... (length: ${config.hfToken.length})`);
 } else {
-  console.warn('[Config] ⚠️  HF_TOKEN is empty or not set!');
+  console.warn('[Config] ⚠️  OPENROUTER_API_KEY / HF_TOKEN are empty or not set!');
 }

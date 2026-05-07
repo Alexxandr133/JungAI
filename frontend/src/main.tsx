@@ -72,6 +72,7 @@ import PsychologistsList from './pages/guest/PsychologistsList'
 import PublicPsychologistProfile from './pages/psychologists/PublicProfile'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { ForcedEmailMigrationModal } from './components/EmailChangeFlow'
+import { MobileInstallPrompt } from './components/MobileInstallPrompt'
 import AboutPlatform from './pages/AboutPlatform'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -82,6 +83,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <I18nProvider>
           <AuthProvider>
             <ForcedEmailMigrationModal />
+            <MobileInstallPrompt />
             <ErrorBoundary>
             <Routes>
               <Route path="/" element={<App />} />

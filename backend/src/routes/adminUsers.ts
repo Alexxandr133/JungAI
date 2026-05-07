@@ -7,6 +7,14 @@ const router = Router();
 router.use(requireAuth);
 router.use((req: AuthedRequest, res, next) => requireRole(['admin'])(req, res, next));
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PLATFORM_AI_MODEL_OPTIONS = [
+  'anthropic/claude-sonnet-4.6',
+  'deepseek/deepseek-v4-flash',
+  'openai/gpt-4o-mini',
+  'qwen/qwen3.5-flash-02-23',
+  'x-ai/grok-4.3',
+  'deepseek/deepseek-v3.2'
+];
 
 function isTrustedEmailDomain(email: string): boolean {
   const domain = String(email || '').trim().toLowerCase().split('@')[1] || '';
@@ -19,6 +27,44 @@ function isTrustedEmailDomain(email: string): boolean {
     domain.includes('jung-ai')
   );
 }
+
+async function ensurePlatformSettingTable() {
+  await prisma.$executeRawUnsafe(
+    'CREATE TABLE IF NOT EXISTS "PlatformSetting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)'
+  );
+}
+
+router.get('/users/settings/ai-model', async (_req: AuthedRequest, res) => {
+  try {
+    await ensurePlatformSettingTable();
+    const rows = await prisma.$queryRawUnsafe<Array<{ value: string }>>(
+      'SELECT "value" FROM "PlatformSetting" WHERE "key" = ? LIMIT 1',
+      'ai_model_default'
+    );
+    const current = rows?.[0]?.value || 'deepseek/deepseek-v4-flash';
+    res.json({ model: current, options: PLATFORM_AI_MODEL_OPTIONS });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load AI model setting' });
+  }
+});
+
+router.patch('/users/settings/ai-model', async (req: AuthedRequest, res) => {
+  try {
+    const model = String(req.body?.model || '').trim();
+    if (!PLATFORM_AI_MODEL_OPTIONS.includes(model)) {
+      return res.status(400).json({ error: 'Недопустимая модель' });
+    }
+    await ensurePlatformSettingTable();
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO "PlatformSetting" ("key","value") VALUES (?,?) ON CONFLICT("key") DO UPDATE SET "value"=excluded."value"',
+      'ai_model_default',
+      model
+    );
+    res.json({ success: true, model });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update AI model setting' });
+  }
+});
 
 /** Список пользователей (поиск, фильтр по роли) */
 router.get('/users', async (req: AuthedRequest, res) => {
@@ -40,6 +86,9 @@ router.get('/users', async (req: AuthedRequest, res) => {
         id: true,
         email: true,
         role: true,
+        aiTokenPlan: true,
+        aiTokensUsed: true,
+        aiTokensResetAt: true,
         isVerified: true,
         createdAt: true
       },
@@ -73,6 +122,9 @@ router.get('/users', async (req: AuthedRequest, res) => {
       id: u.id,
       email: u.email,
       role: u.role,
+      aiTokenPlan: (u as any).aiTokenPlan ?? 'standard',
+      aiTokensUsed: Number((u as any).aiTokensUsed ?? 0),
+      aiTokensResetAt: ((u as any).aiTokensResetAt instanceof Date ? (u as any).aiTokensResetAt : new Date()).toISOString(),
       isVerified: u.isVerified,
       createdAt: u.createdAt.toISOString(),
       profileName: profileMap.get(u.id) ?? null,
@@ -264,6 +316,35 @@ router.patch('/users/:id/email', async (req: AuthedRequest, res) => {
     res.json({ success: true, user: updated });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update email' });
+  }
+});
+
+/** Изменить план токенов AI для пользователя */
+router.patch('/users/:id/ai-token-plan', async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const planRaw = String(req.body?.plan ?? '').trim();
+    const plan = planRaw === 'medium' || planRaw === 'large' ? planRaw : 'standard';
+
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { aiTokenPlan: plan },
+      select: { id: true, aiTokenPlan: true, aiTokensUsed: true, aiTokensResetAt: true }
+    });
+    res.json({
+      success: true,
+      user: {
+        id: updated.id,
+        aiTokenPlan: (updated as any).aiTokenPlan,
+        aiTokensUsed: Number((updated as any).aiTokensUsed ?? 0),
+        aiTokensResetAt: ((updated as any).aiTokensResetAt instanceof Date ? (updated as any).aiTokensResetAt : new Date()).toISOString()
+      }
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update AI token plan' });
   }
 });
 

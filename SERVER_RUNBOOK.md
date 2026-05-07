@@ -45,9 +45,12 @@ cd /var/www/jingai/backend && npm ci --include=dev
 cd /var/www/jingai/frontend && npm ci --include=dev
 
 # 4) Генерация prisma + сборка
-cd /var/www/jingai/backend
-npx --no-install prisma generate
+# КРИТИЧНО: не вызывайте голый `npx prisma` / `npx prisma generate` вручную.
+# npx подтянет с реестра Prisma 7.x, она несовместима со схемой (P1012: url в datasource).
+# Проект зафиксирован на Prisma 6.x (см. backend/package.json). Всегда:
 cd /var/www/jingai
+npm -w backend run prisma:generate
+# или: npm run prisma:generate:backend
 npm run build:backend
 npm run build:frontend
 
@@ -64,6 +67,28 @@ pm2 logs jingai-backend --lines 80
   - `prisma migrate dev`
   - `prisma db push`
 - `prisma migrate deploy` запускать только если точно понятны миграции и есть свежий бэкап БД.
+
+### Случайно поставили Prisma 7 через `npx prisma` (ошибка P1012)
+
+1. Проверка версии **из lockfile** (должно быть 6.x):
+
+```bash
+cd /var/www/jingai
+npm -w backend exec prisma --version
+```
+
+2. Генерация только через workspace (не через голый npx):
+
+```bash
+cd /var/www/jingai
+npm -w backend run prisma:generate
+```
+
+3. При желании очистить кэш одноразовых пакетов npx (не трогает `node_modules` проекта):
+
+```bash
+rm -rf ~/.npm/_npx
+```
 
 ## 4) Конфиг видеозвонков (LiveKit)
 

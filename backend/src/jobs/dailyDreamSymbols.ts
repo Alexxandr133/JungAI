@@ -202,14 +202,20 @@ function buildTagNormalizationPrompt(input: {
 }
 
 function makeAiClient() {
-  if (!config.hfToken) return null;
-  // HF Router: OpenAI-compatible
-  return new OpenAI({ baseURL: 'https://router.huggingface.co/v1', apiKey: config.hfToken });
+  const apiKey = config.openRouterApiKey || config.hfToken;
+  if (!apiKey) return null;
+  return new OpenAI({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey,
+    defaultHeaders: {
+      ...(config.openRouterSiteUrl ? { 'HTTP-Referer': config.openRouterSiteUrl } : {}),
+      ...(config.openRouterSiteName ? { 'X-OpenRouter-Title': config.openRouterSiteName } : {})
+    }
+  });
 }
 
 function getModelName(): string {
-  // можно переопределять в .env, а позже переключить на OpenRouter
-  return process.env.TAG_VALIDATOR_MODEL || 'deepseek-ai/DeepSeek-V3:novita';
+  return process.env.TAG_VALIDATOR_MODEL || config.aiModelDefault || 'deepseek/deepseek-chat-v3-0324';
 }
 
 function tryParseJsonObject(raw: string): any | null {

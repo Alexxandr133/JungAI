@@ -17,11 +17,18 @@ export type PsychologistModalityId =
   ;
 
 export type ResponseStyle = 'concise' | 'balanced' | 'detailed';
+export type AiModelId =
+  | 'anthropic/claude-sonnet-4.6'
+  | 'deepseek/deepseek-v4-flash'
+  | 'openai/gpt-4o-mini'
+  | 'qwen/qwen3.5-flash-02-23'
+  | 'x-ai/grok-4.3';
 
 /** Период, за который в контекст ИИ подставляются сны (по дате создания записи) */
 export type DreamsContextRange = '30d' | '90d' | '365d' | 'all';
 
 export type PsychologistAiSettings = {
+  model: AiModelId;
   modality: PsychologistModalityId;
   temperature: number;
   responseStyle: ResponseStyle;
@@ -51,6 +58,7 @@ export const MODALITY_OPTIONS: Array<{ id: PsychologistModalityId; label: string
 ];
 
 export const DEFAULT_PSYCHOLOGIST_AI_SETTINGS: PsychologistAiSettings = {
+  model: 'deepseek/deepseek-v4-flash',
   modality: 'jungian_analytical',
   temperature: 0.7,
   responseStyle: 'balanced',
@@ -58,11 +66,52 @@ export const DEFAULT_PSYCHOLOGIST_AI_SETTINGS: PsychologistAiSettings = {
   includeDreamsInContext: true
 };
 
+export const AI_MODEL_OPTIONS: Array<{
+  id: AiModelId;
+  label: string;
+  expertiseTag: string;
+  speedTag: string;
+}> = [
+  {
+    id: 'anthropic/claude-sonnet-4.6',
+    label: 'Claude Sonnet 4.6',
+    expertiseTag: 'Экспертность: очень высокая',
+    speedTag: 'Скорость: средняя'
+  },
+  {
+    id: 'deepseek/deepseek-v4-flash',
+    label: 'DeepSeek V4 Flash',
+    expertiseTag: 'Экспертность: высокая',
+    speedTag: 'Скорость: очень высокая'
+  },
+  {
+    id: 'openai/gpt-4o-mini',
+    label: 'GPT-4o mini',
+    expertiseTag: 'Экспертность: хорошая',
+    speedTag: 'Скорость: высокая'
+  },
+  {
+    id: 'qwen/qwen3.5-flash-02-23',
+    label: 'Qwen 3.5 Flash',
+    expertiseTag: 'Экспертность: хорошая',
+    speedTag: 'Скорость: высокая'
+  },
+  {
+    id: 'x-ai/grok-4.3',
+    label: 'Grok 4.3',
+    expertiseTag: 'Экспертность: высокая',
+    speedTag: 'Скорость: выше средней'
+  }
+];
+
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
 export function normalizeSettings(partial: Partial<PsychologistAiSettings>): PsychologistAiSettings {
+  const model = AI_MODEL_OPTIONS.some(m => m.id === partial.model)
+    ? (partial.model as AiModelId)
+    : DEFAULT_PSYCHOLOGIST_AI_SETTINGS.model;
   const modality = MODALITY_OPTIONS.some(m => m.id === partial.modality)
     ? (partial.modality as PsychologistModalityId)
     : DEFAULT_PSYCHOLOGIST_AI_SETTINGS.modality;
@@ -85,7 +134,7 @@ export function normalizeSettings(partial: Partial<PsychologistAiSettings>): Psy
     typeof partial.includeDreamsInContext === 'boolean'
       ? partial.includeDreamsInContext
       : DEFAULT_PSYCHOLOGIST_AI_SETTINGS.includeDreamsInContext;
-  return { modality, temperature, responseStyle, dreamsContextRange, includeDreamsInContext };
+  return { model, modality, temperature, responseStyle, dreamsContextRange, includeDreamsInContext };
 }
 
 export function loadPsychologistAiSettings(): PsychologistAiSettings {

@@ -29,12 +29,14 @@ import { checkVerification } from '../../utils/verification';
 type Message = {
   role: 'user' | 'assistant';
   content: string;
+  isAnalysis?: boolean;
 };
 
 type Chat = {
   id: string;
   title: string;
   messages: Message[];
+  analysisMemory?: string;
   folderId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -53,6 +55,30 @@ type Shortcut = {
   emoji: string;
   prompt: string;
   createdAt: string;
+};
+
+type AiQuota = {
+  plan: 'standard' | 'medium' | 'large';
+  limit: number;
+  used: number;
+  remaining: number;
+  percentageUsed: number;
+  resetAt: string;
+};
+
+type DreamsContextRange = PsychologistAiSettings['dreamsContextRange'];
+type DreamScopePreview = {
+  includeDreamsInContext: boolean;
+  model?: string;
+  pricingNote?: string;
+  stats: Record<DreamsContextRange, {
+    count: number;
+    cappedCount: number;
+    estimatedPromptTokens: number;
+    estimatedInputCostUsd: number;
+  }>;
+  suggestedRange: DreamsContextRange;
+  selectedClient?: string | null;
 };
 
 const STORAGE_KEY = 'psychologist_ai_chats';
@@ -124,6 +150,13 @@ export default function PsychologistAIChat() {
   const [personalityText, setPersonalityText] = useState('');
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [aiQuota, setAiQuota] = useState<AiQuota | null>(null);
+  const [showDreamScopeModal, setShowDreamScopeModal] = useState(false);
+  const [pendingDreamMessage, setPendingDreamMessage] = useState('');
+  const [dreamScopePreview, setDreamScopePreview] = useState<DreamScopePreview | null>(null);
+  const [loadingDreamScopePreview, setLoadingDreamScopePreview] = useState(false);
+  const [selectedDreamScopeRange, setSelectedDreamScopeRange] = useState<DreamsContextRange>('30d');
+  const [dreamScopeStep, setDreamScopeStep] = useState<'idle' | 'counting' | 'ready'>('idle');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
@@ -156,7 +189,6 @@ export default function PsychologistAIChat() {
     // При смене пользователя очищаем состояние до загрузки новых данных
     setChats([]);
     setFolders([]);
-    setShortcuts([]);
     setCurrentChatId(null);
     setMessages([]);
   }, [user?.id]);
@@ -170,6 +202,17 @@ export default function PsychologistAIChat() {
       loadClients();
     }
   }, [clientModeEnabled, user?.id]);
+
+  useEffect(() => {
+    if (!token) return;
+    loadAiQuota();
+  }, [token, user?.id]);
+
+  useEffect(() => {
+    if (settingsOpen) {
+      loadAiQuota();
+    }
+  }, [settingsOpen]);
 
   // Detect mobile view
   useEffect(() => {
@@ -205,6 +248,16 @@ export default function PsychologistAIChat() {
       setClients([]);
     } finally {
       setLoadingClients(false);
+    }
+  }
+
+  async function loadAiQuota() {
+    if (!token) return;
+    try {
+      const res = await api<{ quota: AiQuota }>('/api/ai/tokens/quota', { token });
+      setAiQuota(res.quota || null);
+    } catch (e) {
+      console.error('Failed to load AI quota:', e);
     }
   }
 
@@ -280,7 +333,7 @@ export default function PsychologistAIChat() {
       }));
       setChats(loadedChats);
       setFolders(res.folders || []);
-      setShortcuts(res.shortcuts || []);
+      // shortucts removed from UI
     } catch (e) {
       console.error('Failed to load chats from API:', e);
       // Fallback to localStorage if API fails
@@ -349,10 +402,16 @@ export default function PsychologistAIChat() {
     if (currentId && !updatedChats.some(c => c.id === currentId)) {
       const previous = newChats.find(c => c.id === currentId);
       const replacement = previous
-        ? updatedChats.find(c => c.title === previous.title && c.createdAt === previous.createdAt)
+        ? (
+            updatedChats.find(c => c.title === previous.title && c.createdAt === previous.createdAt)
+            || updatedChats.find(c => c.title === previous.title && c.messages?.length === previous.messages?.length)
+          )
         : null;
       if (replacement) {
         setCurrentChatId(replacement.id);
+      } else if (updatedChats.length > 0) {
+        // Fallback: не оставляем интерфейс в "битом" currentChatId
+        setCurrentChatId(updatedChats[0].id);
       }
     }
   }
@@ -630,12 +689,68 @@ export default function PsychologistAIChat() {
     saveChats(newChats);
   }
 
-  async function sendMessage() {
-    // Блокируем отправку, если уже идет отправка или загрузка
-    if (!input.trim() || loading || isSending || sendingRef.current || !token) return;
+  function messageLooksLikeDreamBatchAnalysis(text: string): boolean {
+    const s = text.toLowerCase();
+    const hasDreamKeyword =
+      /(сны|снов|снам|снами|снах|сон|сна|сну|сном|dream)/i.test(s) ||
+      /\bснф\b/i.test(s); // частая опечатка "сны"
+    const hasAnalyzeIntent =
+      /(анализ|проанализ|провалид|валид|разбер|разбор|посмотр|просмотр|просмотри|глянь|оцени|исслед|сводк|паттерн|ревью|проверь)/i.test(s);
+    const asksMany = /\b(все|всех|80|100|120|150|200|много|массово|полностью)\b/i.test(s);
+    return hasDreamKeyword && (hasAnalyzeIntent || asksMany);
+  }
 
-    const userMessage = input.trim();
-    setInput('');
+  async function loadDreamScopePreview(): Promise<DreamScopePreview | null> {
+    if (!token) return null;
+    setDreamScopeStep('counting');
+    setLoadingDreamScopePreview(true);
+    try {
+      const res = await api<DreamScopePreview>('/api/ai/psychologist/dream-scope-preview', {
+        method: 'POST',
+        token,
+        body: {
+          clientModeEnabled,
+          clientId: clientModeEnabled ? (selectedClientId || undefined) : undefined,
+          includeDreamsInContext: aiSettings.includeDreamsInContext
+        }
+      });
+      setDreamScopePreview(res);
+      setSelectedDreamScopeRange(res.suggestedRange);
+      setDreamScopeStep('ready');
+      return res;
+    } catch (e) {
+      console.error('Dream scope preview error:', e);
+      setDreamScopePreview(null);
+      setDreamScopeStep('idle');
+      return null;
+    } finally {
+      setLoadingDreamScopePreview(false);
+    }
+  }
+
+  async function sendMessage(options?: {
+    forcedMessage?: string;
+    dreamsContextRangeOverride?: DreamsContextRange;
+    skipDreamScopePrompt?: boolean;
+  }) {
+    // Блокируем отправку, если уже идет отправка или загрузка
+    const preparedMessage = (options?.forcedMessage ?? input).trim();
+    if (!preparedMessage || loading || isSending || sendingRef.current || !token) return;
+
+    if (
+      !options?.skipDreamScopePrompt &&
+      aiSettings.includeDreamsInContext &&
+      messageLooksLikeDreamBatchAnalysis(preparedMessage)
+    ) {
+      setPendingDreamMessage(preparedMessage);
+      setShowDreamScopeModal(true);
+      setDreamScopeStep('idle');
+      void loadDreamScopePreview();
+      return;
+    }
+
+    const userMessage = preparedMessage;
+    if (!options?.forcedMessage) setInput('');
     setIsSending(true);
     sendingRef.current = true;
     
@@ -682,7 +797,13 @@ export default function PsychologistAIChat() {
     }
 
     try {
-      const response = await api<{ message: string; conversationHistory: Message[] }>(
+      const response = await api<{
+        message: string;
+        conversationHistory: Message[];
+        quota?: AiQuota;
+        analysisMemory?: string;
+        analysisMemoryUpdated?: boolean;
+      }>(
         '/api/ai/psychologist/chat',
         {
           method: 'POST',
@@ -695,30 +816,47 @@ export default function PsychologistAIChat() {
             modality: aiSettings.modality,
             temperature: aiSettings.temperature,
             responseStyle: aiSettings.responseStyle,
-            dreamsContextRange: aiSettings.dreamsContextRange,
+            dreamsContextRange: options?.dreamsContextRangeOverride ?? aiSettings.dreamsContextRange,
             includeDreamsInContext: aiSettings.includeDreamsInContext,
-            personalization: personalityText.trim()
+            personalization: personalityText.trim(),
+            analysisMemory: chatsSnapshot.find(c => c.id === activeChatId)?.analysisMemory || ''
           }
         }
       );
 
-      const finalMessages = response.conversationHistory;
+      const finalMessages = response.conversationHistory.map((m) => ({ ...m }));
+      if (response.analysisMemoryUpdated) {
+        for (let i = finalMessages.length - 1; i >= 0; i--) {
+          if (finalMessages[i].role === 'assistant') {
+            finalMessages[i] = { ...finalMessages[i], isAnalysis: true };
+            break;
+          }
+        }
+      }
       setMessages(finalMessages);
+      if (response.quota) setAiQuota(response.quota);
 
       // Обновляем чат с финальными сообщениями и убираем флаг загрузки
       if (activeChatId) {
         const newChats = chatsRef.current.map(c => 
           c.id === activeChatId 
-            ? { ...c, messages: finalMessages, updatedAt: new Date().toISOString(), isLoading: false }
+            ? {
+                ...c,
+                messages: finalMessages,
+                analysisMemory: response.analysisMemory || c.analysisMemory,
+                updatedAt: new Date().toISOString(),
+                isLoading: false
+              }
             : c
         );
         await saveChats(newChats);
       }
     } catch (error: any) {
       console.error('Chat error:', error);
+      const errText = String(error?.message || 'Не удалось отправить сообщение');
       const errorMessage: Message = {
         role: 'assistant',
-        content: `Ошибка: ${error.message || 'Не удалось отправить сообщение'}`
+        content: errText.startsWith('Ошибка') ? errText : `Ошибка: ${errText}`
       };
       const errorMessages = [...newMessages, errorMessage];
       setMessages(errorMessages);
@@ -737,6 +875,20 @@ export default function PsychologistAIChat() {
       sendingRef.current = false;
       inputRef.current?.focus();
     }
+  }
+
+  async function confirmDreamScopeAndSend(range: DreamsContextRange) {
+    if (!pendingDreamMessage) return;
+    setShowDreamScopeModal(false);
+    const queuedMessage = pendingDreamMessage;
+    setPendingDreamMessage('');
+    setDreamScopePreview(null);
+    setDreamScopeStep('idle');
+    await sendMessage({
+      forcedMessage: queuedMessage,
+      dreamsContextRangeOverride: range,
+      skipDreamScopePrompt: true
+    });
   }
 
   const chatsByFolder = folders.map(folder => ({
@@ -1263,43 +1415,50 @@ export default function PsychologistAIChat() {
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
+                      justifyContent: 'space-between',
                       gap: 10
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={aiSettings.includeDreamsInContext}
-                      onChange={e => {
-                        const next = normalizeSettings({
-                          ...aiSettings,
-                          includeDreamsInContext: e.target.checked
-                        });
-                        setAiSettings(next);
-                        savePsychologistAiSettings(next);
-                        setAiDraft(next);
-                      }}
-                      style={{
-                        width: 20,
-                        height: 20,
-                        cursor: 'pointer',
-                        accentColor: 'var(--primary)'
-                      }}
-                    />
                     <span>Работа со снами в контексте ИИ</span>
+                    <span
+                      style={{
+                        position: 'relative',
+                        width: 42,
+                        height: 24,
+                        background: aiSettings.includeDreamsInContext ? 'var(--primary)' : 'rgba(255,255,255,0.25)',
+                        borderRadius: 999,
+                        transition: 'background .2s ease',
+                        flexShrink: 0
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={aiSettings.includeDreamsInContext}
+                        onChange={e => {
+                          const next = normalizeSettings({
+                            ...aiSettings,
+                            includeDreamsInContext: e.target.checked
+                          });
+                          setAiSettings(next);
+                          savePsychologistAiSettings(next);
+                          setAiDraft(next);
+                        }}
+                        style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                      />
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: 3,
+                          left: aiSettings.includeDreamsInContext ? 21 : 3,
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          background: '#fff',
+                          transition: 'left .2s ease'
+                        }}
+                      />
+                    </span>
                   </label>
-                  <div
-                    style={{
-                      fontSize: isMobileView ? 10 : 11,
-                      color: 'var(--text-muted)',
-                      paddingLeft: 30,
-                      marginTop: 6,
-                      lineHeight: 1.4
-                    }}
-                  >
-                    {aiSettings.includeDreamsInContext
-                      ? 'Тексты снов и вкладка «Сны» уходят в запрос, если модальность это допускает.'
-                      : 'Сны не передаются в модель и не используются в ответах.'}
-                  </div>
                 </div>
 
                 {/* Client selector - показываем только если режим работы с клиентами включен */}
@@ -1589,6 +1748,7 @@ export default function PsychologistAIChat() {
             draft={aiDraft}
             setDraft={setAiDraft}
             isMobileView={isMobileView}
+            quota={aiQuota}
             onOpenMemory={() => {
               setSettingsOpen(false);
               setShowMemoryModal(true);
@@ -1842,6 +2002,23 @@ export default function PsychologistAIChat() {
                                 : '0 2px 8px rgba(0, 0, 0, 0.1)'
                             }}
                           >
+                            {msg.role === 'assistant' && msg.isAnalysis && (
+                              <div
+                                style={{
+                                  display: 'inline-block',
+                                  marginBottom: 8,
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: 'rgba(91,124,250,0.18)',
+                                  border: '1px solid rgba(91,124,250,0.4)',
+                                  color: 'var(--text)'
+                                }}
+                              >
+                                Анализ
+                              </div>
+                            )}
                             {msg.content}
                           </div>
                         </div>
@@ -1881,7 +2058,7 @@ export default function PsychologistAIChat() {
               >
                 <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
                   {/* Shortcut buttons - показываем только если режим работы с клиентами включен и выбран клиент */}
-                  {clientModeEnabled && selectedClientId && shortcuts.length > 0 && (
+                  {false && clientModeEnabled && selectedClientId && shortcuts.length > 0 && (
                     <div style={{ 
                       display: 'flex', 
                       gap: 10, 
@@ -1978,21 +2155,6 @@ export default function PsychologistAIChat() {
                     </div>
                   )}
 
-                  {!clientModeEnabled && (
-                    <div style={{ 
-                      marginBottom: 12,
-                      padding: '12px',
-                      background: 'var(--surface-2)',
-                      borderRadius: 10,
-                      border: '1px solid rgba(255,255,255,0.05)',
-                      textAlign: 'center'
-                    }}>
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                        Включите режим работы с клиентами для быстрых действий
-                      </div>
-                    </div>
-                  )}
-
                   {/* Input field */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <div style={{ flex: 1, position: 'relative' }}>
@@ -2009,7 +2171,7 @@ export default function PsychologistAIChat() {
                           if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             if (!loading && !isSending) {
-                              sendMessage();
+                              void sendMessage();
                             }
                           }
                         }}
@@ -2043,7 +2205,9 @@ export default function PsychologistAIChat() {
                     </div>
                     <button
                       className="button"
-                      onClick={sendMessage}
+                      onClick={() => {
+                        void sendMessage();
+                      }}
                       disabled={!input.trim() || loading || isSending}
                       style={{
                         padding: '12px 20px',
@@ -2065,6 +2229,116 @@ export default function PsychologistAIChat() {
           )}
         </div>
       </div>
+
+      {showDreamScopeModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'grid',
+            placeItems: 'center',
+            zIndex: 3500,
+            padding: 16
+          }}
+          onClick={() => {
+            setShowDreamScopeModal(false);
+            setPendingDreamMessage('');
+            setDreamScopePreview(null);
+            setDreamScopeStep('idle');
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              width: 'min(680px, 100%)',
+              background: 'var(--surface)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 14,
+              padding: 20
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: 0, marginBottom: 8, fontSize: 20 }}>Выберите объем анализа снов</h3>
+            <p style={{ margin: 0, marginBottom: 14, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Запрос похож на полный анализ снов. Перед отправкой выберите диапазон, чтобы AI точно понимал,
+              сколько записей анализировать.
+            </p>
+            {loadingDreamScopePreview ? (
+              <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
+                Шаг 1/2: считаем количество снов и оцениваем объем...
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+                {(['30d', '90d', '365d', 'all'] as DreamsContextRange[]).map((range) => {
+                  const label =
+                    range === '30d' ? 'Последние 30 дней' :
+                    range === '90d' ? 'Последние 90 дней' :
+                    range === '365d' ? 'Последний год' : 'Все время';
+                  const stat = dreamScopePreview?.stats?.[range];
+                  const count = stat?.count ?? 0;
+                  const cappedCount = stat?.cappedCount ?? 0;
+                  const promptTokens = stat?.estimatedPromptTokens ?? 0;
+                  const selected = selectedDreamScopeRange === range;
+                  return (
+                    <label
+                      key={range}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        border: selected ? '1px solid rgba(91,124,250,0.5)' : '1px solid rgba(255,255,255,0.12)',
+                        background: 'var(--surface-2)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="dream-scope"
+                        checked={selected}
+                        onChange={() => setSelectedDreamScopeRange(range)}
+                        style={{ marginTop: 3 }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span>{label}</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{count} снов</span>
+                        </div>
+                        <div className="small" style={{ color: 'var(--text-muted)', marginTop: 6 }}>
+                          В запрос уйдет до {cappedCount} снов · ~{promptTokens.toLocaleString('ru-RU')} токенов
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                className="button secondary"
+                onClick={() => {
+                  setShowDreamScopeModal(false);
+                  setPendingDreamMessage('');
+                  setDreamScopePreview(null);
+                  setDreamScopeStep('idle');
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                className="button"
+                onClick={() => confirmDreamScopeAndSend(selectedDreamScopeRange)}
+                disabled={loadingDreamScopePreview || !dreamScopePreview || dreamScopeStep !== 'ready'}
+              >
+                Продолжить анализ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New folder modal */}
       {showNewFolderModal && (
@@ -2139,7 +2413,7 @@ export default function PsychologistAIChat() {
       )}
 
       {/* Shortcuts management modal */}
-      {showShortcutsModal && (
+      {false && showShortcutsModal && (
         <div
           style={{
             position: 'fixed',
@@ -2299,7 +2573,7 @@ export default function PsychologistAIChat() {
       )}
 
       {/* Add/Edit shortcut modal */}
-      {showAddShortcutModal && (
+      {false && showAddShortcutModal && (
         <div
           style={{
             position: 'fixed',
@@ -2518,7 +2792,7 @@ export default function PsychologistAIChat() {
               </button>
               <button
                 className="button"
-                onClick={editingShortcutId ? () => updateShortcut(editingShortcutId) : addShortcut}
+                onClick={editingShortcutId ? () => updateShortcut(editingShortcutId!) : addShortcut}
                 disabled={!newShortcutLabel.trim() || !newShortcutPrompt.trim()}
                 style={{ padding: '10px 20px' }}
               >

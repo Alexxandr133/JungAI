@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { PlatformIcon } from '../../components/icons';
-import { MODALITY_OPTIONS, type DreamsContextRange, type PsychologistAiSettings } from '../../lib/psychologistAiSettings';
+import { MODALITY_OPTIONS, type PsychologistAiSettings } from '../../lib/psychologistAiSettings';
 
 type Props = {
   open: boolean;
@@ -10,6 +10,14 @@ type Props = {
   onApply: () => void;
   onOpenMemory: () => void;
   isMobileView: boolean;
+  quota?: {
+    plan: 'standard' | 'medium' | 'large';
+    limit: number;
+    used: number;
+    remaining: number;
+    percentageUsed: number;
+    resetAt: string;
+  } | null;
 };
 
 export function PsychologistAiSettingsPanel({
@@ -19,7 +27,8 @@ export function PsychologistAiSettingsPanel({
   setDraft,
   onApply,
   onOpenMemory,
-  isMobileView
+  isMobileView,
+  quota
 }: Props) {
   if (!open) return null;
 
@@ -76,6 +85,42 @@ export function PsychologistAiSettingsPanel({
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {quota && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 10,
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'var(--surface-2)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                <span className="small" style={{ fontWeight: 700 }}>Токены AI ({quota.plan})</span>
+                <span className="small" style={{ color: 'var(--text-muted)' }}>
+                  {quota.used.toLocaleString('ru-RU')} / {quota.limit.toLocaleString('ru-RU')}
+                </span>
+              </div>
+              <div style={{ height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.09)', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, Math.max(0, quota.percentageUsed))}%`,
+                    background:
+                      quota.percentageUsed >= 90
+                        ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+                        : quota.percentageUsed >= 70
+                          ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+                          : 'linear-gradient(90deg, #22c55e, #16a34a)',
+                    transition: 'width .25s ease'
+                  }}
+                />
+              </div>
+              <p className="small" style={{ marginTop: 8, marginBottom: 0, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                Осталось: <b>{quota.remaining.toLocaleString('ru-RU')}</b>. Сброс лимита: {new Date(quota.resetAt).toLocaleDateString('ru-RU')}.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
               Модальность
@@ -106,43 +151,6 @@ export function PsychologistAiSettingsPanel({
             </p>
           </div>
 
-          <div
-            style={{
-              padding: '12px 14px',
-              borderRadius: 10,
-              border: '1px solid rgba(255,255,255,0.1)',
-              background: 'var(--surface-2)'
-            }}
-          >
-            <label
-              style={{
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                color: 'var(--text)'
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={draft.includeDreamsInContext}
-                onChange={e =>
-                  setDraft(d => ({
-                    ...d,
-                    includeDreamsInContext: e.target.checked
-                  }))
-                }
-                style={{ width: 18, height: 18, accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }}
-              />
-              Работа со снами в контексте ИИ
-            </label>
-            <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
-              Выключите, чтобы сны и вкладка «Сны» не попадали в запрос к модели.
-            </p>
-          </div>
-
           <div>
             <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
               Температура (креативность): {draft.temperature.toFixed(2)}
@@ -162,81 +170,10 @@ export function PsychologistAiSettingsPanel({
             </div>
           </div>
 
-          <div style={{ opacity: draft.includeDreamsInContext ? 1 : 0.55 }}>
-            <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
-              Сны в контексте ИИ — период
-            </label>
-            <select
-              value={draft.dreamsContextRange}
-              disabled={!draft.includeDreamsInContext}
-              onChange={e =>
-                setDraft(d => ({
-                  ...d,
-                  dreamsContextRange: e.target.value as DreamsContextRange
-                }))
-              }
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                fontSize: 14
-              }}
-            >
-              <option value="30d">Последний месяц (по умолчанию)</option>
-              <option value="90d">Последние 3 месяца</option>
-              <option value="365d">Последний год</option>
-              <option value="all">Все сны за всё время</option>
-            </select>
-            {!draft.includeDreamsInContext && (
-              <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', marginBottom: 0 }}>
-                Включите «Работа со снами», чтобы передавать тексты снов в модель.
-              </p>
-            )}
-            {draft.includeDreamsInContext && draft.dreamsContextRange !== '30d' && (
-              <div
-                style={{
-                  marginTop: 10,
-                  display: 'flex',
-                  gap: 10,
-                  alignItems: 'flex-start',
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  background: 'rgba(255, 152, 0, 0.12)',
-                  border: '1px solid rgba(255, 152, 0, 0.35)',
-                  color: 'var(--text)'
-                }}
-              >
-                <span
-                  style={{
-                    flexShrink: 0,
-                    width: 22,
-                    height: 22,
-                    borderRadius: 999,
-                    border: '2px solid #ff9800',
-                    color: '#ff9800',
-                    fontWeight: 800,
-                    fontSize: 14,
-                    display: 'grid',
-                    placeItems: 'center',
-                    lineHeight: 1
-                  }}
-                  aria-hidden
-                >
-                  !
-                </span>
-                <span className="small" style={{ lineHeight: 1.45, margin: 0 }}>
-                  Длинный период — в запрос попадет больше текста снов. Расход токенов на один запрос вырастет, ответы могут стать дороже и медленнее.
-                </span>
-              </div>
-            )}
-            {draft.includeDreamsInContext && (
-              <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
-                В режиме клиента в контекст подставляются сны за выбранный период (полный текст), по дате записи.
-              </p>
-            )}
+          <div>
+            <p className="small" style={{ marginTop: 0, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
+              Период снов выбирается перед отправкой запроса в чат, когда вы просите AI анализировать сны.
+            </p>
           </div>
 
           <div>

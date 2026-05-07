@@ -67,15 +67,15 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
     }
   }
 
-  const panelBg = isLight ? 'rgba(241,245,249,0.92)' : 'rgba(3,7,18,0.55)';
-  const mobileSolidPanel = isLight ? '#f1f5f9' : '#0f172a';
+  const panelBg = isLight ? 'rgba(226,232,240,0.94)' : 'rgba(3,7,18,0.55)';
+  const mobileSolidPanel = isLight ? '#e2e8f0' : '#0f172a';
   const chatInputSolid = isLight ? '#ffffff' : '#1e293b';
   const participantRowSolid = isLight ? '#f8fafc' : '#1e293b';
-  const panelStrong = isLight ? '#e5e7eb' : 'rgba(15,23,42,0.72)';
-  const border = isLight ? '1px solid rgba(15,23,42,0.14)' : '1px solid rgba(255,255,255,0.1)';
+  const panelStrong = isLight ? '#cbd5e1' : 'rgba(15,23,42,0.72)';
+  const border = isLight ? '1px solid rgba(15,23,42,0.22)' : '1px solid rgba(255,255,255,0.1)';
   const softText = isLight ? '#475569' : '#94a3b8';
   const mainText = isLight ? '#0f172a' : '#e5e7eb';
-  const controlOffBg = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.12)';
+  const controlOffBg = isLight ? '#ffffff' : 'rgba(255,255,255,0.12)';
   const controlOnBg = '#2563eb';
   const hasScreenShare = screenTracks.length > 0;
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth <= 900 : false));
@@ -202,7 +202,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               type="button"
               className="button secondary"
               onClick={() => setSidebarMode((m) => (m === 'chat' ? null : 'chat'))}
-              style={{ padding: '8px 10px', minWidth: 42, background: chatOpen ? controlOnBg : controlOffBg, color: chatOpen ? '#fff' : mainText, border: 'none' }}
+              style={{ padding: '8px 10px', minWidth: 42, background: chatOpen ? controlOnBg : controlOffBg, color: chatOpen ? '#fff' : mainText, border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none' }}
               title="Чат"
             >
               <PlatformIcon name="message" size={16} />
@@ -211,7 +211,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               type="button"
               className="button secondary"
               onClick={() => setSidebarMode((m) => (m === 'participants' ? null : 'participants'))}
-              style={{ padding: '8px 10px', minWidth: 42, background: participantsOpen ? controlOnBg : controlOffBg, color: participantsOpen ? '#fff' : mainText, border: 'none' }}
+              style={{ padding: '8px 10px', minWidth: 42, background: participantsOpen ? controlOnBg : controlOffBg, color: participantsOpen ? '#fff' : mainText, border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none' }}
               title="Участники"
             >
               <PlatformIcon name="users" size={16} />
@@ -396,7 +396,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               style={{
                 background: controlOffBg,
                 color: mainText,
-                border: 'none',
+                border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none',
                 borderRadius: '50%',
                 width: 52,
                 height: 52,
@@ -415,7 +415,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               style={{
                 background: controlOffBg,
                 color: mainText,
-                border: 'none',
+                border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none',
                 borderRadius: '50%',
                 width: 52,
                 height: 52,
@@ -477,7 +477,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               source={Track.Source.Microphone}
               showIcon
               className="button"
-              style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
+              style={{ background: controlOffBg, color: mainText, border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 3px 10px rgba(15,23,42,0.12)' : '0 2px 10px rgba(0,0,0,0.35)' }}
             >
               Микрофон
             </TrackToggle>
@@ -485,7 +485,7 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
               source={Track.Source.Camera}
               showIcon
               className="button"
-              style={{ background: controlOffBg, color: mainText, border: 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 2px 8px rgba(15,23,42,0.08)' : '0 2px 10px rgba(0,0,0,0.35)' }}
+              style={{ background: controlOffBg, color: mainText, border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none', borderRadius: 999, padding: '10px 14px', boxShadow: isLight ? '0 3px 10px rgba(15,23,42,0.12)' : '0 2px 10px rgba(0,0,0,0.35)' }}
             >
               Камера
             </TrackToggle>
@@ -714,7 +714,7 @@ export default function VoiceRoom() {
   }
 
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: isLight ? '#f8fafc' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff', overflow: 'hidden' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: isLight ? 'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff', overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ padding: '16px 24px', borderBottom: isLight ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
@@ -732,7 +732,7 @@ export default function VoiceRoom() {
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {!joined ? (
           <div style={{ width: 'min(720px, 94vw)', margin: 'auto', padding: 24 }}>
-            <div className="card" style={{ borderRadius: 20, padding: 24, border: isLight ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.1)', background: isLight ? 'rgba(255,255,255,0.92)' : 'rgba(15,23,42,0.6)' }}>
+            <div className="card" style={{ borderRadius: 20, padding: 24, border: isLight ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.1)', background: isLight ? 'rgba(248,250,252,0.98)' : 'rgba(15,23,42,0.6)', boxShadow: isLight ? '0 24px 56px rgba(15,23,42,0.16)' : undefined }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                 <div style={{ width: 42, height: 42, borderRadius: 12, background: isLight ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.22)', display: 'grid', placeItems: 'center', color: '#3b82f6' }}>
                   <Video size={20} />
@@ -742,9 +742,9 @@ export default function VoiceRoom() {
                   <div className="small" style={{ color: 'var(--text-muted)' }}>Проверьте детали встречи и нажмите кнопку входа</div>
                 </div>
               </div>
-              <div style={{ marginTop: 14, borderRadius: 12, padding: 14, background: isLight ? '#f8fafc' : 'rgba(2,6,23,0.55)', border: isLight ? '1px solid rgba(15,23,42,0.08)' : '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ marginTop: 14, borderRadius: 12, padding: 14, background: isLight ? '#ffffff' : 'rgba(2,6,23,0.55)', border: isLight ? '1px solid rgba(15,23,42,0.16)' : '1px solid rgba(255,255,255,0.08)' }}>
                 <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{event.title}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)', marginBottom: event.description ? 8 : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: isLight ? '#334155' : 'var(--text-muted)', marginBottom: event.description ? 8 : 0 }}>
                   <CalendarClock size={15} />
                   {new Date(event.startsAt).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
                 </div>
@@ -795,8 +795,8 @@ export default function VoiceRoom() {
               token={livekitToken}
               serverUrl={livekitUrl}
               connect={joined}
-              video
-              audio
+              video={false}
+              audio={false}
               onDisconnected={handleLeave}
               style={{ height: '100%' }}
             >

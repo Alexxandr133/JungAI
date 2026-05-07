@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma';
 import { mergeDreamKeywords } from '../utils/dreamKeywords';
 import { config } from '../config';
 import { OpenAI } from 'openai';
+import { assertAiQuotaAvailable, consumeAiTokens, getAiQuotaStatus } from '../services/aiTokenQuota';
 import {
   appendArchetypeLanguageGuard,
   appendPersonalization,
@@ -18,6 +19,13 @@ import {
 } from '../utils/psychologistAiModality';
 
 type DreamsContextRange = '30d' | '90d' | '365d' | 'all';
+const MAX_DREAM_ROWS_BY_RANGE: Record<DreamsContextRange, number> = {
+  '30d': 150,
+  '90d': 150,
+  '365d': 150,
+  all: 400
+};
+const DEFAULT_ESTIMATED_INPUT_COST_PER_1M = 2.0; // USD, rough fallback
 
 function parseDreamsContextRange(raw: unknown): DreamsContextRange {
   const s = String(raw ?? '30d');
@@ -57,12 +65,288 @@ function formatDreamSymbolsForPrompt(symbols: unknown): string {
 
 const router = Router();
 
-// Инициализация клиента OpenAI для HuggingFace Router API
-// Используем router.huggingface.co для OpenAI-совместимого API
-const hfClient = config.hfToken ? new OpenAI({
-  baseURL: 'https://router.huggingface.co/v1',
-  apiKey: config.hfToken,
+const apiKey = config.openRouterApiKey || config.hfToken;
+// OpenRouter OpenAI-compatible endpoint
+const openRouterClient = apiKey ? new OpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey,
+  defaultHeaders: {
+    ...(config.openRouterSiteUrl ? { 'HTTP-Referer': config.openRouterSiteUrl } : {}),
+    ...(config.openRouterSiteName ? { 'X-OpenRouter-Title': config.openRouterSiteName } : {})
+  }
 }) : null;
+
+const AI_FALLBACK_MODEL = 'deepseek/deepseek-v3.2';
+const DEFAULT_AI_MODEL = config.aiModelDefault || AI_FALLBACK_MODEL;
+const REQUIRED_UI_MODELS = [
+  'anthropic/claude-sonnet-4.6',
+  'deepseek/deepseek-v4-flash',
+  'openai/gpt-4o-mini',
+  'qwen/qwen3.5-flash-02-23',
+  'x-ai/grok-4.3'
+];
+const ALLOWED_AI_MODELS = new Set(
+  [
+    ...(config.aiAllowedModels?.length ? config.aiAllowedModels : [DEFAULT_AI_MODEL]),
+    ...REQUIRED_UI_MODELS
+  ]
+    .map((m) => m.trim())
+    .filter(Boolean)
+);
+
+const OPENROUTER_REQUEST_TIMEOUT_MS = 180000;
+const OPENROUTER_NETWORK_RETRY_DELAY_MS = 1200;
+const OPENROUTER_MAX_ATTEMPTS_PER_MODEL = 2;
+const MAX_CONVERSATION_MESSAGES = 30;
+const MAX_HISTORY_MESSAGE_CHARS = 1400;
+const MAX_AI_OUTPUT_TOKENS = 15000;
+const DREAM_ANALYSIS_MAX_OUTPUT_TOKENS = 15000;
+
+function trimConversationHistory(historyRaw: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const safe = (Array.isArray(historyRaw) ? historyRaw : [])
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .map((m) => {
+      const contentRaw = String(m.content);
+      const content =
+        contentRaw.length > MAX_HISTORY_MESSAGE_CHARS
+          ? `${contentRaw.slice(0, MAX_HISTORY_MESSAGE_CHARS)}\n...[сообщение сокращено для скорости]`
+          : contentRaw;
+      return { role: m.role as 'user' | 'assistant', content };
+    });
+
+  return safe.slice(-MAX_CONVERSATION_MESSAGES);
+}
+
+function messageLooksLikeDreamAnalysis(textRaw: unknown): boolean {
+  const s = String(textRaw || '').toLowerCase();
+  const hasDreamKeyword =
+    /(сны|снов|снам|снами|снах|сон|сна|сну|сном|dream)/i.test(s) || /\bснф\b/i.test(s);
+  const hasAnalyzeIntent =
+    /(анализ|проанализ|провалид|валид|разбер|разбор|посмотр|просмотр|просмотри|глянь|оцени|исслед|сводк|паттерн|ревью|проверь)/i.test(s);
+  return hasDreamKeyword && hasAnalyzeIntent;
+}
+
+function isRetryableOpenRouterNetworkError(error: any): boolean {
+  const text = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || error?.cause?.code || '').toUpperCase();
+  return (
+    text.includes('terminated') ||
+    text.includes('request timed out') ||
+    text.includes('timed out') ||
+    text.includes('econnreset') ||
+    text.includes('socket hang up') ||
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT'
+  );
+}
+
+async function createOpenRouterChatCompletionWithRetry(input: {
+  model: string;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  temperature: number;
+  maxTokens: number;
+}) {
+  if (!openRouterClient) throw new Error('OpenRouter API не настроен.');
+  let lastError: any = null;
+  const modelsInOrder = [
+    input.model,
+    ...(input.model !== AI_FALLBACK_MODEL && ALLOWED_AI_MODELS.has(AI_FALLBACK_MODEL) ? [AI_FALLBACK_MODEL] : [])
+  ];
+
+  for (const modelForAttempt of modelsInOrder) {
+    for (let attempt = 1; attempt <= OPENROUTER_MAX_ATTEMPTS_PER_MODEL; attempt++) {
+      try {
+        const maxTokensForAttempt = modelForAttempt === AI_FALLBACK_MODEL
+          ? Math.min(input.maxTokens, 1200)
+          : input.maxTokens;
+        return await openRouterClient.chat.completions.create(
+          {
+            model: modelForAttempt,
+            messages: input.messages as any,
+            temperature: input.temperature,
+            max_tokens: maxTokensForAttempt,
+          },
+          { timeout: OPENROUTER_REQUEST_TIMEOUT_MS }
+        );
+      } catch (error: any) {
+        lastError = error;
+        if (!isRetryableOpenRouterNetworkError(error) || attempt >= OPENROUTER_MAX_ATTEMPTS_PER_MODEL) {
+          break;
+        }
+        console.warn(`[AI] OpenRouter transient network error on ${modelForAttempt}, retry ${attempt}/${OPENROUTER_MAX_ATTEMPTS_PER_MODEL - 1}...`, {
+          message: error?.message,
+          code: error?.code || error?.cause?.code
+        });
+        await new Promise((resolve) => setTimeout(resolve, OPENROUTER_NETWORK_RETRY_DELAY_MS * attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
+function asUserFacingAiError(error: any): string {
+  const msg = String(error?.message || '').trim();
+  const low = msg.toLowerCase();
+  const code = String(error?.code || error?.cause?.code || '').toUpperCase();
+  if (low.includes('terminated') || low.includes('econnreset') || code === 'ECONNRESET') {
+    return 'Не удалось получить ответ от AI. Попробуйте позже или обратитесь в техподдержку.';
+  }
+  return msg || 'Не удалось получить ответ от AI. Попробуйте позже или обратитесь в техподдержку.';
+}
+
+function resolveAiModel(modelRaw: unknown): string {
+  const requested = typeof modelRaw === 'string' ? modelRaw.trim() : '';
+  const candidate = requested || DEFAULT_AI_MODEL;
+  if (!ALLOWED_AI_MODELS.has(candidate)) {
+    return DEFAULT_AI_MODEL;
+  }
+  return candidate;
+}
+
+async function getPlatformAiModel(): Promise<string> {
+  try {
+    await prisma.$executeRawUnsafe(
+      'CREATE TABLE IF NOT EXISTS "PlatformSetting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)'
+    );
+    const rows = await prisma.$queryRawUnsafe<Array<{ value: string }>>(
+      'SELECT "value" FROM "PlatformSetting" WHERE "key" = ? LIMIT 1',
+      'ai_model_default'
+    );
+    const raw = rows?.[0]?.value;
+    return resolveAiModel(raw || DEFAULT_AI_MODEL);
+  } catch {
+    return resolveAiModel(DEFAULT_AI_MODEL);
+  }
+}
+
+function buildPsychologistDreamWhere(input: {
+  requestedClientId?: string;
+  clientIds: string[];
+  userId: string;
+  dreamsContextRange: DreamsContextRange;
+}) {
+  const { requestedClientId, clientIds, userId, dreamsContextRange } = input;
+  const targetClientIds =
+    requestedClientId && clientIds.includes(requestedClientId) ? [requestedClientId] : clientIds;
+  const minDate = minDateForDreamRange(dreamsContextRange);
+  const dateWhere = minDate ? { createdAt: { gte: minDate } } : {};
+
+  if (requestedClientId && clientIds.includes(requestedClientId)) {
+    return {
+      clientId: requestedClientId,
+      ...dateWhere
+    };
+  }
+
+  const whereConditions: any[] = [];
+  if (targetClientIds.length > 0) {
+    whereConditions.push({ clientId: { in: targetClientIds } });
+  }
+  whereConditions.push({ userId });
+  return {
+    AND: [
+      { OR: whereConditions.length > 0 ? whereConditions : [{ userId }] },
+      ...(minDate ? [{ createdAt: { gte: minDate } }] : [])
+    ]
+  };
+}
+
+router.post('/ai/psychologist/dream-scope-preview', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const requestedClientId = String(req.body?.clientId || '').trim() || undefined;
+    const includeDreamsInContext =
+      req.body?.includeDreamsInContext === undefined || req.body?.includeDreamsInContext === null
+        ? true
+        : Boolean(req.body?.includeDreamsInContext);
+    const clientModeEnabled = req.body?.clientModeEnabled === undefined ? true : Boolean(req.body?.clientModeEnabled);
+
+    if (!includeDreamsInContext) {
+      return res.json({
+        includeDreamsInContext: false,
+        stats: {
+          '30d': { count: 0, cappedCount: 0, estimatedPromptTokens: 0, estimatedInputCostUsd: 0 },
+          '90d': { count: 0, cappedCount: 0, estimatedPromptTokens: 0, estimatedInputCostUsd: 0 },
+          '365d': { count: 0, cappedCount: 0, estimatedPromptTokens: 0, estimatedInputCostUsd: 0 },
+          all: { count: 0, cappedCount: 0, estimatedPromptTokens: 0, estimatedInputCostUsd: 0 }
+        },
+        suggestedRange: '30d' as DreamsContextRange
+      });
+    }
+
+    const clients = clientModeEnabled
+      ? await prisma.client.findMany({
+          where: { psychologistId: req.user!.id },
+          select: { id: true, name: true }
+        })
+      : [];
+    const clientIds = clients.map(c => c.id);
+    const ranges: DreamsContextRange[] = ['30d', '90d', '365d', 'all'];
+
+    const model = await getPlatformAiModel();
+    const entries = await Promise.all(
+      ranges.map(async (range) => {
+        const where = buildPsychologistDreamWhere({
+          requestedClientId,
+          clientIds,
+          userId: req.user!.id,
+          dreamsContextRange: range
+        });
+        const count = await prisma.dream.count({ where });
+        const capped = Math.min(count, MAX_DREAM_ROWS_BY_RANGE[range]);
+        const sampleDreams = capped > 0
+          ? await prisma.dream.findMany({
+              where,
+              orderBy: { createdAt: 'asc' },
+              take: capped,
+              select: { title: true, content: true, symbols: true }
+            })
+          : [];
+        const chars = sampleDreams.reduce((acc, d) => {
+          const title = String(d.title || '');
+          const contentRaw = String(d.content || '');
+          const content = contentRaw.length > 1200 ? contentRaw.slice(0, 1200) : contentRaw;
+          const symbols = formatDreamSymbolsForPrompt(d.symbols);
+          return acc + title.length + content.length + symbols.length + 160;
+        }, 0);
+        const estimatedPromptTokens = Math.max(0, Math.ceil(chars / 4));
+        const estimatedInputCostUsd = Number(((estimatedPromptTokens / 1_000_000) * DEFAULT_ESTIMATED_INPUT_COST_PER_1M).toFixed(4));
+        return [
+          range,
+          {
+            count,
+            cappedCount: capped,
+            estimatedPromptTokens,
+            estimatedInputCostUsd
+          }
+        ] as const;
+      })
+    );
+
+    const stats = Object.fromEntries(entries) as Record<
+      DreamsContextRange,
+      { count: number; cappedCount: number; estimatedPromptTokens: number; estimatedInputCostUsd: number }
+    >;
+    const allCount = stats.all?.count || 0;
+    const suggestedRange: DreamsContextRange =
+      allCount <= 100 ? 'all' : allCount <= 300 ? '365d' : allCount <= 700 ? '90d' : '30d';
+
+    const selectedClient =
+      requestedClientId && clients.find((c) => c.id === requestedClientId)
+        ? clients.find((c) => c.id === requestedClientId)!.name
+        : null;
+
+    res.json({
+      includeDreamsInContext: true,
+      model,
+      pricingNote: `Оценка стоимости приблизительная и учитывает только входные токены.`,
+      stats,
+      suggestedRange,
+      selectedClient
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Не удалось получить объем анализа снов' });
+  }
+});
 
 router.post('/ai/dream/analyze', requireAuth, async (req: AuthedRequest, res) => {
   try {
@@ -198,11 +482,20 @@ router.post('/ai/hypotheses', requireAuth, (_req, res) => {
   res.json({ hypotheses: ['символ воды ↔ эмоц. регуляция', 'повтор тени ↔ неосознаваемые конфликты'] });
 });
 
+router.get('/ai/tokens/quota', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const quota = await getAiQuotaStatus(req.user!.id);
+    res.json({ quota });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to load AI quota' });
+  }
+});
+
 // Чат ассистента психолога
 router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
-    if (!hfClient) {
-      return res.status(500).json({ error: 'HuggingFace API не настроен. Установите HF_TOKEN в переменных окружения.' });
+    if (!openRouterClient) {
+      return res.status(500).json({ error: 'OpenRouter API не настроен. Установите OPENROUTER_API_KEY в переменных окружения.' });
     }
 
     const {
@@ -215,12 +508,15 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       personalization: personalizationRaw,
       psychologistProfile: psychologistProfileRaw,
       dreamsContextRange: dreamsContextRangeRaw,
-      includeDreamsInContext: includeDreamsRaw
+      includeDreamsInContext: includeDreamsRaw,
+      analysisMemory: analysisMemoryRaw,
     } = req.body ?? {};
+    const model = await getPlatformAiModel();
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Сообщение обязательно' });
     }
+    const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
 
     const modality = normalizePsychologistModality(modalityRaw);
     const modalityPolicy = getModalityPolicy(modality);
@@ -228,7 +524,9 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     const responseStyle = (['concise', 'balanced', 'detailed'].includes(String(responseStyleRaw))
       ? responseStyleRaw
       : 'balanced') as ResponseStyle;
-    const maxTokens = inferMaxTokensFromResponseStyle(responseStyle);
+    const baseMaxTokens = Math.min(MAX_AI_OUTPUT_TOKENS, inferMaxTokensFromResponseStyle(responseStyle));
+    let maxTokens = baseMaxTokens;
+    const safeConversationHistory = trimConversationHistory(conversationHistory);
     const personalization =
       typeof personalizationRaw === 'string' && personalizationRaw.trim()
         ? personalizationRaw
@@ -238,6 +536,10 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     const dreamsContextRange = parseDreamsContextRange(dreamsContextRangeRaw);
     const includeDreamsInContext =
       includeDreamsRaw === undefined || includeDreamsRaw === null ? true : Boolean(includeDreamsRaw);
+    const previousAnalysisMemory =
+      typeof analysisMemoryRaw === 'string' && analysisMemoryRaw.trim()
+        ? analysisMemoryRaw.trim().slice(0, 5000)
+        : '';
 
     // Если режим работы с клиентами выключен, работаем в обобщенном режиме
     if (!clientModeEnabled) {
@@ -250,7 +552,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
       const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt },
-        ...conversationHistory.map((msg: any) => ({
+        ...safeConversationHistory.map((msg: any) => ({
           role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
           content: msg.content
         })),
@@ -260,35 +562,50 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       let assistantMessage = 'Извините, не удалось получить ответ.';
 
       try {
-        const chatCompletion = await hfClient.chat.completions.create({
-          model: 'deepseek-ai/DeepSeek-V3:novita',
-          messages: messages as any,
+        const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+          model,
+          messages,
           temperature,
-          max_tokens: maxTokens,
-        }, {
-          timeout: 120000,
+          maxTokens,
         });
 
         assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+        const quota = await consumeAiTokens(req.user!.id, {
+          usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+          promptText: messages.map((m: any) => m.content).join('\n'),
+          completionText: assistantMessage
+        });
+        return res.json({
+          message: assistantMessage,
+          quota,
+          conversationHistory: [
+            ...safeConversationHistory,
+            { role: 'user', content: message },
+            { role: 'assistant', content: assistantMessage }
+          ]
+        });
       } catch (error: any) {
-        console.error('HuggingFace Router API error:', error);
+        console.error('OpenRouter API error:', error);
         let errorMessage = 'Ошибка при обращении к ИИ';
         if (error.message?.includes('timeout')) {
           errorMessage = 'Превышено время ожидания ответа от ИИ. Попробуйте еще раз.';
         } else if (error.status === 503) {
           errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
         } else if (error.status === 401) {
-          errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+          errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+        } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
+          errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
         } else if (error.message) {
-          errorMessage = `Ошибка: ${error.message}`;
+          errorMessage = asUserFacingAiError(error);
         }
         throw new Error(errorMessage);
       }
 
       return res.json({
         message: assistantMessage,
+        quota: quotaBefore,
         conversationHistory: [
-          ...conversationHistory,
+          ...safeConversationHistory,
           { role: 'user', content: message },
           { role: 'assistant', content: assistantMessage }
         ]
@@ -297,6 +614,10 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     /** Сны в запрос: и модальность разрешает, и тумблер психолога включён */
     const passDreamData = includeDreamsInContext && modalityPolicy.allowDreams;
+    const isDreamAnalysisRequest = messageLooksLikeDreamAnalysis(message) && passDreamData;
+    maxTokens = isDreamAnalysisRequest
+      ? Math.max(baseMaxTokens, DREAM_ANALYSIS_MAX_OUTPUT_TOKENS)
+      : baseMaxTokens;
 
     // Получаем клиентов психолога с полной информацией (только если режим работы с клиентами включен)
     const clients = await prisma.client.findMany({
@@ -366,33 +687,14 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     // Сны для контекста: период задаётся dreamsContextRange (по умолчанию 30 дней).
     // Если выбран конкретный клиент — только его сны в периоде (полный текст каждого сна).
     const requestedClientId = req.body?.clientId as string | undefined;
-    const targetClientIds =
-      requestedClientId && clientIds.includes(requestedClientId) ? [requestedClientId] : clientIds;
+    const dreamWhere = buildPsychologistDreamWhere({
+      requestedClientId,
+      clientIds,
+      userId: req.user!.id,
+      dreamsContextRange
+    });
 
-    const minDate = minDateForDreamRange(dreamsContextRange);
-    const dateWhere = minDate ? { createdAt: { gte: minDate } } : {};
-
-    let dreamWhere: any;
-    if (requestedClientId && clientIds.includes(requestedClientId)) {
-      dreamWhere = {
-        clientId: requestedClientId,
-        ...dateWhere
-      };
-    } else {
-      const whereConditions: any[] = [];
-      if (targetClientIds.length > 0) {
-        whereConditions.push({ clientId: { in: targetClientIds } });
-      }
-      whereConditions.push({ userId: req.user!.id });
-      dreamWhere = {
-        AND: [
-          { OR: whereConditions.length > 0 ? whereConditions : [{ userId: req.user!.id }] },
-          ...(minDate ? [{ createdAt: { gte: minDate } }] : [])
-        ]
-      };
-    }
-
-    const maxDreamRows = dreamsContextRange === 'all' ? 2500 : 800;
+    const maxDreamRows = MAX_DREAM_ROWS_BY_RANGE[dreamsContextRange];
     const allDreams = passDreamData
       ? await prisma.dream.findMany({
           where: dreamWhere,
@@ -428,14 +730,18 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         const clientName = dream.client?.name || 'Неизвестный клиент';
         const sym = formatDreamSymbolsForPrompt(dream.symbols);
         dreamsContext += `\n${idx + 1}. "${dream.title || 'Без названия'}" (клиент: ${clientName}, ${new Date(dream.createdAt).toLocaleString('ru-RU')})\n`;
-        dreamsContext += `   Содержание: ${dream.content || ''}\n`;
+        const contentForPrompt = String(dream.content || '');
+        const limitedContent = contentForPrompt.length > 1200
+          ? `${contentForPrompt.slice(0, 1200)}...`
+          : contentForPrompt;
+        dreamsContext += `   Содержание: ${limitedContent}\n`;
         if (sym) dreamsContext += `   Символы: ${sym}\n`;
       });
       dreamsContext += '\n';
     } else if (passDreamData) {
       dreamsContext = `\n\nЗа период «${rangeLabel}» записей снов для текущего контекста не найдено.\n`;
     } else if (!includeDreamsInContext) {
-      dreamsContext = '\n\nСны не включены в контекст (настройка «работа со снами» выключена).\n';
+      dreamsContext = '\n\nНовые тексты снов в этот запрос не добавлены (настройка «работа со снами» выключена). Можно опираться на уже имеющуюся историю диалога.\n';
     } else {
       dreamsContext = '\n\nСны исключены из контекста для выбранной модальности.\n';
     }
@@ -580,50 +886,57 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     systemPrompt = appendPersonalization(systemPrompt, personalization);
     systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
 
+    const dreamCountForAnalysis = allDreams.length;
     const userPrompt = `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}
+${previousAnalysisMemory ? `\n\nСохраненный анализ по этому чату (используй как рабочую память):\n${previousAnalysisMemory}\n` : ''}
+${isDreamAnalysisRequest ? `\n\nВажно: в контексте передано ${dreamCountForAnalysis} снов(а). Дай структурированный разбор ПО КАЖДОМУ сну без пропусков в формате "Сон 1 ... Сон ${dreamCountForAnalysis}". Нельзя объединять сны. После разборов добавь общий итог по паттернам.\n` : ''}
 
 Вопрос психолога: ${message}`;
 
     // Формируем историю сообщений для DeepSeek-R1
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
-      ...conversationHistory.map((msg: any) => ({
+      ...safeConversationHistory.map((msg: any) => ({
         role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
         content: msg.content
       })),
       { role: 'user', content: userPrompt }
     ];
 
-    console.log('Sending request to HuggingFace Router API...', { 
-      model: 'deepseek-ai/DeepSeek-V3:novita',
+    console.log('Sending request to OpenRouter API...', { 
+      model,
       messagesCount: messages.length,
-      hasHfToken: !!config.hfToken,
+      hasOpenRouterKey: !!apiKey,
       modality
     });
 
     let assistantMessage = 'Извините, не удалось получить ответ.';
+    let quota = quotaBefore;
+    const analysisMemoryUpdated = messageLooksLikeDreamAnalysis(message) && passDreamData;
 
     try {
-      // Используем HuggingFace Router API (OpenAI-совместимый)
-      console.log('Using HuggingFace Router API...');
-      const chatCompletion = await hfClient.chat.completions.create({
-        model: 'deepseek-ai/DeepSeek-V3:novita',
-        messages: messages as any,
+      console.log('Using OpenRouter API...');
+      const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+        model,
+        messages,
         temperature,
-        max_tokens: maxTokens,
-      }, {
-        timeout: 120000, // 2 минуты таймаут
+        maxTokens,
       });
 
       assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      quota = await consumeAiTokens(req.user!.id, {
+        usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+        promptText: messages.map((m: any) => m.content).join('\n'),
+        completionText: assistantMessage
+      });
       
       // Убираем возможные "think" блоки, если модель их генерирует
       // DeepSeek-V3 может генерировать reasoning, но обычно это не проблема
       // Если нужно, можно добавить фильтрацию здесь
       
-      console.log('HuggingFace Router API response received successfully');
+      console.log('OpenRouter API response received successfully');
     } catch (error: any) {
-      console.error('HuggingFace Router API error:', error);
+      console.error('OpenRouter API error:', error);
       console.error('Error details:', {
         message: error.message,
         status: error.status,
@@ -637,9 +950,11 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       } else if (error.status === 503) {
         errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
       } else if (error.status === 401) {
-        errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+        errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+      } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
+        errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
       } else if (error.message) {
-        errorMessage = `Ошибка: ${error.message}`;
+        errorMessage = asUserFacingAiError(error);
       }
       
       throw new Error(errorMessage);
@@ -647,8 +962,11 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     res.json({
       message: assistantMessage,
+      quota,
+      analysisMemory: analysisMemoryUpdated ? assistantMessage : previousAnalysisMemory,
+      analysisMemoryUpdated,
       conversationHistory: [
-        ...conversationHistory,
+        ...safeConversationHistory,
         { role: 'user', content: message },
         { role: 'assistant', content: assistantMessage }
       ]
@@ -669,9 +987,9 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     } else if (error.status === 503) {
       errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
     } else if (error.status === 401) {
-      errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+      errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
     } else if (error.message) {
-      errorMessage = `Ошибка: ${error.message}`;
+      errorMessage = asUserFacingAiError(error);
     }
     
     res.status(error.status || 500).json({ 
@@ -684,15 +1002,17 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 // Чат ассистента исследователя
 router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
-    if (!hfClient) {
-      return res.status(500).json({ error: 'HuggingFace API не настроен. Установите HF_TOKEN в переменных окружения.' });
+    if (!openRouterClient) {
+      return res.status(500).json({ error: 'OpenRouter API не настроен. Установите OPENROUTER_API_KEY в переменных окружения.' });
     }
 
     const { message, conversationHistory = [] } = req.body ?? {};
+    const safeConversationHistory = trimConversationHistory(conversationHistory);
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Сообщение обязательно' });
     }
+    const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
 
     // Получаем все сны для исследователя
     const allDreams = await prisma.dream.findMany({
@@ -745,42 +1065,46 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
     // Формируем историю сообщений для DeepSeek-R1
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
-      ...conversationHistory.map((msg: any) => ({
+      ...safeConversationHistory.map((msg: any) => ({
         role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
         content: msg.content
       })),
       { role: 'user', content: userPrompt }
     ];
 
-    console.log('Sending request to HuggingFace Router API for researcher...', { 
-      model: 'deepseek-ai/DeepSeek-V3:novita',
+    const model = await getPlatformAiModel();
+    console.log('Sending request to OpenRouter API for researcher...', { 
+      model,
       messagesCount: messages.length,
-      hasHfToken: !!config.hfToken
+      hasOpenRouterKey: !!apiKey
     });
 
     let assistantMessage = 'Извините, не удалось получить ответ.';
+    let quota = quotaBefore;
 
     try {
-      // Используем HuggingFace Router API (OpenAI-совместимый)
-      console.log('Using HuggingFace Router API...');
-      const chatCompletion = await hfClient.chat.completions.create({
-        model: 'deepseek-ai/DeepSeek-V3:novita',
-        messages: messages as any,
+      console.log('Using OpenRouter API...');
+      const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+        model,
+        messages,
         temperature: 0.7,
-        max_tokens: 2048,
-      }, {
-        timeout: 120000, // 2 минуты таймаут
+        maxTokens: 900,
       });
 
       assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      quota = await consumeAiTokens(req.user!.id, {
+        usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+        promptText: messages.map((m: any) => m.content).join('\n'),
+        completionText: assistantMessage
+      });
       
       // Убираем возможные "think" блоки, если модель их генерирует
       // DeepSeek-V3 может генерировать reasoning, но обычно это не проблема
       // Если нужно, можно добавить фильтрацию здесь
       
-      console.log('HuggingFace Router API response received successfully');
+      console.log('OpenRouter API response received successfully');
     } catch (error: any) {
-      console.error('HuggingFace Router API error:', error);
+      console.error('OpenRouter API error:', error);
       console.error('Error details:', {
         message: error.message,
         status: error.status,
@@ -794,9 +1118,11 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
       } else if (error.status === 503) {
         errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
       } else if (error.status === 401) {
-        errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+        errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+      } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
+        errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
       } else if (error.message) {
-        errorMessage = `Ошибка: ${error.message}`;
+        errorMessage = asUserFacingAiError(error);
       }
       
       throw new Error(errorMessage);
@@ -804,8 +1130,9 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
 
     res.json({
       message: assistantMessage,
+      quota,
       conversationHistory: [
-        ...conversationHistory,
+        ...safeConversationHistory,
         { role: 'user', content: message },
         { role: 'assistant', content: assistantMessage }
       ]
@@ -819,9 +1146,11 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
     } else if (error.status === 503) {
       errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
     } else if (error.status === 401) {
-      errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+      errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+    } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
+      errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
     } else if (error.message) {
-      errorMessage = `Ошибка: ${error.message}`;
+      errorMessage = asUserFacingAiError(error);
     }
     
     res.status(error.status || 500).json({ 
@@ -834,15 +1163,17 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
 // Чат ассистента клиента (с ограничениями - только мягкая рефлексия)
 router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
-    if (!hfClient) {
-      return res.status(500).json({ error: 'HuggingFace API не настроен. Установите HF_TOKEN в переменных окружения.' });
+    if (!openRouterClient) {
+      return res.status(500).json({ error: 'OpenRouter API не настроен. Установите OPENROUTER_API_KEY в переменных окружения.' });
     }
 
     const { message, conversationHistory = [] } = req.body ?? {};
+    const safeConversationHistory = trimConversationHistory(conversationHistory);
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Сообщение обязательно' });
     }
+    const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
 
     // Находим клиента по email
     const client = await prisma.client.findFirst({
@@ -935,39 +1266,43 @@ router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), re
     // Формируем историю сообщений
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
-      ...conversationHistory.map((msg: any) => ({
+      ...safeConversationHistory.map((msg: any) => ({
         role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
         content: msg.content
       })),
       { role: 'user', content: userPrompt }
     ];
 
-    console.log('Sending request to HuggingFace Router API for client...', { 
-      model: 'deepseek-ai/DeepSeek-V3:novita',
+    const model = await getPlatformAiModel();
+    console.log('Sending request to OpenRouter API for client...', { 
+      model,
       messagesCount: messages.length,
-      hasHfToken: !!config.hfToken,
+      hasOpenRouterKey: !!apiKey,
       clientId: client.id
     });
 
     let assistantMessage = 'Извините, не удалось получить ответ.';
+    let quota = quotaBefore;
 
     try {
-      // Используем HuggingFace Router API (OpenAI-совместимый)
-      console.log('Using HuggingFace Router API for client...');
-      const chatCompletion = await hfClient.chat.completions.create({
-        model: 'deepseek-ai/DeepSeek-V3:novita',
-        messages: messages as any,
+      console.log('Using OpenRouter API for client...');
+      const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+        model,
+        messages,
         temperature: 0.7,
-        max_tokens: 2048,
-      }, {
-        timeout: 120000, // 2 минуты таймаут
+        maxTokens: 900,
       });
 
       assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      quota = await consumeAiTokens(req.user!.id, {
+        usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+        promptText: messages.map((m: any) => m.content).join('\n'),
+        completionText: assistantMessage
+      });
       
-      console.log('HuggingFace Router API response received successfully for client');
+      console.log('OpenRouter API response received successfully for client');
     } catch (error: any) {
-      console.error('HuggingFace Router API error for client:', error);
+      console.error('OpenRouter API error for client:', error);
       console.error('Error details:', {
         message: error.message,
         status: error.status,
@@ -981,9 +1316,11 @@ router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), re
       } else if (error.status === 503) {
         errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
       } else if (error.status === 401) {
-        errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+        errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+      } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
+        errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
       } else if (error.message) {
-        errorMessage = `Ошибка: ${error.message}`;
+        errorMessage = asUserFacingAiError(error);
       }
       
       throw new Error(errorMessage);
@@ -991,8 +1328,9 @@ router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), re
 
     res.json({
       message: assistantMessage,
+      quota,
       conversationHistory: [
-        ...conversationHistory,
+        ...safeConversationHistory,
         { role: 'user', content: message },
         { role: 'assistant', content: assistantMessage }
       ]
@@ -1013,9 +1351,11 @@ router.post('/ai/client/chat', requireAuth, requireRole(['client', 'admin']), re
     } else if (error.status === 503) {
       errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
     } else if (error.status === 401) {
-      errorMessage = 'Неверный HuggingFace токен. Проверьте HF_TOKEN в .env файле.';
+      errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+    } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
+      errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
     } else if (error.message) {
-      errorMessage = `Ошибка: ${error.message}`;
+      errorMessage = asUserFacingAiError(error);
     }
     
     res.status(error.status || 500).json({ 
@@ -1127,7 +1467,7 @@ router.post('/ai/psychologist/chats', requireAuth, requireRole(['psychologist', 
       } else {
         // Создать новый чат (если ID был передан, но чата нет в БД)
         chat = await prisma.aIChat.create({
-          data: chatData,
+          data: { id, ...chatData },
           include: {
             client: {
               select: {

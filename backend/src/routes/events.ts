@@ -23,6 +23,34 @@ function generateRoomId(): string {
 function generateRoomUrl(roomId: string): string {
   return `${config.frontendUrl}/room/${roomId}`;
 }
+
+function parseEventDateInput(value: unknown): Date | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  // datetime-local приходит без таймзоны: 2026-05-07T18:00
+  // На проде (UTC) это нельзя парсить через new Date(raw), иначе будет сдвиг.
+  const localMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (localMatch) {
+    const [, y, m, d, hh, mm, ss] = localMatch;
+    const year = Number(y);
+    const month = Number(m) - 1;
+    const day = Number(d);
+    const hour = Number(hh);
+    const minute = Number(mm);
+    const second = Number(ss || '0');
+    const utcMs = Date.UTC(year, month, day, hour, minute, second) - (config.eventTimezoneOffsetMinutes * 60 * 1000);
+    const result = new Date(utcMs);
+    return Number.isNaN(result.getTime()) ? null : result;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
 function isGuestAccessibleType(eventType: string | null | undefined): boolean {
   return eventType === 'video' || eventType === 'call';
 }
@@ -60,6 +88,14 @@ router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
 
 router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   const { title, type, description, startsAt, endsAt, clientId } = req.body ?? {};
+  const parsedStartsAt = parseEventDateInput(startsAt);
+  const parsedEndsAt = endsAt ? parseEventDateInput(endsAt) : null;
+  if (!parsedStartsAt) {
+    return res.status(400).json({ error: 'Invalid startsAt format' });
+  }
+  if (endsAt && !parsedEndsAt) {
+    return res.status(400).json({ error: 'Invalid endsAt format' });
+  }
   
   // Если это сессия с клиентом, проверяем клиента заранее
   let client = null;
@@ -83,8 +119,8 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
       title, 
       type, 
       description, 
-      startsAt: new Date(startsAt), 
-      endsAt: endsAt ? new Date(endsAt) : null, 
+      startsAt: parsedStartsAt,
+      endsAt: parsedEndsAt,
       createdBy: req.user!.id,
       clientId: type === 'session' ? clientId : null,
       sessionStatus: type === 'session' && clientId ? 'pending' : null,
@@ -107,7 +143,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
       await prisma.therapySession.create({
         data: {
           clientId: clientId,
-          date: new Date(startsAt),
+          date: parsedStartsAt,
           summary: description || title,
           videoUrl: null,
           eventId: event.id
@@ -136,7 +172,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
                 userId: clientUser.id,
                 type: 'session_invitation',
                 title: 'Приглашение на сессию',
-                message: `${psychologistName} приглашает вас на сессию "${title}" ${new Date(startsAt).toLocaleString('ru-RU')}`,
+                message: `${psychologistName} приглашает вас на сессию "${title}" ${parsedStartsAt.toLocaleString('ru-RU', { timeZone: config.appTimeZone })}`,
                 entityType: 'event',
                 entityId: event.id,
                 read: false

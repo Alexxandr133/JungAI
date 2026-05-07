@@ -8,6 +8,9 @@ type AdminUserRow = {
   id: string;
   email: string;
   role: string;
+  aiTokenPlan: 'standard' | 'medium' | 'large';
+  aiTokensUsed: number;
+  aiTokensResetAt: string;
   isVerified: boolean;
   createdAt: string;
   profileName: string | null;
@@ -25,6 +28,10 @@ type CrmClient = {
   psychologistEmail: string | null;
   psychologistName: string | null;
   createdAt: string;
+};
+type PlatformAiModelSettings = {
+  model: string;
+  options: string[];
 };
 
 const DND_MIME = 'application/jungai-client-id';
@@ -52,6 +59,9 @@ export default function AdminUserManagement() {
   const [dragOverPsych, setDragOverPsych] = useState<string | null>(null);
   const [validateBusy, setValidateBusy] = useState(false);
   const [validateOk, setValidateOk] = useState<string | null>(null);
+  const [platformAiModel, setPlatformAiModel] = useState('');
+  const [platformAiOptions, setPlatformAiOptions] = useState<string[]>([]);
+  const [platformAiBusy, setPlatformAiBusy] = useState(false);
 
   const [qDebounced, setQDebounced] = useState('');
 
@@ -70,15 +80,18 @@ export default function AdminUserManagement() {
         const params = new URLSearchParams();
         if (roleFilter) params.set('role', roleFilter);
         if (qDebounced.trim()) params.set('q', qDebounced.trim());
-        const [u, p, c] = await Promise.all([
+        const [u, p, c, modelSettings] = await Promise.all([
           api<{ items: AdminUserRow[] }>(`/api/admin/users?${params.toString()}`, { token }),
           api<{ items: PsychOption[] }>('/api/admin/users/psychologists-options', { token }),
-          api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token })
+          api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token }),
+          api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token })
         ]);
         if (cancelled) return;
         setUsers(u.items || []);
         setPsychOptions(p.items || []);
         setClientsCrm(c.items || []);
+        setPlatformAiModel(modelSettings.model || '');
+        setPlatformAiOptions(modelSettings.options || []);
       } catch (e: unknown) {
         if (!cancelled) setError((e as Error).message || 'Ошибка загрузки');
       } finally {
@@ -98,14 +111,17 @@ export default function AdminUserManagement() {
       const params = new URLSearchParams();
       if (roleFilter) params.set('role', roleFilter);
       if (qDebounced.trim()) params.set('q', qDebounced.trim());
-      const [u, p, c] = await Promise.all([
+      const [u, p, c, modelSettings] = await Promise.all([
         api<{ items: AdminUserRow[] }>(`/api/admin/users?${params.toString()}`, { token }),
         api<{ items: PsychOption[] }>('/api/admin/users/psychologists-options', { token }),
-        api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token })
+        api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token }),
+        api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token })
       ]);
       setUsers(u.items || []);
       setPsychOptions(p.items || []);
       setClientsCrm(c.items || []);
+      setPlatformAiModel(modelSettings.model || '');
+      setPlatformAiOptions(modelSettings.options || []);
     } catch (e: unknown) {
       setError((e as Error).message || 'Ошибка загрузки');
     } finally {
@@ -128,6 +144,24 @@ export default function AdminUserManagement() {
       setError((e as Error).message || 'Не удалось валидировать');
     } finally {
       setValidateBusy(false);
+    }
+  }
+
+  async function updatePlatformAiModel(model: string) {
+    if (!token || !model || model === platformAiModel) return;
+    setPlatformAiBusy(true);
+    setError(null);
+    try {
+      await api('/api/admin/users/settings/ai-model', {
+        method: 'PATCH',
+        token,
+        body: { model }
+      });
+      setPlatformAiModel(model);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Не удалось изменить модель AI');
+    } finally {
+      setPlatformAiBusy(false);
     }
   }
 
@@ -216,6 +250,24 @@ export default function AdminUserManagement() {
       await refreshAll();
     } catch (e: unknown) {
       setError((e as Error).message || 'Ошибка');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateAiPlan(u: AdminUserRow, plan: 'standard' | 'medium' | 'large') {
+    if (!token) return;
+    setBusyId(u.id);
+    setError(null);
+    try {
+      await api(`/api/admin/users/${u.id}/ai-token-plan`, {
+        method: 'PATCH',
+        token,
+        body: { plan }
+      });
+      await refreshAll();
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Ошибка обновления плана токенов');
     } finally {
       setBusyId(null);
     }
@@ -315,6 +367,31 @@ export default function AdminUserManagement() {
           </div>
         </div>
 
+        <div className="card" style={{ padding: 14, marginBottom: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
+          <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            Модель AI по умолчанию для всей платформы
+          </label>
+          <select
+            value={platformAiModel}
+            onChange={(e) => void updatePlatformAiModel(e.target.value)}
+            disabled={platformAiBusy}
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+              fontSize: 14
+            }}
+          >
+            {platformAiOptions.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        </div>
+
         {validateOk && (
           <div
             className="card"
@@ -397,6 +474,7 @@ export default function AdminUserManagement() {
                     <th style={{ padding: '10px 8px' }}>Имя</th>
                     <th style={{ padding: '10px 8px' }}>Вериф.</th>
                     <th style={{ padding: '10px 8px' }}>Клиенты</th>
+                    <th style={{ padding: '10px 8px' }}>AI план</th>
                     <th style={{ padding: '10px 8px' }}>Действия</th>
                   </tr>
                 </thead>
@@ -421,6 +499,29 @@ export default function AdminUserManagement() {
                       </td>
                       <td style={{ padding: '10px 8px' }}>
                         {u.role === 'psychologist' || u.role === 'admin' ? u.clientCount ?? 0 : '—'}
+                      </td>
+                      <td style={{ padding: '10px 8px', minWidth: 170 }}>
+                        <select
+                          value={u.aiTokenPlan || 'standard'}
+                          disabled={busyId === u.id}
+                          onChange={(e) => updateAiPlan(u, e.target.value as 'standard' | 'medium' | 'large')}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            background: 'var(--surface-2)',
+                            color: 'var(--text)',
+                            fontSize: 12
+                          }}
+                        >
+                          <option value="standard">standard</option>
+                          <option value="medium">medium</option>
+                          <option value="large">large</option>
+                        </select>
+                        <div className="small" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
+                          {u.aiTokensUsed?.toLocaleString('ru-RU') || 0} ток.
+                        </div>
                       </td>
                       <td style={{ padding: '10px 8px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
