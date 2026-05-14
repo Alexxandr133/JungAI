@@ -214,10 +214,29 @@ model Event {
   // Связь с голосовой комнатой
   voiceRoom   VoiceRoom?
   
-  // Статус принятия сессии клиентом (только для type='session')
+  // Статус принятия сессии (только для type='session')
   sessionStatus String? // 'pending', 'accepted', 'declined'
   sessionDeclineComment String? // Комментарий при отклонении
+  /// true: клиент записался сам — подтверждает психолог; false: приглашение от психолога — подтверждает клиент
+  clientRequestedSession Boolean @default(false)
   actualStartTime DateTime? // Фактическое время начала (если начато раньше)
+}
+
+/// Заявка на слот с публичной страницы календаря (гость без аккаунта)
+model CalendarPublicBookingRequest {
+  id               String    @id @default(cuid())
+  createdAt        DateTime  @default(now())
+  psychologistId   String
+  slotStart        DateTime
+  slotEnd          DateTime?
+  contactName      String
+  contactEmail     String
+  contactPhone     String?
+  message          String?
+  status           String    @default("pending")
+  declineReason    String?
+  decidedAt        DateTime?
+  eventId          String?   @unique
 }
 
 // Голосовые комнаты для событий

@@ -133,6 +133,10 @@ export default function PsychologistAIChat() {
   const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string; avatarUrl?: string }>>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [clientModeEnabled, setClientModeEnabled] = useState(true); // Тумблер для работы с клиентами
+  const clientModeEnabledRef = useRef(clientModeEnabled);
+  useEffect(() => {
+    clientModeEnabledRef.current = clientModeEnabled;
+  }, [clientModeEnabled]);
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
   const [isSending, setIsSending] = useState(false); // Дополнительная блокировка отправки
   const [isMobileView, setIsMobileView] = useState(false);
@@ -709,8 +713,8 @@ export default function PsychologistAIChat() {
         method: 'POST',
         token,
         body: {
-          clientModeEnabled,
-          clientId: clientModeEnabled ? (selectedClientId || undefined) : undefined,
+          clientModeEnabled: clientModeEnabledRef.current,
+          clientId: clientModeEnabledRef.current ? (selectedClientId || undefined) : undefined,
           includeDreamsInContext: aiSettings.includeDreamsInContext
         }
       });
@@ -811,8 +815,8 @@ export default function PsychologistAIChat() {
           body: {
             message: userMessage,
             conversationHistory: conversationHistory, // Используем правильную историю
-            clientId: clientModeEnabled ? (selectedClientId || undefined) : undefined,
-            clientModeEnabled: clientModeEnabled,
+            clientId: clientModeEnabledRef.current ? (selectedClientId || undefined) : undefined,
+            clientModeEnabled: clientModeEnabledRef.current === true,
             modality: aiSettings.modality,
             temperature: aiSettings.temperature,
             responseStyle: aiSettings.responseStyle,
@@ -1605,23 +1609,17 @@ export default function PsychologistAIChat() {
                     />
                     <span>Режим работы с клиентами</span>
                   </label>
-                  <div style={{ 
-                    fontSize: isMobileView ? 10 : 11, 
-                    color: 'var(--text-muted)', 
-                    paddingLeft: 30,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}>
-                    <span style={{ 
-                      display: 'inline-block',
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: clientModeEnabled ? '#10b981' : '#6b7280',
-                      marginRight: 4
-                    }}></span>
-                    {clientModeEnabled ? 'Доступ к данным клиентов' : 'Обобщенный режим'}
+                  <div
+                    className="small"
+                    style={{
+                      fontSize: isMobileView ? 11 : 12,
+                      color: 'var(--text-muted)',
+                      paddingLeft: 30,
+                      lineHeight: 1.45,
+                      fontWeight: 600
+                    }}
+                  >
+                    {clientModeEnabled ? 'включен' : 'выключен'}
                   </div>
                 </div>
               </div>

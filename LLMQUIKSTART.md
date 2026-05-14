@@ -249,3 +249,48 @@ JingAI — monorepo-платформа для психологов и клиен
 - затем добавить текущие свежие логи/ошибки,
 - отдельно сформулировать цель (например: “только деплой без миграций и без риска БД”).
 
+---
+
+## 18) Оперативные заметки (2026-05-07)
+
+### 18.1 Критично по SQLite на проде
+- Рабочая прод-БД: `backend/prisma/prod.db` (не `dev.db`).
+- На сервере был обнаружен пустой файл `backend/prisma/dev.db` (0 bytes), из-за чего `no such table: User`.
+- Обязательная настройка в `backend/.env`:
+  - `DATABASE_URL=file:/var/www/jingai/backend/prisma/prod.db`
+- Перед любыми миграциями:
+  - остановить backend,
+  - сделать backup именно `prod.db`,
+  - проверить `.tables` и `select count(*) from User;`.
+
+### 18.2 AI / OpenRouter (platform-wide)
+- Чаты психолога и клиента работают через OpenRouter (единая OpenAI-compatible интеграция).
+- Модель по умолчанию задается платформенно через админку (`PlatformSetting` / `ai_model_default`), пользовательский выбор модели убран.
+- Рекомендуемые env-переменные:
+  - `OPENROUTER_API_KEY`
+  - `OPENROUTER_SITE_URL=https://jung-ai.ru`
+  - `OPENROUTER_SITE_NAME=JungAI`
+  - `AI_MODEL_DEFAULT=deepseek/deepseek-v4-flash`
+  - `AI_ALLOWED_MODELS=...` (актуальный whitelist)
+- `HF_TOKEN` лучше не использовать на проде, чтобы избежать неявного fallback.
+
+### 18.3 Время событий (/events) и timezone
+- Исправлен прод-сдвиг времени для `datetime-local` (когда 18:00 превращалось в 21:00).
+- Добавлены env-параметры:
+  - `APP_TIME_ZONE=Europe/Moscow`
+  - `EVENT_TIMEZONE_OFFSET_MINUTES=180`
+- После деплоя обязательно проверить создание встречи на 18:00 и отображение без сдвига.
+
+### 18.4 Деплой-практика, подтвержденная на проде
+- Безопасная последовательность:
+  1. `pm2 stop jingai-backend`
+  2. backup БД и backup `backend/uploads`
+  3. `git pull --ff-only`
+  4. `npm ci`
+  5. `npm -w backend run prisma:generate`
+  6. `npm -w backend run prisma:migrate:deploy`
+  7. `npm run build:backend && npm run build:frontend`
+  8. `pm2 restart jingai-backend --update-env`
+- Фронт как статика после `build:frontend` отдельного restart обычно не требует.
+- Нельзя использовать destructive git-команды (`git clean`, `reset --hard`) без необходимости: риск для runtime-файлов (uploads).
+

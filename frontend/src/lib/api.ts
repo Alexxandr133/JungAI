@@ -46,7 +46,8 @@ export async function api<T = unknown>(path: string, options: { method?: HttpMet
   }
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
   let body: BodyInit | null | undefined = null;
-  if (options.body) {
+  // Нельзя использовать `if (options.body)` — при значении `false` тело не сериализуется и POST уходит без JSON.
+  if (options.body !== undefined && options.body !== null) {
     if (isFormData) {
       body = options.body as BodyInit;
     } else {

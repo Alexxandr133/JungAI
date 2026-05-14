@@ -24,6 +24,7 @@ import MaterialsList from './pages/materials/List'
 import MaterialDetail from './pages/materials/Detail'
 import ProfilePage from './pages/profile/Profile'
 import EventsPage from './pages/events/Events'
+import PublicCalendarBookPage from './pages/events/PublicCalendarBookPage'
 import AmplificationsPage from './pages/research/Amplifications'
 import AIRecommendationsPage from './pages/ai/Recommendations'
 import TasksPage from './pages/tasks/Tasks'
@@ -481,6 +482,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                     <ClientAIChat />
                   </ProtectedRoute>
                 }
+              />
+
+              <Route
+                path="/book/calendar"
+                element={<PublicCalendarBookPage />}
               />
 
               <Route

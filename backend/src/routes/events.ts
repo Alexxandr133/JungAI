@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import { randomBytes } from 'crypto';
@@ -7,6 +8,7 @@ import { io } from '../server';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { AccessToken } from 'livekit-server-sdk';
 import { config } from '../config';
+import { sendPublicBookingAcceptedEmail, sendPublicBookingDeclinedEmail, isEmailTransportConfigured } from '../utils/email';
 
 const router = Router();
 
@@ -22,6 +24,24 @@ function generateRoomId(): string {
 // Функция для генерации URL комнаты
 function generateRoomUrl(roomId: string): string {
   return `${config.frontendUrl}/room/${roomId}`;
+}
+
+function eventEffectiveEnd(startsAt: Date, endsAt: Date | null | undefined): Date {
+  if (endsAt && endsAt.getTime() > startsAt.getTime()) return endsAt;
+  return new Date(startsAt.getTime() + 3600000);
+}
+
+function slotOverlapsExisting(
+  slotStart: Date,
+  slotEnd: Date,
+  rows: Array<{ startsAt: Date; endsAt: Date | null }>
+): boolean {
+  for (const ex of rows) {
+    const exStart = new Date(ex.startsAt);
+    const exEnd = eventEffectiveEnd(exStart, ex.endsAt);
+    if (slotStart.getTime() < exEnd.getTime() && exStart.getTime() < slotEnd.getTime()) return true;
+  }
+  return false;
 }
 
 function parseEventDateInput(value: unknown): Date | null {
@@ -70,6 +90,363 @@ async function canUserAccessEvent(event: any, user: { id: string; role: string; 
   if (client.psychologistId === user.id) return true;
   return Boolean(client.email && user.email && client.email.toLowerCase() === user.email.toLowerCase());
 }
+
+const CAL_SHARE_TOKEN_EXPIRES_IN = '30d';
+
+router.post('/events/calendar-share', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const prefs = req.body?.prefs;
+    const shareToken = jwt.sign(
+      {
+        typ: 'cal_share_v1',
+        pid: req.user!.id,
+        prefs: prefs && typeof prefs === 'object' ? prefs : {}
+      },
+      config.jwtSecret,
+      { expiresIn: CAL_SHARE_TOKEN_EXPIRES_IN }
+    );
+    const base = String(config.frontendUrl || '').replace(/\/$/, '');
+    const url = `${base}/book/calendar?t=${encodeURIComponent(shareToken)}`;
+    res.json({ token: shareToken, url });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Failed to create link' });
+  }
+});
+
+router.get('/events/public-calendar', async (req, res) => {
+  const raw = typeof req.query.t === 'string' ? req.query.t : typeof req.query.token === 'string' ? req.query.token : '';
+  if (!raw) return res.status(400).json({ error: 'Missing token' });
+  try {
+    const decoded = jwt.verify(raw, config.jwtSecret) as jwt.JwtPayload & { typ?: string; pid?: string; prefs?: unknown };
+    if (decoded.typ !== 'cal_share_v1' || !decoded.pid || typeof decoded.pid !== 'string') {
+      return res.status(403).json({ error: 'Invalid calendar link' });
+    }
+    const since = new Date(Date.now() - 120 * 86400000);
+    const items = await prisma.event.findMany({
+      where: { createdBy: decoded.pid, startsAt: { gte: since } },
+      orderBy: { startsAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        startsAt: true,
+        endsAt: true
+      }
+    });
+    res.json({
+      items,
+      prefs: decoded.prefs && typeof decoded.prefs === 'object' ? decoded.prefs : {}
+    });
+  } catch {
+    return res.status(403).json({ error: 'Invalid or expired calendar link' });
+  }
+});
+
+router.post('/events/public-calendar/book', async (req, res) => {
+  const { token, slotStart, slotEnd, contactName, contactEmail, contactPhone, message } = req.body ?? {};
+  if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Missing token' });
+  const nameOk = typeof contactName === 'string' && contactName.trim().length >= 2;
+  const emailOk = typeof contactEmail === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim());
+  if (!nameOk || !emailOk) {
+    return res.status(400).json({ error: 'Укажите имя и корректный email' });
+  }
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload & { typ?: string; pid?: string };
+    if (decoded.typ !== 'cal_share_v1' || !decoded.pid || typeof decoded.pid !== 'string') {
+      return res.status(403).json({ error: 'Invalid calendar link' });
+    }
+    const parsedStart = parseEventDateInput(slotStart);
+    if (!parsedStart) return res.status(400).json({ error: 'Invalid slotStart' });
+    const parsedEnd = slotEnd ? parseEventDateInput(slotEnd) : null;
+    if (slotEnd && !parsedEnd) return res.status(400).json({ error: 'Invalid slotEnd' });
+
+    const row = await prisma.calendarPublicBookingRequest.create({
+      data: {
+        psychologistId: decoded.pid,
+        slotStart: parsedStart,
+        slotEnd: parsedEnd,
+        contactName: String(contactName).trim().slice(0, 200),
+        contactEmail: String(contactEmail).trim().slice(0, 320),
+        contactPhone: typeof contactPhone === 'string' ? contactPhone.trim().slice(0, 40) || null : null,
+        message: typeof message === 'string' ? message.trim().slice(0, 2000) || null : null,
+        status: 'pending'
+      }
+    });
+    res.json({ ok: true, id: row.id });
+  } catch {
+    return res.status(403).json({ error: 'Invalid or expired calendar link' });
+  }
+});
+
+router.get('/events/psychologist-calendar-for-client', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findFirst({
+      where: { email: req.user!.email },
+      select: { id: true, name: true, psychologistId: true }
+    });
+    if (!client) return res.status(404).json({ error: 'Профиль клиента не найден' });
+    if (!client.psychologistId || client.psychologistId.startsWith('temp-')) {
+      return res.status(400).json({ error: 'У вас ещё не назначен психолог' });
+    }
+    const psychologist = await prisma.user.findFirst({
+      where: { id: client.psychologistId, role: { in: ['psychologist', 'admin'] } },
+      include: { profile: { select: { name: true } } }
+    });
+    if (!psychologist) return res.status(404).json({ error: 'Психолог не найден' });
+    const since = new Date(Date.now() - 120 * 86400000);
+    const items = await prisma.event.findMany({
+      where: { createdBy: psychologist.id, startsAt: { gte: since } },
+      orderBy: { startsAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        startsAt: true,
+        endsAt: true
+      }
+    });
+    res.json({
+      items,
+      prefs: {},
+      psychologistName: psychologist.profile?.name || psychologist.email?.split('@')[0] || 'Специалист'
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось загрузить календарь' });
+  }
+});
+
+router.post('/events/client-book-session-slot', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const { slotStart, slotEnd } = req.body ?? {};
+    const parsedStart = parseEventDateInput(slotStart);
+    if (!parsedStart) return res.status(400).json({ error: 'Некорректное время начала' });
+    const parsedEnd = slotEnd ? parseEventDateInput(slotEnd) : null;
+    if (slotEnd && !parsedEnd) return res.status(400).json({ error: 'Некорректное время окончания' });
+    const endsAtResolved = parsedEnd && parsedEnd.getTime() > parsedStart.getTime() ? parsedEnd : new Date(parsedStart.getTime() + 3600000);
+
+    if (parsedStart.getTime() < Date.now() - 30_000) {
+      return res.status(400).json({ error: 'Нельзя записаться на прошедшее время' });
+    }
+
+    const client = await prisma.client.findFirst({
+      where: { email: req.user!.email }
+    });
+    if (!client) return res.status(404).json({ error: 'Профиль клиента не найден' });
+    if (!client.psychologistId || client.psychologistId.startsWith('temp-')) {
+      return res.status(400).json({ error: 'У вас ещё не назначен психолог' });
+    }
+
+    const psychologist = await prisma.user.findFirst({
+      where: { id: client.psychologistId, role: { in: ['psychologist', 'admin'] } }
+    });
+    if (!psychologist) return res.status(404).json({ error: 'Психолог не найден' });
+
+    const existing = await prisma.event.findMany({
+      where: {
+        createdBy: psychologist.id,
+        startsAt: { lt: endsAtResolved, gte: new Date(parsedStart.getTime() - 72 * 3600000) }
+      },
+      select: { startsAt: true, endsAt: true }
+    });
+    if (slotOverlapsExisting(parsedStart, endsAtResolved, existing)) {
+      return res.status(409).json({ error: 'Это время уже занято. Выберите другой слот.' });
+    }
+
+    const roomId = generateRoomId();
+    const roomUrl = generateRoomUrl(roomId);
+    const title = `Сессия: ${client.name}`;
+
+    const event = await prisma.event.create({
+      data: {
+        title,
+        type: 'session',
+        description: null,
+        startsAt: parsedStart,
+        endsAt: endsAtResolved,
+        createdBy: psychologist.id,
+        clientId: client.id,
+        sessionStatus: 'pending',
+        clientRequestedSession: true,
+        voiceRoom: {
+          create: {
+            roomId,
+            roomUrl
+          }
+        }
+      } as any,
+      include: {
+        voiceRoom: true
+      }
+    });
+
+    try {
+      await prisma.therapySession.create({
+        data: {
+          clientId: client.id,
+          date: parsedStart,
+          summary: title,
+          videoUrl: null,
+          eventId: event.id
+        }
+      });
+    } catch (err: any) {
+      console.error('client self-book therapy session failed', err);
+    }
+
+    try {
+      await (prisma as any).notification.create({
+        data: {
+          userId: psychologist.id,
+          type: 'session_booked_by_client',
+          title: 'Клиент записался на сессию',
+          message: `${client.name} выбрал(а) время: ${parsedStart.toLocaleString('ru-RU', { timeZone: config.appTimeZone })}`,
+          entityType: 'event',
+          entityId: event.id,
+          read: false
+        }
+      });
+    } catch (err: any) {
+      console.error('client self-book psychologist notification failed', err);
+    }
+
+    res.status(201).json(event);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось записаться' });
+  }
+});
+
+router.get('/events/calendar-booking-requests', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
+  const items = await prisma.calendarPublicBookingRequest.findMany({
+    where: { psychologistId: req.user!.id, status: 'pending' },
+    orderBy: { createdAt: 'asc' }
+  });
+  res.json({ items });
+});
+
+router.post(
+  '/events/calendar-booking-requests/:id/accept',
+  requireAuth,
+  requireRole(['psychologist', 'researcher', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    const id = String(req.params.id);
+    const reqRow = await prisma.calendarPublicBookingRequest.findFirst({
+      where: { id, psychologistId: req.user!.id, status: 'pending' }
+    });
+    if (!reqRow) return res.status(404).json({ error: 'Заявка не найдена или уже обработана' });
+    const endsAtResolved = reqRow.slotEnd ?? new Date(reqRow.slotStart.getTime() + 3600000);
+    const roomId = generateRoomId();
+    const roomUrl = generateRoomUrl(roomId);
+    const title = `Встреча: ${reqRow.contactName}`;
+    const description = [reqRow.message, reqRow.contactPhone ? `Тел: ${reqRow.contactPhone}` : null].filter(Boolean).join('\n');
+    try {
+      const event = await prisma.event.create({
+        data: {
+          title,
+          type: 'video',
+          description: description || null,
+          startsAt: reqRow.slotStart,
+          endsAt: endsAtResolved,
+          createdBy: req.user!.id,
+          clientId: null,
+          sessionStatus: null,
+          voiceRoom: {
+            create: {
+              roomId,
+              roomUrl
+            }
+          }
+        } as any,
+        include: {
+          voiceRoom: true
+        }
+      });
+      await prisma.calendarPublicBookingRequest.update({
+        where: { id },
+        data: {
+          status: 'accepted',
+          decidedAt: new Date(),
+          eventId: event.id,
+          declineReason: null
+        }
+      });
+      const psych = await prisma.user.findUnique({
+        where: { id: req.user!.id },
+        include: { profile: true }
+      });
+      const psychName = psych?.profile?.name || psych?.email || 'Специалист';
+      const whenLabel = reqRow.slotStart.toLocaleString('ru-RU', {
+        timeZone: config.appTimeZone,
+        dateStyle: 'long',
+        timeStyle: 'short'
+      });
+      const vr = event.voiceRoom;
+      const guestJoinUrl = vr ? `${vr.roomUrl}${String(vr.roomUrl).includes('?') ? '&' : '?'}guest=1` : '';
+      let emailSent = false;
+      try {
+        if (guestJoinUrl && isEmailTransportConfigured()) {
+          await sendPublicBookingAcceptedEmail({
+            to: reqRow.contactEmail,
+            psychologistName: psychName,
+            whenLabel,
+            guestJoinUrl
+          });
+          emailSent = true;
+        }
+      } catch (mailErr: any) {
+        console.error('calendar booking accept email failed', mailErr);
+      }
+      res.json({ ok: true, event, emailSent });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Не удалось создать встречу' });
+    }
+  }
+);
+
+router.post(
+  '/events/calendar-booking-requests/:id/decline',
+  requireAuth,
+  requireRole(['psychologist', 'researcher', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    const id = String(req.params.id);
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (reason.length < 3) {
+      return res.status(400).json({ error: 'Укажите причину отклонения (не менее 3 символов).' });
+    }
+    const reqRow = await prisma.calendarPublicBookingRequest.findFirst({
+      where: { id, psychologistId: req.user!.id, status: 'pending' }
+    });
+    if (!reqRow) return res.status(404).json({ error: 'Заявка не найдена или уже обработана' });
+    await prisma.calendarPublicBookingRequest.update({
+      where: { id },
+      data: {
+        status: 'declined',
+        declineReason: reason.slice(0, 2000),
+        decidedAt: new Date()
+      }
+    });
+    const psych = await prisma.user.findUnique({
+      where: { id: req.user!.id },
+      include: { profile: true }
+    });
+    const psychName = psych?.profile?.name || psych?.email || 'Специалист';
+    let emailSent = false;
+    try {
+      if (isEmailTransportConfigured()) {
+        await sendPublicBookingDeclinedEmail({
+          to: reqRow.contactEmail,
+          psychologistName: psychName,
+          reason
+        });
+        emailSent = true;
+      }
+    } catch (mailErr: any) {
+      console.error('calendar booking decline email failed', mailErr);
+    }
+    res.json({ ok: true, emailSent });
+  }
+);
 
 router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
   const where: any = {};
@@ -241,17 +618,17 @@ router.post('/events/:id/start-early', requireAuth, async (req: AuthedRequest, r
   }
 });
 
-// Принять или отклонить сессию (для клиентов)
+// Принять или отклонить сессию: клиент отвечает на приглашение психолога; психолог — на самозапись клиента
 router.put('/events/:id/session-status', requireAuth, async (req: AuthedRequest, res) => {
   const id = String(req.params.id);
-  const { status, comment } = req.body ?? {}; // status: 'accepted' | 'declined', comment: string (опционально)
+  const { status, comment } = req.body ?? {};
 
   if (!status || !['accepted', 'declined'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status. Must be "accepted" or "declined"' });
   }
 
   try {
-    const event = await prisma.event.findUnique({ 
+    const event = await prisma.event.findUnique({
       where: { id },
       include: { voiceRoom: true }
     });
@@ -260,54 +637,103 @@ router.put('/events/:id/session-status', requireAuth, async (req: AuthedRequest,
       return res.status(404).json({ error: 'Event not found' });
     }
 
-    // Проверяем, что это сессия
     if (event.type !== 'session') {
       return res.status(400).json({ error: 'This event is not a session' });
     }
 
-    // Проверяем, что у события есть clientId
-    const eventWithClientId = event as typeof event & { clientId?: string | null };
-    if (!eventWithClientId.clientId) {
+    const eventClientId = (event as { clientId?: string | null }).clientId;
+    if (!eventClientId) {
       return res.status(400).json({ error: 'This session has no client assigned' });
     }
 
-    // Проверяем права доступа: клиент может изменять только свои сессии
-    // Для клиентов используем clientId как идентификатор
-    // В реальной системе нужно проверить связь между req.user и clientId
-    // Пока разрешаем изменение, если пользователь имеет доступ
+    if (event.sessionStatus !== 'pending') {
+      return res.status(400).json({ error: 'Сессия уже обработана' });
+    }
 
-    // Обновляем статус сессии
+    const clientRequested = Boolean((event as { clientRequestedSession?: boolean }).clientRequestedSession);
+
+    const client = await prisma.client.findUnique({ where: { id: eventClientId } });
+    if (!client) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const isAdmin = req.user!.role === 'admin';
+    const isPsychCreator =
+      (req.user!.role === 'psychologist' || req.user!.role === 'researcher' || req.user!.role === 'admin') &&
+      event.createdBy === req.user!.id;
+    const clientUserMatches =
+      (req.user!.role === 'client' || req.user!.role === 'admin') &&
+      Boolean(client.email && req.user!.email && client.email.toLowerCase() === req.user!.email.toLowerCase());
+
+    if (clientRequested) {
+      if (!isPsychCreator && !isAdmin) {
+        return res.status(403).json({ error: 'Только специалист может подтвердить или отклонить эту запись' });
+      }
+    } else {
+      if (!clientUserMatches && !isAdmin) {
+        return res.status(403).json({ error: 'Только клиент может ответить на это приглашение' });
+      }
+    }
+
+    const declineComment =
+      status === 'declined' && typeof comment === 'string' ? comment.trim().slice(0, 2000) || null : null;
+
     const updatedEvent = await prisma.event.update({
       where: { id },
       data: {
         sessionStatus: status,
-        sessionDeclineComment: status === 'declined' ? (comment || null) : null
+        sessionDeclineComment: declineComment
       } as any,
       include: {
         voiceRoom: true
       }
     });
 
-    // Создаем уведомление для психолога о решении клиента
-    try {
-      const client = await prisma.client.findUnique({ where: { id: eventWithClientId.clientId } });
-      if (client) {
+    if (clientRequested) {
+      try {
+        if (client.email) {
+          const clientUser = await prisma.user.findFirst({
+            where: { email: client.email, role: 'client' }
+          });
+          if (clientUser) {
+            await (prisma as any).notification.create({
+              data: {
+                userId: clientUser.id,
+                type: status === 'accepted' ? 'session_confirmed_by_psych' : 'session_declined_by_psych',
+                title: status === 'accepted' ? 'Сессия подтверждена' : 'Запись отклонена',
+                message:
+                  status === 'accepted'
+                    ? `Специалист подтвердил сессию «${event.title}»`
+                    : `Специалист отклонил вашу запись «${event.title}»${declineComment ? `. Комментарий: ${declineComment}` : ''}`,
+                entityType: 'event',
+                entityId: event.id,
+                read: false
+              }
+            });
+          }
+        }
+      } catch (notifErr: any) {
+        console.error('Failed to notify client about session decision:', notifErr);
+      }
+    } else {
+      try {
         await (prisma as any).notification.create({
           data: {
             userId: client.psychologistId,
             type: status === 'accepted' ? 'session_accepted' : 'session_declined',
             title: status === 'accepted' ? 'Сессия принята' : 'Сессия отклонена',
-            message: status === 'accepted' 
-              ? `Клиент ${client.name} принял приглашение на сессию "${event.title}"`
-              : `Клиент ${client.name} отклонил приглашение на сессию "${event.title}"${comment ? `: ${comment}` : ''}`,
+            message:
+              status === 'accepted'
+                ? `Клиент ${client.name} принял приглашение на сессию "${event.title}"`
+                : `Клиент ${client.name} отклонил приглашение на сессию "${event.title}"${declineComment ? `: ${declineComment}` : ''}`,
             entityType: 'event',
             entityId: event.id,
             read: false
           }
         });
+      } catch (notifError: any) {
+        console.error('Failed to create notification for psychologist:', notifError);
       }
-    } catch (notifError: any) {
-      console.error('Failed to create notification for psychologist:', notifError);
     }
 
     res.json(updatedEvent);

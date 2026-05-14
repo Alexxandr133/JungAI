@@ -65,6 +65,14 @@ function formatDreamSymbolsForPrompt(symbols: unknown): string {
 
 const router = Router();
 
+/** Режим с данными клиентов: по умолчанию включён; выключен только при явном false (в т.ч. строка из прокси/клиента). */
+function parsePsychologistClientModeEnabled(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return true;
+  const v = (body as Record<string, unknown>).clientModeEnabled;
+  if (v === false || v === 'false' || v === 0) return false;
+  return true;
+}
+
 const apiKey = config.openRouterApiKey || config.hfToken;
 // OpenRouter OpenAI-compatible endpoint
 const openRouterClient = apiKey ? new OpenAI({
@@ -258,7 +266,7 @@ router.post('/ai/psychologist/dream-scope-preview', requireAuth, requireRole(['p
       req.body?.includeDreamsInContext === undefined || req.body?.includeDreamsInContext === null
         ? true
         : Boolean(req.body?.includeDreamsInContext);
-    const clientModeEnabled = req.body?.clientModeEnabled === undefined ? true : Boolean(req.body?.clientModeEnabled);
+    const clientModeEnabled = parsePsychologistClientModeEnabled(req.body);
 
     if (!includeDreamsInContext) {
       return res.json({
@@ -501,7 +509,6 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     const {
       message,
       conversationHistory = [],
-      clientModeEnabled = true,
       modality: modalityRaw,
       temperature: temperatureRaw,
       responseStyle: responseStyleRaw,
@@ -511,6 +518,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       includeDreamsInContext: includeDreamsRaw,
       analysisMemory: analysisMemoryRaw,
     } = req.body ?? {};
+    const clientModeEnabled = parsePsychologistClientModeEnabled(req.body);
     const model = await getPlatformAiModel();
 
     if (!message || typeof message !== 'string') {
@@ -541,7 +549,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         ? analysisMemoryRaw.trim().slice(0, 5000)
         : '';
 
-    // Если режим работы с клиентами выключен, работаем в обобщенном режиме
+    // Если режим работы с клиентами выключен, работаем в обобщенном режиме (без контекста клиентов, но с вызовом OpenRouter)
     if (!clientModeEnabled) {
       let systemPrompt = appendResponseStyle(buildGeneralModalityPrompt(modality), responseStyle);
       if (!includeDreamsInContext) {
@@ -562,6 +570,11 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       let assistantMessage = 'Извините, не удалось получить ответ.';
 
       try {
+        console.log('Sending request to OpenRouter API (psychologist general mode, no client data)...', {
+          model,
+          messagesCount: messages.length,
+          hasOpenRouterKey: !!apiKey
+        });
         const chatCompletion = await createOpenRouterChatCompletionWithRetry({
           model,
           messages,
@@ -600,16 +613,6 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         }
         throw new Error(errorMessage);
       }
-
-      return res.json({
-        message: assistantMessage,
-        quota: quotaBefore,
-        conversationHistory: [
-          ...safeConversationHistory,
-          { role: 'user', content: message },
-          { role: 'assistant', content: assistantMessage }
-        ]
-      });
     }
 
     /** Сны в запрос: и модальность разрешает, и тумблер психолога включён */
