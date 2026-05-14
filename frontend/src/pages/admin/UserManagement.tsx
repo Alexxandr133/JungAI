@@ -1,8 +1,43 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+
+const ROLE_LABELS: Record<string, string> = {
+  psychologist: 'Психолог',
+  client: 'Клиент',
+  researcher: 'Исследователь',
+  admin: 'Администратор',
+  guest: 'Гость'
+};
+
+function roleBadgeStyle(role: string, isLight: boolean): CSSProperties {
+  const base: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '3px 9px',
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    whiteSpace: 'nowrap'
+  };
+  switch (role) {
+    case 'admin':
+      return { ...base, background: isLight ? 'rgba(220, 38, 38, 0.12)' : 'rgba(248, 113, 113, 0.16)', color: isLight ? '#b91c1c' : '#fca5a5' };
+    case 'psychologist':
+      return { ...base, background: isLight ? 'rgba(37, 99, 235, 0.1)' : 'rgba(59, 130, 246, 0.18)', color: '#3b82f6' };
+    case 'client':
+      return { ...base, background: isLight ? 'rgba(16, 185, 129, 0.1)' : 'rgba(52, 211, 153, 0.14)', color: '#059669' };
+    case 'researcher':
+      return { ...base, background: isLight ? 'rgba(124, 58, 237, 0.1)' : 'rgba(167, 139, 250, 0.16)', color: '#7c3aed' };
+    case 'guest':
+      return { ...base, background: isLight ? 'rgba(100, 116, 139, 0.12)' : 'rgba(148, 163, 184, 0.14)', color: '#64748b' };
+    default:
+      return { ...base, background: isLight ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' };
+  }
+}
 
 type AdminUserRow = {
   id: string;
@@ -38,6 +73,12 @@ const DND_MIME = 'application/jungai-client-id';
 
 export default function AdminUserManagement() {
   const { token, user: me } = useAuth();
+  const { appearance } = useAppearance();
+  const isLight = appearance.colorMode === 'light';
+  const borderSubtle = isLight ? '1px solid rgba(15, 23, 42, 0.1)' : '1px solid rgba(255, 255, 255, 0.1)';
+  const borderInput = isLight ? '1px solid rgba(15, 23, 42, 0.14)' : '1px solid rgba(255, 255, 255, 0.12)';
+  const tableHeadBg = isLight ? 'rgba(241, 245, 249, 0.95)' : 'var(--surface-2)';
+  const rowHover = isLight ? 'rgba(59, 130, 246, 0.04)' : 'rgba(255, 255, 255, 0.04)';
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [psychOptions, setPsychOptions] = useState<PsychOption[]>([]);
   const [clientsCrm, setClientsCrm] = useState<CrmClient[]>([]);
@@ -333,8 +374,8 @@ export default function AdminUserManagement() {
       <main
         style={{
           flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: 1200,
+          padding: '20px clamp(14px, 4vw, 40px)',
+          maxWidth: 1100,
           margin: '0 auto',
           width: '100%',
           overflowX: 'hidden'
@@ -367,7 +408,7 @@ export default function AdminUserManagement() {
           </div>
         </div>
 
-        <div className="card" style={{ padding: 14, marginBottom: 16, border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div className="card" style={{ padding: 14, marginBottom: 16, borderRadius: 12, border: borderSubtle }}>
           <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
             Модель AI по умолчанию для всей платформы
           </label>
@@ -380,7 +421,7 @@ export default function AdminUserManagement() {
               maxWidth: 520,
               padding: '10px 12px',
               borderRadius: 10,
-              border: '1px solid rgba(255,255,255,0.12)',
+              border: borderInput,
               background: 'var(--surface-2)',
               color: 'var(--text)',
               fontSize: 14
@@ -424,9 +465,15 @@ export default function AdminUserManagement() {
           </div>
         )}
 
-        <section className="card" style={{ padding: 20, marginBottom: 24, borderRadius: 12 }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Пользователи</h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+        <section className="card" style={{ padding: 0, marginBottom: 20, borderRadius: 12, border: borderSubtle, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 16px', borderBottom: borderSubtle, background: tableHeadBg }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Пользователи</h2>
+            <p className="small" style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
+              Поиск и фильтр по роли; действия в последней колонке
+            </p>
+          </div>
+          <div style={{ padding: '14px 16px 16px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
             <input
               placeholder="Поиск по email или id"
               value={q}
@@ -435,7 +482,7 @@ export default function AdminUserManagement() {
                 flex: '1 1 200px',
                 padding: '10px 14px',
                 borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: borderInput,
                 background: 'var(--surface)',
                 color: 'var(--text)',
                 fontSize: 14
@@ -447,10 +494,11 @@ export default function AdminUserManagement() {
               style={{
                 padding: '10px 14px',
                 borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: borderInput,
                 background: 'var(--surface)',
                 color: 'var(--text)',
-                fontSize: 14
+                fontSize: 14,
+                minWidth: 160
               }}
             >
               <option value="">Все роли</option>
@@ -465,26 +513,37 @@ export default function AdminUserManagement() {
           {loading ? (
             <div style={{ color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>Загрузка…</div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <div style={{ overflowX: 'auto', borderRadius: 10, border: borderSubtle }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                    <th style={{ padding: '10px 8px' }}>Email</th>
-                    <th style={{ padding: '10px 8px' }}>Роль</th>
-                    <th style={{ padding: '10px 8px' }}>Имя</th>
-                    <th style={{ padding: '10px 8px' }}>Вериф.</th>
-                    <th style={{ padding: '10px 8px' }}>Клиенты</th>
-                    <th style={{ padding: '10px 8px' }}>AI план</th>
-                    <th style={{ padding: '10px 8px' }}>Действия</th>
+                  <tr style={{ textAlign: 'left', color: 'var(--text-muted)', background: tableHeadBg }}>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Email</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Роль</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Имя</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Вериф.</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Клиенты</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>AI план</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Действия</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.map(u => (
-                    <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                      <td style={{ padding: '10px 8px', wordBreak: 'break-all' }}>{u.email}</td>
-                      <td style={{ padding: '10px 8px' }}>{u.role}</td>
-                      <td style={{ padding: '10px 8px' }}>{u.profileName || '—'}</td>
-                      <td style={{ padding: '10px 8px' }}>
+                    <tr
+                      key={u.id}
+                      style={{ borderTop: borderSubtle }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLTableRowElement).style.background = rowHover;
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLTableRowElement).style.background = 'transparent';
+                      }}
+                    >
+                      <td style={{ padding: '10px 12px', wordBreak: 'break-all', fontWeight: 500 }}>{u.email}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={roleBadgeStyle(u.role, isLight)}>{ROLE_LABELS[u.role] || u.role}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px' }}>{u.profileName || '—'}</td>
+                      <td style={{ padding: '10px 12px' }}>
                         {(u.role === 'psychologist' || u.role === 'admin') && (
                           <span style={{ color: u.isVerified ? '#10b981' : 'var(--text-muted)' }}>
                             {u.isVerified ? 'да' : 'нет'}
@@ -497,10 +556,10 @@ export default function AdminUserManagement() {
                         )}
                         {u.role === 'client' && !u.linkedClient && <span className="small">—</span>}
                       </td>
-                      <td style={{ padding: '10px 8px' }}>
+                      <td style={{ padding: '10px 12px' }}>
                         {u.role === 'psychologist' || u.role === 'admin' ? u.clientCount ?? 0 : '—'}
                       </td>
-                      <td style={{ padding: '10px 8px', minWidth: 170 }}>
+                      <td style={{ padding: '10px 12px', minWidth: 170 }}>
                         <select
                           value={u.aiTokenPlan || 'standard'}
                           disabled={busyId === u.id}
@@ -509,7 +568,7 @@ export default function AdminUserManagement() {
                             width: '100%',
                             padding: '6px 8px',
                             borderRadius: 8,
-                            border: '1px solid rgba(255,255,255,0.15)',
+                            border: borderInput,
                             background: 'var(--surface-2)',
                             color: 'var(--text)',
                             fontSize: 12
@@ -523,7 +582,7 @@ export default function AdminUserManagement() {
                           {u.aiTokensUsed?.toLocaleString('ru-RU') || 0} ток.
                         </div>
                       </td>
-                      <td style={{ padding: '10px 8px' }}>
+                      <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           <button
                             type="button"
@@ -582,9 +641,10 @@ export default function AdminUserManagement() {
               {!users.length && <div className="small" style={{ padding: 16, color: 'var(--text-muted)' }}>Нет записей</div>}
             </div>
           )}
+          </div>
         </section>
 
-        <section className="card" style={{ padding: 20, marginBottom: 24, borderRadius: 12 }}>
+        <section className="card" style={{ padding: 20, marginBottom: 24, borderRadius: 12, border: borderSubtle }}>
           <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700 }}>Клиенты по психологам</h2>
           <p className="small" style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
             Перетащите карточку клиента на другого психолога или выберите психолога в списке. Обновляются CRM, вкладки и документы с прежним психологом.
@@ -607,7 +667,7 @@ export default function AdminUserManagement() {
                   onDrop={e => onDropOnPsych(e, p.id)}
                   style={{
                     borderRadius: 12,
-                    border: `2px dashed ${isOver ? 'var(--primary)' : 'rgba(255,255,255,0.1)'}`,
+                    border: `2px dashed ${isOver ? 'var(--primary)' : borderSubtle}`,
                     background: isOver ? 'rgba(91, 124, 250, 0.08)' : 'var(--surface-2)',
                     padding: 12,
                     minHeight: 120,
@@ -636,7 +696,7 @@ export default function AdminUserManagement() {
                           padding: '8px 10px',
                           borderRadius: 8,
                           background: 'var(--surface)',
-                          border: '1px solid rgba(255,255,255,0.08)',
+                          border: borderSubtle,
                           cursor: 'grab',
                           fontSize: 13,
                           opacity: busyId === c.id ? 0.5 : 1
@@ -658,12 +718,12 @@ export default function AdminUserManagement() {
           </div>
         </section>
 
-        <section className="card" style={{ padding: 20, borderRadius: 12 }}>
+        <section className="card" style={{ padding: 20, borderRadius: 12, border: borderSubtle }}>
           <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Все клиенты (таблица)</h2>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: borderSubtle, background: tableHeadBg }}>
                   <th style={{ padding: '8px' }}>Клиент</th>
                   <th style={{ padding: '8px' }}>Email</th>
                   <th style={{ padding: '8px' }}>Психолог</th>
@@ -672,7 +732,7 @@ export default function AdminUserManagement() {
               </thead>
               <tbody>
                 {clientsCrm.map(c => (
-                  <tr key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <tr key={c.id} style={{ borderBottom: borderSubtle }}>
                     <td style={{ padding: '8px' }}>{c.name}</td>
                     <td style={{ padding: '8px', wordBreak: 'break-all' }}>{c.email || '—'}</td>
                     <td style={{ padding: '8px' }}>{c.psychologistName || c.psychologistEmail || c.psychologistId}</td>
@@ -688,7 +748,7 @@ export default function AdminUserManagement() {
                         style={{
                           padding: '6px 10px',
                           borderRadius: 8,
-                          border: '1px solid rgba(255,255,255,0.12)',
+                          border: borderInput,
                           background: 'var(--surface)',
                           color: 'var(--text)',
                           fontSize: 12,
@@ -740,7 +800,7 @@ export default function AdminUserManagement() {
                 padding: 10,
                 marginBottom: 10,
                 borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: borderInput,
                 background: 'var(--surface)',
                 color: 'var(--text)'
               }}
@@ -755,7 +815,7 @@ export default function AdminUserManagement() {
                 padding: 10,
                 marginBottom: 16,
                 borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: borderInput,
                 background: 'var(--surface)',
                 color: 'var(--text)'
               }}
@@ -800,7 +860,7 @@ export default function AdminUserManagement() {
                 padding: 10,
                 marginBottom: 16,
                 borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
+                border: borderInput,
                 background: 'var(--surface)',
                 color: 'var(--text)'
               }}
@@ -851,7 +911,7 @@ export default function AdminUserManagement() {
                     width: '100%',
                     padding: 10,
                     borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.12)',
+                    border: borderInput,
                     background: 'var(--surface)',
                     color: 'var(--text)'
                   }}

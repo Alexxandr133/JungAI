@@ -110,6 +110,9 @@ export function PsychologistNavbar() {
     if (path === '/psychologist') {
       return location.pathname === '/psychologist';
     }
+    if (path === '/admin') {
+      return location.pathname === '/admin' || location.pathname === '/admin/';
+    }
     return location.pathname.startsWith(path);
   };
 
@@ -162,7 +165,7 @@ export function PsychologistNavbar() {
 
         {/* Logo */}
         <div className="navbar-logo-wrap">
-          <BrandLogo to="/psychologist" />
+          <BrandLogo to={user?.role === 'admin' ? '/admin' : '/psychologist'} />
         </div>
 
         {/* Desktop Menu */}

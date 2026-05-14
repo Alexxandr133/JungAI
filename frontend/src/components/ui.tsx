@@ -41,7 +41,8 @@ export const Nav: React.FC = () => {
   const getDashboardPath = () => {
     if (!user) return '/dashboard';
     if (user.role === 'client') return '/client';
-    if (user.role === 'psychologist' || user.role === 'admin') return '/psychologist';
+    if (user.role === 'admin') return '/admin';
+    if (user.role === 'psychologist') return '/psychologist';
     if (user.role === 'researcher') return '/researcher';
     if (user.role === 'guest') return '/guest';
     return '/dashboard';

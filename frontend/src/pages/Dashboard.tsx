@@ -10,7 +10,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (user?.role === 'client') {
       navigate('/client', { replace: true });
-    } else if (user?.role === 'psychologist' || user?.role === 'admin') {
+    } else if (user?.role === 'admin') {
+      navigate('/admin', { replace: true });
+    } else if (user?.role === 'psychologist') {
       navigate('/psychologist', { replace: true });
     } else if (user?.role === 'researcher') {
       navigate('/researcher', { replace: true });

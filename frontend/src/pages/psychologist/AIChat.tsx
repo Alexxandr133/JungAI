@@ -754,7 +754,15 @@ export default function PsychologistAIChat() {
     }
 
     const userMessage = preparedMessage;
-    if (!options?.forcedMessage) setInput('');
+    // Всегда очищаем поле после фактической отправки (в т.ч. после модалки объёма снов: там forcedMessage, иначе текст оставался в поле).
+    setInput('');
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.style.height = 'auto';
+        el.style.height = `${Math.min(Math.max(el.scrollHeight, 24), 200)}px`;
+      }
+    });
     setIsSending(true);
     sendingRef.current = true;
     

@@ -51,7 +51,9 @@ export default function Login() {
       await loginWithToken(result.token);
       
       // Перенаправляем в зависимости от роли
-      if (result.user.role === 'psychologist' || result.user.role === 'admin') {
+      if (result.user.role === 'admin') {
+        navigate('/admin');
+      } else if (result.user.role === 'psychologist') {
         navigate('/psychologist');
       } else if (result.user.role === 'client') {
         navigate('/client');
@@ -95,7 +97,8 @@ export default function Login() {
         }
       });
       await loginWithToken(result.token);
-      if (result.user.role === 'psychologist' || result.user.role === 'admin') navigate('/psychologist');
+      if (result.user.role === 'admin') navigate('/admin');
+      else if (result.user.role === 'psychologist') navigate('/psychologist');
       else if (result.user.role === 'client') navigate('/client');
       else if (result.user.role === 'researcher') navigate('/researcher');
       else if (result.user.role === 'guest') navigate('/guest');

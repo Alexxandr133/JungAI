@@ -294,3 +294,40 @@ JingAI — monorepo-платформа для психологов и клиен
 - Фронт как статика после `build:frontend` отдельного restart обычно не требует.
 - Нельзя использовать destructive git-команды (`git clean`, `reset --hard`) без необходимости: риск для runtime-файлов (uploads).
 
+---
+
+## 19) Релиз 2026-05-14 — календарь, публичная запись, сессии, AI, документация
+
+Кратко для ассистента: коммит на `main` с миграциями Prisma; на проде после `git pull` обязательны `prisma migrate deploy`, сборка backend и **frontend** (`frontend/dist`), перезапуск PM2.
+
+### 19.1 Календарь и события (психолог)
+- Расширен экран «События» (`frontend/src/pages/events/Events.tsx`): календарь, модалки, сценарии записи и шаринга.
+- Публичная страница записи по ссылке календаря: `frontend/src/pages/events/PublicCalendarBookPage.tsx`, маршрут подключён в `frontend/src/main.tsx`.
+- Утилиты календаря вынесены в `frontend/src/lib/eventsCalendarUtils.ts`: расчёт свободных окон и слотов; **шаг слота и минимальная длина свободного окна — одно правило** (фильтр сегментов и загрузка префов из `localStorage` выравнивают `minFreeSegmentMinutes` под `slotIntervalMinutes`; отдельное поле «мин. длина окна» в UI убрано).
+- Backend: `backend/src/routes/events.ts` — API для публичной записи, статусов заявок, согласования психологом, самозаписи клиента; доработки писем в `backend/src/utils/email.ts` (в т.ч. оформление с логотипом через CID там, где это реализовано в этом релизе).
+
+### 19.2 База данных (Prisma)
+Новые миграции в репозитории (имена папок):
+- `20260514120000_calendar_public_booking`
+- `20260514200000_calendar_booking_status_fields`
+- `20260515120000_event_client_requested_session` — флаг заявки клиента на сессию (`Event.clientRequestedSession`); психолог подтверждает клиентские инициированные встречи.
+
+Схема: `backend/prisma/schema.prisma` (поля событий/записи согласованы с миграциями).
+
+### 19.3 Клиент: сессии и запись
+- `frontend/src/pages/client/Sessions.tsx` — доработки отображения и записи.
+- `frontend/src/components/client/ClientSessionBookingModal.tsx` — модальное окно самозаписи на слот (интеграция с календарём/API).
+
+### 19.4 AI психолога
+- `frontend/src/pages/psychologist/AIChat.tsx` — режим «работа с клиентами»: подписи статуса **«включен» / «выключен»**; ref на флаг режима при отправке после `saveChats`, чтобы в запрос уходило актуальное `clientModeEnabled`.
+- `frontend/src/lib/api.ts` — исправление: тело POST не должно опираться на `if (options.body)` (иначе при ложном значении тело не сериализовалось).
+- `backend/src/routes/ai.ts` — `parsePsychologistClientModeEnabled` для надёжного разбора флага (в т.ч. строка `'false'`); обобщённый режим без данных клиентов явно ходит в OpenRouter; лог перед вызовом в general mode; тот же разбор для `POST /ai/psychologist/dream-scope-preview`.
+
+### 19.5 Документация
+- В репозитории добавлен `PLATFORM_USER_GUIDE.md` (пользовательский гайд по платформе).
+- Этот файл (`LLMQUIKSTART.md`) дополнен секцией 19 для восстановления контекста релиза.
+
+### 19.6 Напоминание по деплою этого релиза
+- После `git pull`: `npm ci` → `npm -w backend run prisma:generate` → `npm -w backend run prisma:migrate:deploy` → **`npm run build:backend && npm run build:frontend`** → `pm2 restart jingai-backend --update-env`.
+- Убедиться, что nginx отдаёт актуальный `frontend/dist` из каталога деплоя (или скопировать собранный фронт в свой `root`).
+

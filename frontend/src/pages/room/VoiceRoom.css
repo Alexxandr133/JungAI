@@ -2,3 +2,19 @@
 .voice-room-tile-host .lk-participant-name {
   display: none !important;
 }
+
+/* Выпадающие списки устройств: читаемый текст в светлой и тёмной теме (option частично зависит от ОС) */
+.voice-room-device-select--light {
+  color-scheme: light;
+}
+.voice-room-device-select--dark {
+  color-scheme: dark;
+}
+.voice-room-device-select--light option {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+.voice-room-device-select--dark option {
+  background-color: #1e293b;
+  color: #f1f5f9;
+}

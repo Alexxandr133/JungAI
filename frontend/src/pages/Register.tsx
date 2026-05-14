@@ -97,7 +97,8 @@ export default function Register() {
           localStorage.removeItem('pendingPsychologistContact');
         }
       }
-      if (result.user.role === 'psychologist' || result.user.role === 'admin') navigate('/psychologist/profile');
+      if (result.user.role === 'admin') navigate('/admin');
+      else if (result.user.role === 'psychologist') navigate('/psychologist/profile');
       else if (result.user.role === 'researcher') navigate('/researcher/profile');
       else if (result.user.role === 'client') navigate('/client');
       else navigate('/dashboard');

@@ -239,7 +239,8 @@ export function GuestNavbar() {
               <Link 
                 to={
                   user.role === 'client' ? '/client' :
-                  user.role === 'psychologist' || user.role === 'admin' ? '/psychologist' :
+                  user.role === 'admin' ? '/admin' :
+                  user.role === 'psychologist' ? '/psychologist' :
                   user.role === 'researcher' ? '/researcher' :
                   user.role === 'guest' ? '/guest' :
                   '/dashboard'

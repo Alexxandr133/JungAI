@@ -170,12 +170,54 @@ router.get('/dashboard', async (req: AuthedRequest, res) => {
     };
 
     // Общая статистика системы
+    const now = new Date();
+    const withVoiceRoom = { voiceRoom: { isNot: null } } as const;
+
+    const [
+      totalUsers,
+      totalPsychologists,
+      totalClients,
+      totalDreams,
+      totalSessions,
+      videoMeetingsUpcoming,
+      videoMeetingsInSlot,
+      videoMeetingsPast,
+      voiceRoomsTotal
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { role: 'psychologist' } }),
+      prisma.client.count(),
+      prisma.dream.count(),
+      prisma.therapySession.count(),
+      prisma.event.count({
+        where: { ...withVoiceRoom, startsAt: { gt: now } }
+      }),
+      prisma.event.count({
+        where: {
+          ...withVoiceRoom,
+          startsAt: { lte: now },
+          OR: [{ endsAt: null }, { endsAt: { gte: now } }]
+        }
+      }),
+      prisma.event.count({
+        where: {
+          ...withVoiceRoom,
+          endsAt: { not: null, lt: now }
+        }
+      }),
+      prisma.voiceRoom.count()
+    ]);
+
     const systemStats = {
-      totalUsers: await prisma.user.count(),
-      totalPsychologists: await prisma.user.count({ where: { role: 'psychologist' } }),
-      totalClients: await prisma.client.count(),
-      totalDreams: await prisma.dream.count(),
-      totalSessions: await prisma.therapySession.count()
+      totalUsers,
+      totalPsychologists,
+      totalClients,
+      totalDreams,
+      totalSessions,
+      videoMeetingsUpcoming,
+      videoMeetingsInSlot,
+      videoMeetingsPast,
+      voiceRoomsTotal
     };
 
     // Последние запросы в техподдержку

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
@@ -15,11 +15,12 @@ import {
   useAudioPlayback,
   useChat,
   useParticipants,
+  useRoomContext,
   useTracks
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { DisconnectReason, Room, Track } from 'livekit-client';
 import { PlatformIcon } from '../../components/icons';
-import { CalendarClock, PhoneOff, SendHorizontal, Video } from 'lucide-react';
+import { CalendarClock, PhoneOff, SendHorizontal, Settings, Video } from 'lucide-react';
 
 interface EventData {
   id: string;
@@ -38,10 +39,132 @@ interface LiveKitTokenResponse {
   name: string;
 }
 
-function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
+/** Выбор камеры/микрофона (внутри LiveKitRoom), вызывается из выпадающей панели настроек. */
+function RoomMediaDeviceSettings({ isLight, isOpen }: { isLight: boolean; isOpen: boolean }) {
+  const room = useRoomContext();
+  const [videoInputs, setVideoInputs] = useState<MediaDeviceInfo[]>([]);
+  const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
+  const [videoSel, setVideoSel] = useState('');
+  const [audioSel, setAudioSel] = useState('');
+
+  const refreshList = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const all = await navigator.mediaDevices.enumerateDevices();
+      setVideoInputs(all.filter((d) => d.kind === 'videoinput'));
+      setAudioInputs(all.filter((d) => d.kind === 'audioinput'));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    md?.addEventListener?.('devicechange', refreshList);
+    return () => md?.removeEventListener?.('devicechange', refreshList);
+  }, [refreshList]);
+
+  useEffect(() => {
+    if (isOpen) void refreshList();
+  }, [isOpen, refreshList]);
+
+  useEffect(() => {
+    const ro = room as unknown as { getActiveDevice?: (k: MediaDeviceKind) => string | undefined };
+    if (!ro?.getActiveDevice) return;
+    const v = ro.getActiveDevice('videoinput');
+    const a = ro.getActiveDevice('audioinput');
+    if (v) setVideoSel(v);
+    if (a) setAudioSel(a);
+  }, [room, videoInputs.length, audioInputs.length, isOpen]);
+
+  if (!room) return null;
+
+  const selectClass = `voice-room-device-select ${isLight ? 'voice-room-device-select--light' : 'voice-room-device-select--dark'}`;
+  const selectStyle: CSSProperties = {
+    width: '100%',
+    boxSizing: 'border-box',
+    fontSize: 13,
+    padding: '10px 12px',
+    borderRadius: 10,
+    border: isLight ? '1px solid #cbd5e1' : '1px solid rgba(148, 163, 184, 0.45)',
+    background: isLight ? '#ffffff' : '#0f172a',
+    color: isLight ? '#0f172a' : '#f1f5f9',
+    outline: 'none',
+    cursor: 'pointer'
+  };
+  const labelStyle: CSSProperties = {
+    fontSize: 12,
+    fontWeight: 600,
+    marginBottom: 6,
+    color: isLight ? '#475569' : '#94a3b8'
+  };
+  const titleColor = isLight ? '#0f172a' : '#f8fafc';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 260 }}>
+      <div style={{ fontWeight: 700, fontSize: 14, color: titleColor }}>Камера и микрофон</div>
+      <div>
+        <div style={labelStyle}>Камера</div>
+        <select
+          className={selectClass}
+          aria-label="Камера"
+          value={videoSel}
+          onChange={async (e) => {
+            const id = e.target.value;
+            setVideoSel(id);
+            if (!id) return;
+            try {
+              await (room as Room).switchActiveDevice('videoinput', id);
+            } catch (err) {
+              console.error('switch camera', err);
+            }
+          }}
+          style={selectStyle}
+        >
+          <option value="">Выберите камеру…</option>
+          {videoInputs.map((d) => (
+            <option key={`v-${d.deviceId}`} value={d.deviceId}>
+              {d.label || 'Камера'}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <div style={labelStyle}>Микрофон</div>
+        <select
+          className={selectClass}
+          aria-label="Микрофон"
+          value={audioSel}
+          onChange={async (e) => {
+            const id = e.target.value;
+            setAudioSel(id);
+            if (!id) return;
+            try {
+              await (room as Room).switchActiveDevice('audioinput', id);
+            } catch (err) {
+              console.error('switch mic', err);
+            }
+          }}
+          style={selectStyle}
+        >
+          <option value="">Выберите микрофон…</option>
+          {audioInputs.map((d) => (
+            <option key={`a-${d.deviceId}`} value={d.deviceId}>
+              {d.label || 'Микрофон'}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function LiveKitConferenceRu() {
   const { appearance } = useAppearance();
   const isLight = appearance.colorMode === 'light';
   const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>(null);
+  const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
+  const deviceMenuRef = useRef<HTMLDivElement | null>(null);
   const [chatText, setChatText] = useState('');
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const participantMetaCacheRef = useRef<Record<string, { avatarUrl: string; displayName: string }>>({});
@@ -87,6 +210,16 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    if (!deviceMenuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      const el = deviceMenuRef.current;
+      if (el && !el.contains(e.target as Node)) setDeviceMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [deviceMenuOpen]);
 
   const uniqueCameraTracks = (() => {
     const byIdentity = new Map<string, TrackReferenceOrPlaceholder>();
@@ -201,16 +334,61 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
             <button
               type="button"
               className="button secondary"
-              onClick={() => setSidebarMode((m) => (m === 'chat' ? null : 'chat'))}
+              onClick={() => {
+                setDeviceMenuOpen(false);
+                setSidebarMode((m) => (m === 'chat' ? null : 'chat'));
+              }}
               style={{ padding: '8px 10px', minWidth: 42, background: chatOpen ? controlOnBg : controlOffBg, color: chatOpen ? '#fff' : mainText, border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none' }}
               title="Чат"
             >
               <PlatformIcon name="message" size={16} />
             </button>
+            <div ref={deviceMenuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setDeviceMenuOpen((o) => !o)}
+                style={{
+                  padding: '8px 10px',
+                  minWidth: 42,
+                  background: deviceMenuOpen ? controlOnBg : controlOffBg,
+                  color: deviceMenuOpen ? '#fff' : mainText,
+                  border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none'
+                }}
+                title="Камера и микрофон"
+                aria-expanded={deviceMenuOpen}
+                aria-haspopup="true"
+              >
+                <Settings size={16} strokeWidth={2} />
+              </button>
+              {deviceMenuOpen ? (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 8,
+                    zIndex: 60,
+                    padding: 14,
+                    minWidth: 288,
+                    borderRadius: 12,
+                    border,
+                    background: isLight ? '#ffffff' : 'rgba(15,23,42,0.96)',
+                    boxShadow: isLight ? '0 12px 40px rgba(15,23,42,0.12)' : '0 12px 40px rgba(0,0,0,0.45)'
+                  }}
+                >
+                  <RoomMediaDeviceSettings isLight={isLight} isOpen={deviceMenuOpen} />
+                </div>
+              ) : null}
+            </div>
             <button
               type="button"
               className="button secondary"
-              onClick={() => setSidebarMode((m) => (m === 'participants' ? null : 'participants'))}
+              onClick={() => {
+                setDeviceMenuOpen(false);
+                setSidebarMode((m) => (m === 'participants' ? null : 'participants'));
+              }}
               style={{ padding: '8px 10px', minWidth: 42, background: participantsOpen ? controlOnBg : controlOffBg, color: participantsOpen ? '#fff' : mainText, border: isLight ? '1px solid rgba(15,23,42,0.18)' : 'none' }}
               title="Участники"
             >
@@ -466,7 +644,6 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
                 boxShadow: '0 2px 10px rgba(220,38,38,0.35)',
                 marginLeft: 0
               }}
-              onClick={onLeave}
             >
               <PhoneOff size={22} strokeWidth={2.25} />
             </DisconnectButton>
@@ -500,7 +677,6 @@ function LiveKitConferenceRu({ onLeave }: { onLeave: () => void }) {
             <DisconnectButton
               className="button danger"
               style={{ marginLeft: 'auto', borderRadius: 999, padding: '10px 16px', boxShadow: '0 2px 10px rgba(220,38,38,0.35)' }}
-              onClick={onLeave}
             >
               Покинуть встречу
             </DisconnectButton>
@@ -625,6 +801,7 @@ export default function VoiceRoom() {
   const [livekitToken, setLivekitToken] = useState<string>('');
   const [livekitUrl, setLivekitUrl] = useState<string>('');
   const [guestDisplayName, setGuestDisplayName] = useState('');
+  const [reconnectHint, setReconnectHint] = useState<string | null>(null);
   const isGuestMode = !token;
 
   useEffect(() => {
@@ -667,6 +844,7 @@ export default function VoiceRoom() {
       setLivekitToken(res.token);
       setLivekitUrl(res.url);
       setJoined(true);
+      setReconnectHint(null);
       setError(null);
     } catch (e: any) {
       setError(e?.message || 'Не удалось подключиться к видеокомнате');
@@ -676,6 +854,7 @@ export default function VoiceRoom() {
   function handleLeave() {
     setJoined(false);
     setLivekitToken('');
+    setReconnectHint(null);
     if (isGuestMode) {
       navigate('/');
       return;
@@ -752,6 +931,22 @@ export default function VoiceRoom() {
                   <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>{event.description}</div>
                 )}
               </div>
+              {reconnectHint && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    padding: 12,
+                    borderRadius: 12,
+                    border: isLight ? '1px solid rgba(234,179,8,0.45)' : '1px solid rgba(234,179,8,0.35)',
+                    background: isLight ? 'rgba(254,252,232,0.95)' : 'rgba(66,32,6,0.55)',
+                    color: isLight ? '#713f12' : '#fde68a',
+                    fontSize: 14,
+                    lineHeight: 1.45
+                  }}
+                >
+                  {reconnectHint}
+                </div>
+              )}
               {isGuestMode && (
                 <div style={{ marginTop: 14 }}>
                   <label className="small" style={{ display: 'block', marginBottom: 6, color: 'var(--text-muted)' }}>Как вас записать в комнате</label>
@@ -797,10 +992,19 @@ export default function VoiceRoom() {
               connect={joined}
               video={false}
               audio={false}
-              onDisconnected={handleLeave}
+              options={{ disconnectOnPageLeave: false }}
+              onDisconnected={(reason) => {
+                if (reason === DisconnectReason.CLIENT_INITIATED) {
+                  handleLeave();
+                  return;
+                }
+                setJoined(false);
+                setLivekitToken('');
+                setReconnectHint('Связь с комнатой прервалась. Нажмите «Присоединиться к встрече» ещё раз.');
+              }}
               style={{ height: '100%' }}
             >
-              <LiveKitConferenceRu onLeave={handleLeave} />
+              <LiveKitConferenceRu />
               <RoomAudioRenderer />
             </LiveKitRoom>
           </div>
