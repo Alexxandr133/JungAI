@@ -1562,23 +1562,39 @@ router.post('/ai/psychologist/folders', requireAuth, requireRole(['psychologist'
 
     let folder;
     if (id) {
-      // Если пришёл id, делаем «upsert»-поведение: обновить, если папка принадлежит пользователю; иначе — создать.
-      const existing = await prisma.aIChatFolder.findFirst({
-        where: { id, psychologistId: req.user!.id }
+      // updateMany не бросает P2025, если записи нет — тогда создаём (id из localStorage мог ещё не быть в БД).
+      const updated = await prisma.aIChatFolder.updateMany({
+        where: { id, psychologistId: req.user!.id },
+        data: { name }
       });
-      if (existing) {
-        folder = await prisma.aIChatFolder.update({
-          where: { id },
-          data: { name }
+      if (updated.count > 0) {
+        folder = await prisma.aIChatFolder.findFirst({
+          where: { id, psychologistId: req.user!.id }
         });
+        if (!folder) {
+          return res.status(500).json({ error: 'Folder not found after update' });
+        }
       } else {
-        folder = await prisma.aIChatFolder.create({
-          data: {
-            id,
-            psychologistId: req.user!.id,
-            name
+        try {
+          folder = await prisma.aIChatFolder.create({
+            data: {
+              id,
+              psychologistId: req.user!.id,
+              name
+            }
+          });
+        } catch (createErr: any) {
+          if (createErr?.code === 'P2002') {
+            folder = await prisma.aIChatFolder.create({
+              data: {
+                psychologistId: req.user!.id,
+                name
+              }
+            });
+          } else {
+            throw createErr;
           }
-        });
+        }
       }
     } else {
       folder = await prisma.aIChatFolder.create({

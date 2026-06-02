@@ -519,14 +519,16 @@ export default function PsychologistAIChat() {
     }
   }
 
-  async function saveFolders(newFolders: Folder[]) {
+  async function saveFolders(newFolders: Folder[], syncFolderId?: string) {
     setFolders(newFolders);
     localStorage.setItem(scopedStorageKey(FOLDERS_STORAGE_KEY), JSON.stringify(newFolders));
-    // Save each folder to backend
     if (!token) return;
-    for (const folder of newFolders) {
+    const toSync = syncFolderId
+      ? newFolders.filter(f => f.id === syncFolderId)
+      : newFolders;
+    for (const folder of toSync) {
       try {
-        await api('/api/ai/psychologist/folders', {
+        const saved = await api<{ id: string; name: string; createdAt: string }>('/api/ai/psychologist/folders', {
           method: 'POST',
           token,
           body: {
@@ -534,6 +536,19 @@ export default function PsychologistAIChat() {
             name: folder.name
           }
         });
+        if (saved?.id && saved.id !== folder.id) {
+          const remapped = newFolders.map(f =>
+            f.id === folder.id ? { ...f, id: saved.id } : f
+          );
+          const remappedChats = chats.map(c =>
+            c.folderId === folder.id ? { ...c, folderId: saved.id } : c
+          );
+          setFolders(remapped);
+          setChats(remappedChats);
+          chatsRef.current = remappedChats;
+          localStorage.setItem(scopedStorageKey(FOLDERS_STORAGE_KEY), JSON.stringify(remapped));
+          localStorage.setItem(scopedStorageKey(STORAGE_KEY), JSON.stringify(remappedChats));
+        }
       } catch (e) {
         console.error('Failed to save folder:', e);
       }
@@ -706,7 +721,7 @@ export default function PsychologistAIChat() {
       createdAt: new Date().toISOString()
     };
     const newFolders = [...folders, newFolder];
-    saveFolders(newFolders);
+    saveFolders(newFolders, newFolder.id);
     setNewFolderName('');
     setShowNewFolderModal(false);
   }
@@ -780,7 +795,7 @@ export default function PsychologistAIChat() {
     const newFolders = folders.map(f => 
       f.id === folderId ? { ...f, name: newName.trim() } : f
     );
-    saveFolders(newFolders);
+    saveFolders(newFolders, folderId);
     setEditingFolderId(null);
     setEditingFolderName('');
   }
