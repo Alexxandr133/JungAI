@@ -42,12 +42,14 @@ router.get('/public', async (req, res) => {
     const psychologists = await prisma.user.findMany({
       where: {
         role: 'psychologist',
-        isVerified: true // Только верифицированные психологи
+        isVerified: true,
+        catalogHidden: false
       },
       select: {
         id: true,
         email: true
-      }
+      },
+      orderBy: [{ catalogSortOrder: 'asc' }, { createdAt: 'asc' }]
     });
 
     const psychologistIds = psychologists.map(p => p.id);
@@ -159,7 +161,7 @@ router.get('/public/stats', async (req, res) => {
 router.get('/public/:id', async (req, res) => {
   try {
     const psychologist = await prisma.user.findFirst({
-      where: { id: req.params.id, role: 'psychologist', isVerified: true },
+      where: { id: req.params.id, role: 'psychologist', isVerified: true, catalogHidden: false },
       select: { id: true, email: true }
     });
     if (!psychologist) return res.status(404).json({ error: 'Психолог не найден' });

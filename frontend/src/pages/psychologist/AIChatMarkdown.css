@@ -1,0 +1,108 @@
+.ai-md {
+  line-height: 1.55;
+  font-size: 0.98em;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.ai-md :where(p) {
+  margin: 0 0 10px;
+}
+.ai-md :where(p:last-child) {
+  margin-bottom: 0;
+}
+
+.ai-md :where(ul, ol) {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+}
+.ai-md :where(li) {
+  margin: 2px 0;
+}
+
+.ai-md :where(blockquote) {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid rgba(91, 124, 250, 0.65);
+  background: rgba(148, 163, 184, 0.10);
+  border-radius: 10px;
+}
+
+.ai-md :where(hr) {
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  margin: 12px 0;
+}
+
+.ai-md :where(code) {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.18);
+  font-size: 0.92em;
+}
+.ai-md :where(pre) {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.58);
+  overflow-x: auto;
+}
+.ai-md :where(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.ai-md :where(table) {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 10px 0;
+  min-width: 620px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.ai-md :where(th, td) {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.ai-md :where(th:last-child, td:last-child) {
+  border-right: none;
+}
+.ai-md :where(tr:last-child td) {
+  border-bottom: none;
+}
+.ai-md :where(th) {
+  font-weight: 700;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  white-space: nowrap;
+}
+
+.ai-md :where(tbody tr:nth-child(odd) td) {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.ai-md :where(a) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ai-md :where(h1, h2, h3) {
+  margin: 12px 0 8px;
+  line-height: 1.25;
+}
+.ai-md :where(h1) {
+  font-size: 1.25em;
+}
+.ai-md :where(h2) {
+  font-size: 1.15em;
+}
+.ai-md :where(h3) {
+  font-size: 1.06em;
+}
+

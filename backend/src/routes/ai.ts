@@ -105,8 +105,11 @@ const ALLOWED_AI_MODELS = new Set(
 const OPENROUTER_REQUEST_TIMEOUT_MS = 180000;
 const OPENROUTER_NETWORK_RETRY_DELAY_MS = 1200;
 const OPENROUTER_MAX_ATTEMPTS_PER_MODEL = 2;
-const MAX_CONVERSATION_MESSAGES = 30;
-const MAX_HISTORY_MESSAGE_CHARS = 1400;
+// Контекст чата: нельзя делать «без ограничений» из‑за лимитов токенов модели/провайдера,
+// но можно сделать так, чтобы в обычной работе лимит не ощущался.
+// Ограничиваем историю по общему бюджету символов, а не по количеству сообщений.
+const MAX_TOTAL_HISTORY_CHARS = 120_000;
+const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_AI_OUTPUT_TOKENS = 15000;
 const DREAM_ANALYSIS_MAX_OUTPUT_TOKENS = 15000;
 
@@ -117,12 +120,23 @@ function trimConversationHistory(historyRaw: any[]): Array<{ role: 'user' | 'ass
       const contentRaw = String(m.content);
       const content =
         contentRaw.length > MAX_HISTORY_MESSAGE_CHARS
-          ? `${contentRaw.slice(0, MAX_HISTORY_MESSAGE_CHARS)}\n...[сообщение сокращено для скорости]`
+          ? `${contentRaw.slice(0, MAX_HISTORY_MESSAGE_CHARS)}\n...[сообщение сокращено]`
           : contentRaw;
       return { role: m.role as 'user' | 'assistant', content };
     });
 
-  return safe.slice(-MAX_CONVERSATION_MESSAGES);
+  let total = 0;
+  const out: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (let i = safe.length - 1; i >= 0; i--) {
+    const m = safe[i]!;
+    // учитываем содержимое + небольшой «налог» на роль/разметку
+    const cost = m.content.length + 40;
+    if (total + cost > MAX_TOTAL_HISTORY_CHARS) break;
+    out.push(m);
+    total += cost;
+  }
+  out.reverse();
+  return out;
 }
 
 function messageLooksLikeDreamAnalysis(textRaw: unknown): boolean {
@@ -1548,10 +1562,24 @@ router.post('/ai/psychologist/folders', requireAuth, requireRole(['psychologist'
 
     let folder;
     if (id) {
-      folder = await prisma.aIChatFolder.update({
-        where: { id },
-        data: { name }
+      // Если пришёл id, делаем «upsert»-поведение: обновить, если папка принадлежит пользователю; иначе — создать.
+      const existing = await prisma.aIChatFolder.findFirst({
+        where: { id, psychologistId: req.user!.id }
       });
+      if (existing) {
+        folder = await prisma.aIChatFolder.update({
+          where: { id },
+          data: { name }
+        });
+      } else {
+        folder = await prisma.aIChatFolder.create({
+          data: {
+            id,
+            psychologistId: req.user!.id,
+            name
+          }
+        });
+      }
     } else {
       folder = await prisma.aIChatFolder.create({
         data: {

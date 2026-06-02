@@ -4,7 +4,11 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { PlatformIcon } from '../../components/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import '../../styles/tokens.css';
+import './AIChatMarkdown.css';
 import {
   DEFAULT_PSYCHOLOGIST_AI_SETTINGS,
   loadPsychologistAiSettings,
@@ -123,6 +127,13 @@ export default function PsychologistAIChat() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [settingsPanelCollapsed, setSettingsPanelCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('psychologist_ai_settings_panel_collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
@@ -304,6 +315,94 @@ export default function PsychologistAIChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  function handleAssistantCopy(e: React.ClipboardEvent, content: string) {
+    try {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const fragment = range.cloneContents();
+        const hasTable = typeof (fragment as any)?.querySelector === 'function'
+          ? Boolean((fragment as any).querySelector('table'))
+          : false;
+        if (hasTable) {
+          e.preventDefault();
+          const wrapper = document.createElement('div');
+          wrapper.appendChild(fragment);
+          e.clipboardData.setData('text/html', wrapper.innerHTML);
+          // В plain оставляем исходный markdown на случай вставки в plain‑редакторы
+          e.clipboardData.setData('text/plain', content || '');
+          return;
+        }
+      }
+      // По умолчанию копируем только текст, без фона/HTML-стилей сообщения.
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', content || '');
+    } catch {
+      // ignore
+    }
+  }
+
+  function renderAssistantMarkdown(content: string) {
+    return (
+      <div className="ai-md">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkBreaks]}
+          components={{
+            table: ({ children, ...props }) => (
+              <div style={{ overflowX: 'auto', margin: '10px 0' }}>
+                <table {...props} style={{ width: '100%', borderCollapse: 'collapse' }}>{children}</table>
+              </div>
+            ),
+            th: ({ children, ...props }) => (
+              <th {...props} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.35)', fontWeight: 700 }}>
+                {children}
+              </th>
+            ),
+            td: ({ children, ...props }) => (
+              <td {...props} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.22)', verticalAlign: 'top' }}>
+                {children}
+              </td>
+            ),
+            pre: ({ children, ...props }) => (
+              <pre
+                {...props}
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  background: 'rgba(15,23,42,0.55)',
+                  overflowX: 'auto',
+                  margin: '10px 0'
+                }}
+              >
+                {children}
+              </pre>
+            ),
+            code: ({ children, ...props }) => (
+              <code
+                {...props}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 6,
+                  background: 'rgba(148,163,184,0.18)',
+                  fontSize: 13
+                }}
+              >
+                {children}
+              </code>
+            ),
+            a: ({ children, ...props }) => (
+              <a {...props} style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
+                {children}
+              </a>
+            )
+          }}
+        >
+          {content || ''}
+        </ReactMarkdown>
+      </div>
+    );
+  }
 
   // Закрываем селектор эмодзи при клике вне его
   useEffect(() => {
@@ -1404,12 +1503,51 @@ export default function PsychologistAIChat() {
               </div>
 
               {/* Client Mode Toggle and Client Selector - внизу сайдбара */}
-              <div style={{ 
-                padding: 16, 
-                borderTop: '1px solid rgba(255,255,255,0.08)', 
+              <div style={{
+                borderTop: '1px solid rgba(255,255,255,0.08)',
                 background: 'var(--surface-2)',
-                marginTop: 'auto'
+                marginTop: 'auto',
+                flexShrink: 0
               }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsPanelCollapsed(prev => {
+                      const next = !prev;
+                      try {
+                        localStorage.setItem('psychologist_ai_settings_panel_collapsed', next ? '1' : '0');
+                      } catch {
+                        // ignore
+                      }
+                      return next;
+                    });
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: isMobileView ? 10 : 12,
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}
+                  title={settingsPanelCollapsed ? 'Показать настройки режимов' : 'Скрыть настройки режимов'}
+                >
+                  <span>Настройки режимов</span>
+                  <span style={{ fontSize: 14, lineHeight: 1, opacity: 0.85 }}>
+                    {settingsPanelCollapsed ? '▾' : '▴'}
+                  </span>
+                </button>
+
+                {!settingsPanelCollapsed && (
+                <div style={{ padding: '0 16px 16px' }}>
                 <div
                   style={{
                     marginBottom: 12,
@@ -1630,6 +1768,8 @@ export default function PsychologistAIChat() {
                     {clientModeEnabled ? 'включен' : 'выключен'}
                   </div>
                 </div>
+                </div>
+                )}
               </div>
             </div>
           )}
@@ -1992,7 +2132,7 @@ export default function PsychologistAIChat() {
                         >
                           <div
                             style={{
-                              maxWidth: '85%',
+                              maxWidth: msg.role === 'assistant' ? (isMobileView ? '92%' : '92%') : '85%',
                               padding: '16px 20px',
                               borderRadius: 18,
                               background: msg.role === 'user'
@@ -2000,13 +2140,15 @@ export default function PsychologistAIChat() {
                                 : 'var(--surface-2)',
                               color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
                               lineHeight: 1.6,
-                              whiteSpace: 'pre-wrap',
-                              wordBreak: 'break-word',
+                              whiteSpace: msg.role === 'user' ? 'pre-wrap' : 'normal',
+                              wordBreak: msg.role === 'user' ? 'break-word' : 'normal',
+                              overflowWrap: 'anywhere',
                               fontSize: isMobileView ? 13 : 15,
                               boxShadow: msg.role === 'user' 
                                 ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
                                 : '0 2px 8px rgba(0, 0, 0, 0.1)'
                             }}
+                            onCopy={msg.role === 'assistant' ? (e) => handleAssistantCopy(e, msg.content) : undefined}
                           >
                             {msg.role === 'assistant' && msg.isAnalysis && (
                               <div
@@ -2025,7 +2167,7 @@ export default function PsychologistAIChat() {
                                 Анализ
                               </div>
                             )}
-                            {msg.content}
+                            {msg.role === 'assistant' ? renderAssistantMarkdown(msg.content) : msg.content}
                           </div>
                         </div>
                       ))}

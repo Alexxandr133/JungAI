@@ -264,6 +264,80 @@ router.get('/dashboard', async (req: AuthedRequest, res) => {
   }
 });
 
+// Каталог психологов на сайте: порядок и скрытие
+router.get('/psychologists-catalog', async (_req: AuthedRequest, res) => {
+  try {
+    const psychologists = await prisma.user.findMany({
+      where: { role: 'psychologist' },
+      select: {
+        id: true,
+        email: true,
+        isVerified: true,
+        catalogSortOrder: true,
+        catalogHidden: true,
+        createdAt: true
+      },
+      orderBy: [{ catalogSortOrder: 'asc' }, { createdAt: 'asc' }]
+    });
+    const ids = psychologists.map(p => p.id);
+    const profiles = await prisma.profile.findMany({
+      where: { userId: { in: ids } },
+      select: { userId: true, name: true, avatarUrl: true, specialization: true }
+    });
+    const profileMap = new Map(profiles.map(p => [p.userId, p]));
+    res.json({
+      items: psychologists.map((p, index) => {
+        const profile = profileMap.get(p.id);
+        return {
+          id: p.id,
+          email: p.email,
+          name: profile?.name || p.email.split('@')[0],
+          avatarUrl: profile?.avatarUrl || null,
+          specialization: profile?.specialization || null,
+          isVerified: p.isVerified,
+          sortOrder: p.catalogSortOrder ?? index,
+          hidden: Boolean(p.catalogHidden),
+          visibleOnSite: p.isVerified && !p.catalogHidden
+        };
+      })
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load psychologists catalog' });
+  }
+});
+
+router.put('/psychologists-catalog', async (req: AuthedRequest, res) => {
+  try {
+    const { items } = req.body ?? {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items array is required' });
+    }
+    const ids = items.map((it: any) => String(it.id || '')).filter(Boolean);
+    const psychologists = await prisma.user.findMany({
+      where: { id: { in: ids }, role: 'psychologist' },
+      select: { id: true }
+    });
+    const allowed = new Set(psychologists.map(p => p.id));
+    if (allowed.size !== ids.length) {
+      return res.status(400).json({ error: 'Invalid psychologist ids in items' });
+    }
+    await prisma.$transaction(
+      items.map((it: any, index: number) =>
+        prisma.user.update({
+          where: { id: String(it.id) },
+          data: {
+            catalogSortOrder: typeof it.sortOrder === 'number' ? it.sortOrder : index,
+            catalogHidden: Boolean(it.hidden)
+          }
+        })
+      )
+    );
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to save psychologists catalog' });
+  }
+});
+
 // Запустить "валидацию символов" вручную (раньше 18:00)
 router.post('/dreams/validate-symbols', async (_req: AuthedRequest, res) => {
   try {

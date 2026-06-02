@@ -16,6 +16,8 @@ model User {
   aiTokensUsed Int @default(0) // Расход токенов за текущий расчётный период
   aiTokensResetAt DateTime @default(now()) // Время следующего сброса лимита
   isVerified Boolean @default(false) // Верифицирован ли психолог
+  catalogSortOrder Int @default(0) // Порядок в публичном каталоге (меньше — выше)
+  catalogHidden Boolean @default(false) // Скрыт из публичного списка психологов
   emailVerified Boolean @default(false)
   emailVerificationCode String?
   emailVerificationExpiresAt DateTime?
@@ -97,6 +99,10 @@ model Client {
   email          String?
   phone          String?
   psychologistId String
+  age            Int?
+  city           String?
+  tags           Json?
+  therapyEndedAt DateTime? // Завершение терапии у психолога (архив)
   registrationToken String? @unique // Токен для регистрации клиента
   tokenExpiresAt DateTime? // Срок действия токена
   createdAt      DateTime @default(now())

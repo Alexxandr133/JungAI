@@ -289,7 +289,7 @@ export default function PsychologistsList() {
                       </h3>
                       {psych.verified && (
                         <span
-                          title="верефицирован"
+                          title="Верифицирован"
                           style={{
                             fontSize: 12,
                             fontWeight: 600,
@@ -303,7 +303,7 @@ export default function PsychologistsList() {
                             flexShrink: 0
                           }}
                         >
-                          верефицирован
+                          Верифицирован
                         </span>
                       )}
                     </div>

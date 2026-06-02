@@ -125,7 +125,7 @@ export default function PublicPsychologistProfile() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <h1 style={{ margin: 0, fontSize: 28, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.name}</h1>
-                    {profile.verified ? <span style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>верефицирован</span> : null}
+                    {profile.verified ? <span style={{ fontSize: 12, fontWeight: 600, color: '#22c55e', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>Верифицирован</span> : null}
                   </div>
                   <div className="small" style={{ color: 'var(--text-muted)', marginTop: 6 }}>
                     Опыт: {profile.experience || 0} лет

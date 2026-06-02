@@ -63,6 +63,7 @@ import AdminVerification from './pages/admin/Verification'
 import AdminSupport from './pages/admin/Support'
 import AdminOpenAccess from './pages/admin/OpenAccess'
 import AdminUserManagement from './pages/admin/UserManagement'
+import AdminPsychologistsCatalog from './pages/admin/PsychologistsCatalog'
 import RegisterClient from './pages/auth/RegisterClient'
 import Register from './pages/Register'
 import GuestPage from './pages/guest/Guest'
@@ -226,6 +227,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['admin']}>
                     <AdminOpenAccess />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/psychologists-catalog"
+                element={
+                  <ProtectedRoute roles={['admin']}>
+                    <AdminPsychologistsCatalog />
                   </ProtectedRoute>
                 }
               />

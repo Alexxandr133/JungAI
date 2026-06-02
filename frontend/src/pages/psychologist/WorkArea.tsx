@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
+import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { checkVerification } from '../../utils/verification';
@@ -9,6 +11,7 @@ import type { VerificationStatus } from '../../utils/verification';
 import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
 import { PSYCHOLOGIST_WORK_AREA_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
+import './WorkAreaEditor.css';
 
 type Client = { 
   id: string; 
@@ -40,6 +43,34 @@ function tabsKey(clientId: string) {
   return `workarea.tabs.${clientId}`;
 }
 
+function sanitizePastedRichHtml(html: string): string {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    doc.body.querySelectorAll('*').forEach((el) => {
+      const node = el as HTMLElement;
+      node.style.removeProperty('background');
+      node.style.removeProperty('background-color');
+      node.style.removeProperty('color');
+      const style = node.getAttribute('style') || '';
+      const cleaned = style
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((rule) => {
+          const key = rule.split(':')[0]?.trim().toLowerCase();
+          return key !== 'background' && key !== 'background-color' && key !== 'color';
+        })
+        .join('; ');
+      if (cleaned) node.setAttribute('style', cleaned);
+      else node.removeAttribute('style');
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
+}
+
 type WorkAreaProps = {
   restrictedClientId?: string; // Если передан, показывать только этого клиента
   hideNavbar?: boolean; // Скрыть навбар (для использования внутри других компонентов)
@@ -49,13 +80,13 @@ type WorkAreaProps = {
 export default function WorkArea({ restrictedClientId, hideNavbar = false, noPadding = false }: WorkAreaProps = {}) {
   const { token, user } = useAuth();
   const { t } = useI18n();
+  const { appearance } = useAppearance();
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
 
   const [clients, setClients] = useState<Client[]>([]);
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Ведение клиента');
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('workarea.theme') as any) || 'dark');
   const [expanded, setExpanded] = useState<boolean>(() => localStorage.getItem('workarea.expanded') === '1');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,6 +101,40 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
   const [isMobileView, setIsMobileView] = useState(false);
   const [showTabContent, setShowTabContent] = useState(false);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tablePickerHover, setTablePickerHover] = useState<{ rows: number; cols: number } | null>(null);
+  const tablePickerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const tablePickerPanelRef = useRef<HTMLDivElement | null>(null);
+  const [tablePickerPos, setTablePickerPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [tableContextMenu, setTableContextMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+  }>({ open: false, x: 0, y: 0 });
+  const tableContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const tableContextRef = useRef<{
+    table: HTMLTableElement;
+    rowIndex: number; // tbody row index
+    colIndex: number;
+  } | null>(null);
+  const colResizeRef = useRef<{
+    table: HTMLTableElement;
+    colIndex: number;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const isLightTheme = appearance.colorMode === 'light';
+  const ui = useMemo(() => {
+    const border = isLightTheme ? 'rgba(15,23,42,0.12)' : 'rgba(255,255,255,0.10)';
+    const borderStrong = isLightTheme ? 'rgba(15,23,42,0.18)' : 'rgba(255,255,255,0.14)';
+    const panel = isLightTheme ? '#ffffff' : 'var(--surface)';
+    const panel2 = isLightTheme ? '#f1f5f9' : 'var(--surface-2)';
+    const hover = isLightTheme ? 'rgba(37,99,235,0.06)' : 'rgba(255,255,255,0.06)';
+    const activeBg = isLightTheme ? 'rgba(37,99,235,0.12)' : 'rgba(91,124,250,0.18)';
+    const activeBorder = isLightTheme ? 'rgba(37,99,235,0.35)' : 'rgba(91,124,250,0.35)';
+    const activeText = isLightTheme ? '#0f172a' : '#ffffff';
+    return { border, borderStrong, panel, panel2, hover, activeBg, activeBorder, activeText };
+  }, [isLightTheme]);
 
   const currentClient = useMemo(() => clients.find(c => c.id === currentClientId) || null, [clients, currentClientId]);
   
@@ -105,6 +170,48 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       setVerificationStatus(result.status);
     });
   }, [token]);
+
+  useEffect(() => {
+    if (!tablePickerOpen) return;
+    const updatePos = () => {
+      const btn = tablePickerButtonRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      setTablePickerPos({
+        top: rect.bottom + 10,
+        left: rect.left,
+        width: Math.max(260, Math.min(320, rect.width + 140))
+      });
+    };
+    updatePos();
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (tablePickerButtonRef.current?.contains(target)) return;
+      if (tablePickerPanelRef.current?.contains(target)) return;
+      setTablePickerOpen(false);
+      setTablePickerHover(null);
+      setTablePickerPos(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setTablePickerOpen(false);
+        setTablePickerHover(null);
+        setTablePickerPos(null);
+      }
+    };
+    const onScrollOrResize = () => updatePos();
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onScrollOrResize);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onScrollOrResize);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+    };
+  }, [tablePickerOpen]);
 
   // Detect mobile view
   useEffect(() => {
@@ -317,6 +424,14 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }, [activeTab, currentClientId, token, isVerified]);
 
+  // Не допускаем «просачивания» текста редактора во вкладки с карточками
+  useEffect(() => {
+    if (activeTab === 'Дневник клиента' || activeTab === 'сны') {
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      setLoading(false);
+    }
+  }, [activeTab]);
+
   async function loadJournalEntries() {
     if (!currentClientId || !token || isVerified === false) return;
     setLoadingJournal(true);
@@ -514,13 +629,291 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     persistContent();
   }
 
-  function toggleTheme() {
-    setTheme(prev => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      try { localStorage.setItem('workarea.theme', next); } catch {}
-      return next;
+  function clearFormatting() {
+    document.execCommand('removeFormat', false);
+    document.execCommand('unlink', false);
+    persistContent();
+  }
+
+  function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    if (html) {
+      document.execCommand('insertHTML', false, sanitizePastedRichHtml(html));
+      persistContent();
+      return;
+    }
+    document.execCommand('insertText', false, text || '');
+    persistContent();
+  }
+
+  function insertTable(rowsRaw: number, colsRaw: number) {
+    const rows = Math.max(2, Math.min(12, Number(rowsRaw || 4) || 4));
+    const cols = Math.max(2, Math.min(10, Number(colsRaw || 4) || 4));
+    const colgroup = `<colgroup>${Array.from({ length: cols }).map(() => `<col style="width:${Math.round(100 / cols)}%"/>`).join('')}</colgroup>`;
+    const theadCells = Array.from({ length: cols })
+      .map((_, i) => `<th style="position:relative">Столбец ${i + 1}<span class="wa-col-resizer" contenteditable="false" data-col="${i}"></span></th>`)
+      .join('');
+    const bodyRows = Array.from({ length: rows - 1 })
+      .map(() => `<tr>${Array.from({ length: cols }).map(() => `<td>&nbsp;</td>`).join('')}</tr>`)
+      .join('');
+    const id = `wa-table-${Math.random().toString(36).slice(2, 9)}`;
+    const html = `<div class="wa-table-wrap" data-wa-table-id="${id}"><table>${colgroup}<thead><tr>${theadCells}</tr></thead><tbody>${bodyRows}</tbody></table></div><p data-wa-after-table="${id}"><br/></p>`;
+    document.execCommand('insertHTML', false, html);
+    persistContent();
+    window.setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const p = editor.querySelector(`[data-wa-after-table="${id}"]`) as HTMLElement | null;
+      if (!p) return;
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }, 0);
+  }
+
+  function getClosestTableFromSelection(): HTMLTableElement | null {
+    const sel = window.getSelection();
+    const node = sel?.anchorNode || null;
+    const el = (node && (node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement)) || null;
+    if (!el) return null;
+    return (el.closest('.wa-table-wrap table') as HTMLTableElement | null) || null;
+  }
+
+  function deleteCurrentTable() {
+    const table = getClosestTableFromSelection();
+    if (!table) return;
+    const wrap = table.closest('.wa-table-wrap') as HTMLElement | null;
+    if (wrap) wrap.remove();
+    else table.remove();
+    persistContent();
+  }
+
+  function renumberColResizers(table: HTMLTableElement) {
+    const ths = Array.from(table.querySelectorAll('thead th')) as HTMLTableCellElement[];
+    ths.forEach((th, i) => {
+      let resizer = th.querySelector('.wa-col-resizer') as HTMLElement | null;
+      if (!resizer) {
+        resizer = document.createElement('span');
+        resizer.className = 'wa-col-resizer';
+        resizer.setAttribute('contenteditable', 'false');
+        th.appendChild(resizer);
+      }
+      resizer.setAttribute('data-col', String(i));
     });
   }
+
+  function ensureColgroup(table: HTMLTableElement, cols: number) {
+    let cg = table.querySelector('colgroup') as HTMLTableColElement | null;
+    if (!cg) {
+      cg = document.createElement('colgroup') as any;
+      // table.firstChild может быть null
+      table.insertBefore(cg as unknown as Node, table.firstChild);
+    }
+    if (!cg) return null;
+    const existing = cg.querySelectorAll('col').length;
+    for (let i = existing; i < cols; i++) {
+      const col = document.createElement('col');
+      col.style.width = `${Math.round(100 / Math.max(cols, 1))}%`;
+      cg.appendChild(col);
+    }
+    while (cg.querySelectorAll('col').length > cols) {
+      cg.lastElementChild?.remove();
+    }
+    return cg;
+  }
+
+  function addRowBelowFromContext() {
+    const ctx = tableContextRef.current;
+    if (!ctx) return;
+    const tbody = ctx.table.querySelector('tbody');
+    if (!tbody) return;
+    const cols = (ctx.table.querySelector('thead tr')?.children.length || ctx.table.rows?.[0]?.cells?.length || 1);
+    const tr = document.createElement('tr');
+    for (let i = 0; i < cols; i++) {
+      const td = document.createElement('td');
+      td.innerHTML = '&nbsp;';
+      tr.appendChild(td);
+    }
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const insertAt = Math.min(rows.length, Math.max(0, ctx.rowIndex + 1));
+    if (rows[insertAt]) tbody.insertBefore(tr, rows[insertAt]);
+    else tbody.appendChild(tr);
+    persistContent();
+  }
+
+  function deleteRowFromContext() {
+    const ctx = tableContextRef.current;
+    if (!ctx) return;
+    const tbody = ctx.table.querySelector('tbody');
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length <= 1) return;
+    rows[ctx.rowIndex]?.remove();
+    persistContent();
+  }
+
+  function addColumnRightFromContext() {
+    const ctx = tableContextRef.current;
+    if (!ctx) return;
+    const table = ctx.table;
+    const headRow = table.querySelector('thead tr');
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const currentCols = headRow ? headRow.children.length : (bodyRows[0]?.children.length || 1);
+    const nextCols = currentCols + 1;
+    const cg = ensureColgroup(table, nextCols);
+    const colEls = cg ? (Array.from(cg.querySelectorAll('col')) as HTMLTableColElement[]) : [];
+
+    // ширина нового столбца
+    const newCol = colEls[nextCols - 1];
+    if (newCol && !newCol.style.width) newCol.style.width = '120px';
+
+    const insertAt = Math.min(currentCols, Math.max(0, ctx.colIndex + 1));
+    if (headRow) {
+      const th = document.createElement('th');
+      th.style.position = 'relative';
+      th.textContent = `Столбец ${insertAt + 1}`;
+      const resizer = document.createElement('span');
+      resizer.className = 'wa-col-resizer';
+      resizer.setAttribute('contenteditable', 'false');
+      th.appendChild(resizer);
+      headRow.insertBefore(th, headRow.children[insertAt] || null);
+    }
+    bodyRows.forEach((tr) => {
+      const td = document.createElement('td');
+      td.innerHTML = '&nbsp;';
+      tr.insertBefore(td, tr.children[insertAt] || null);
+    });
+    renumberColResizers(table);
+    persistContent();
+  }
+
+  function deleteColumnFromContext() {
+    const ctx = tableContextRef.current;
+    if (!ctx) return;
+    const table = ctx.table;
+    const headRow = table.querySelector('thead tr');
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
+    const currentCols = headRow ? headRow.children.length : (bodyRows[0]?.children.length || 1);
+    if (currentCols <= 1) return;
+    const removeAt = Math.min(currentCols - 1, Math.max(0, ctx.colIndex));
+
+    // colgroup
+    const cg = ensureColgroup(table, currentCols);
+    const colEls = cg ? Array.from(cg.querySelectorAll('col')) : [];
+    colEls[removeAt]?.remove();
+
+    if (headRow) headRow.children[removeAt]?.remove();
+    bodyRows.forEach((tr) => tr.children[removeAt]?.remove());
+
+    ensureColgroup(table, currentCols - 1);
+    renumberColResizers(table);
+    persistContent();
+  }
+
+  useEffect(() => {
+    if (!tableContextMenu.open) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (target && tableContextMenuRef.current?.contains(target)) return;
+      setTableContextMenu(v => ({ ...v, open: false }));
+      tableContextRef.current = null;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setTableContextMenu(v => ({ ...v, open: false }));
+        tableContextRef.current = null;
+      }
+    };
+    document.addEventListener('mousedown', onDown, { capture: true });
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown, { capture: true } as any);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [tableContextMenu.open]);
+
+  function onEditorMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const resizer = target.closest('.wa-col-resizer') as HTMLElement | null;
+    if (!resizer) return;
+    const table = resizer.closest('table') as HTMLTableElement | null;
+    if (!table) return;
+    const idx = Number(resizer.getAttribute('data-col') || '0');
+    const col = table.querySelectorAll('colgroup col')[idx] as HTMLTableColElement | undefined;
+    const th = resizer.closest('th') as HTMLTableCellElement | null;
+    if (!col || !th) return;
+
+    e.preventDefault();
+    colResizeRef.current = {
+      table,
+      colIndex: idx,
+      startX: e.clientX,
+      startWidth: th.getBoundingClientRect().width
+    };
+  }
+
+  function onEditorContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const cell = target.closest('td,th') as HTMLTableCellElement | null;
+    if (!cell) return;
+    const table = cell.closest('.wa-table-wrap table') as HTMLTableElement | null;
+    if (!table) return;
+    const tr = cell.parentElement as HTMLTableRowElement | null;
+    if (!tr) return;
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    const tbodyRows = Array.from(tbody.querySelectorAll('tr'));
+    const rowIndex = tr.parentElement === tbody ? tbodyRows.indexOf(tr) : 0;
+    const colIndex = Array.from(tr.children).indexOf(cell);
+    if (colIndex < 0) return;
+
+    e.preventDefault();
+    tableContextRef.current = { table, rowIndex: Math.max(0, rowIndex), colIndex: Math.max(0, colIndex) };
+    setTableContextMenu({ open: true, x: e.clientX, y: e.clientY });
+  }
+
+  function onEditorKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed) return;
+    const table = getClosestTableFromSelection();
+    if (!table) return;
+    // Ctrl+Backspace/Delete — удалить всю таблицу
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      deleteCurrentTable();
+    }
+  }
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const state = colResizeRef.current;
+      if (!state) return;
+      const delta = e.clientX - state.startX;
+      const newWidth = Math.max(48, Math.round(state.startWidth + delta));
+      const col = state.table.querySelectorAll('colgroup col')[state.colIndex] as HTMLTableColElement | undefined;
+      if (!col) return;
+      col.style.width = `${newWidth}px`;
+    };
+    const onUp = () => {
+      if (!colResizeRef.current) return;
+      colResizeRef.current = null;
+      persistContent();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
 
   function toggleExpanded() {
     setExpanded(prev => {
@@ -712,7 +1105,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       overflow: 'hidden', 
       display: 'flex', 
       flexDirection: 'column', 
-      height: noPadding ? '100%' : 'calc(100vh - 64px)', 
+      height: '100%',
       position: 'relative' 
     }}>
         {/* Top Header Bar with Client Selector */}
@@ -724,8 +1117,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           justifyContent: 'space-between', 
           gap: 16, 
           padding: '12px 20px',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          background: 'var(--surface)',
+          borderBottom: `1px solid ${ui.border}`,
+          background: ui.panel,
           flexShrink: 0
         }}
         >
@@ -826,7 +1219,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                             padding: '12px',
                             borderRadius: 8,
                             border: 'none',
-                            background: active ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
+                            background: active ? ui.activeBg : 'transparent',
                             color: 'var(--text)',
                             cursor: 'pointer',
                             textAlign: 'left',
@@ -835,7 +1228,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                           }}
                           onMouseEnter={(e) => {
                             if (!active) {
-                              e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                              e.currentTarget.style.background = ui.hover;
                             }
                           }}
                           onMouseLeave={(e) => {
@@ -898,7 +1291,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 gap: 8, 
                 padding: '6px 12px', 
                 borderRadius: 8,
-                background: theme === 'light' ? '#e9ecef' : 'var(--surface-2)'
+                background: isLightTheme ? '#e9ecef' : 'var(--surface-2)'
               }}>
                 {getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) ? (
                   <img
@@ -968,10 +1361,10 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 width: 12,
                 height: 100,
                 borderRadius: expanded ? '0 6px 6px 0' : '6px 0 0 6px',
-                border: '1px solid rgba(255,255,255,0.15)',
-                borderLeft: expanded ? '1px solid rgba(255,255,255,0.15)' : 'none',
-                borderRight: expanded ? 'none' : '1px solid rgba(255,255,255,0.15)',
-                background: expanded ? 'rgba(91, 124, 250, 0.2)' : 'var(--surface-2)',
+                border: `1px solid ${ui.borderStrong}`,
+                borderLeft: expanded ? `1px solid ${ui.borderStrong}` : 'none',
+                borderRight: expanded ? 'none' : `1px solid ${ui.borderStrong}`,
+                background: expanded ? ui.activeBg : ui.panel2,
                 color: expanded ? 'var(--primary)' : 'var(--text-muted)',
                 cursor: 'pointer',
                 fontSize: 12,
@@ -981,22 +1374,22 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 justifyContent: 'center',
                 zIndex: 200,
                 transition: 'all 0.3s ease',
-                boxShadow: expanded ? '2px 0 8px rgba(91, 124, 250, 0.3)' : 'inset -1px 0 0 rgba(255,255,255,0.1)',
+                boxShadow: expanded ? (isLightTheme ? '2px 0 10px rgba(37,99,235,0.18)' : '2px 0 10px rgba(91,124,250,0.25)') : (isLightTheme ? 'inset -1px 0 0 rgba(15,23,42,0.08)' : 'inset -1px 0 0 rgba(255,255,255,0.10)'),
                 pointerEvents: 'auto'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(91, 124, 250, 0.35)';
+                e.currentTarget.style.background = ui.activeBg;
                 e.currentTarget.style.color = 'var(--primary)';
                 e.currentTarget.style.width = '16px';
-                e.currentTarget.style.boxShadow = '2px 0 12px rgba(91, 124, 250, 0.5)';
-                e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                e.currentTarget.style.boxShadow = isLightTheme ? '2px 0 14px rgba(37,99,235,0.22)' : '2px 0 14px rgba(91,124,250,0.35)';
+                e.currentTarget.style.borderColor = ui.activeBorder;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = expanded ? 'rgba(91, 124, 250, 0.2)' : 'var(--surface-2)';
+                e.currentTarget.style.background = expanded ? ui.activeBg : ui.panel2;
                 e.currentTarget.style.color = expanded ? 'var(--primary)' : 'var(--text-muted)';
                 e.currentTarget.style.width = '12px';
-                e.currentTarget.style.boxShadow = expanded ? '2px 0 8px rgba(91, 124, 250, 0.3)' : 'inset -1px 0 0 rgba(255,255,255,0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+                e.currentTarget.style.boxShadow = expanded ? (isLightTheme ? '2px 0 10px rgba(37,99,235,0.18)' : '2px 0 10px rgba(91,124,250,0.25)') : (isLightTheme ? 'inset -1px 0 0 rgba(15,23,42,0.08)' : 'inset -1px 0 0 rgba(255,255,255,0.10)');
+                e.currentTarget.style.borderColor = ui.borderStrong;
               }}
               title={expanded ? 'Показать вкладки' : 'Скрыть вкладки'}
             >
@@ -1010,8 +1403,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
               style={{ 
               display: isMobileView ? (showTabContent ? 'none' : 'flex') : 'flex',
               flexDirection: 'column',
-              borderRight: isMobileView ? 'none' : '1px solid rgba(255,255,255,0.08)',
-              background: 'var(--surface-2)',
+              borderRight: isMobileView ? 'none' : `1px solid ${ui.border}`,
+              background: ui.panel2,
               overflow: 'hidden',
               width: isMobileView ? '100%' : (expanded ? 0 : 240),
               minWidth: isMobileView ? 'auto' : (expanded ? 0 : 240),
@@ -1021,7 +1414,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             >
               <div style={{ 
                 padding: '16px', 
-                borderBottom: theme === 'light' ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.08)',
+                borderBottom: `1px solid ${ui.border}`,
                 flexShrink: 0,
                 overflow: 'hidden',
                 opacity: expanded ? 0 : 1,
@@ -1078,7 +1471,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                       <div
                         role="button"
                         tabIndex={0}
-                        className={active ? 'button' : 'button secondary'}
+                        className="button secondary"
                         onClick={() => {
                           setActiveTab(tab);
                           if (isMobileView) {
@@ -1103,13 +1496,16 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                           position: 'relative',
                           borderRadius: 8,
                           cursor: isDragged ? 'grabbing' : 'pointer',
-                          border: isDragOver ? '2px dashed var(--primary)' : 'none',
+                          border: isDragOver ? `2px dashed ${ui.activeBorder}` : active ? `1px solid ${ui.activeBorder}` : `1px solid transparent`,
+                          background: active ? ui.activeBg : 'transparent',
+                          color: active ? ui.activeText : 'var(--text)',
+                          boxShadow: active ? (isLightTheme ? '0 6px 16px rgba(15,23,42,0.06)' : '0 10px 22px rgba(0,0,0,0.25)') : 'none',
                           transition: 'all 0.2s ease',
                           userSelect: 'none'
                         }}
                         onMouseEnter={(e) => {
                           if (!active) {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                            e.currentTarget.style.background = ui.hover;
                             e.currentTarget.style.transform = 'translateX(2px)';
                           }
                         }}
@@ -1120,6 +1516,20 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                           }
                         }}
                       >
+                        {active && (
+                          <span
+                            aria-hidden
+                            style={{
+                              position: 'absolute',
+                              left: 0,
+                              top: 6,
+                              bottom: 6,
+                              width: 3,
+                              borderRadius: 999,
+                              background: 'var(--primary)'
+                            }}
+                          />
+                        )}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ opacity: 0.5, fontSize: 12 }}>☰</span>
@@ -1166,6 +1576,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           {/* Right Side - Editor Area */}
           <div
             data-tour="workarea-editor"
+            key={activeTab}
             style={{ 
             display: isMobileView ? (showTabContent ? 'flex' : 'none') : 'flex', 
             flexDirection: 'column', 
@@ -1184,8 +1595,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 justifyContent: 'space-between',
                 gap: 12,
                 padding: '12px 16px',
-                background: 'var(--surface-2)',
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                background: ui.panel2,
+                borderBottom: `1px solid ${ui.border}`,
                 flexShrink: 0,
                 position: 'relative'
               }}>
@@ -1216,19 +1627,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     {activeTab}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                  <button 
-                    className="button secondary" 
-                    onClick={toggleTheme} 
-                    style={{ 
-                      padding: '8px 12px', 
-                      fontSize: 13,
-                      flexShrink: 0
-                    }}
-                  >
-                    {theme === 'dark' ? '☀️' : '🌙'}
-                  </button>
-                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }} />
               </div>
             )}
             {/* Mobile back button - removed, now in header above */}
@@ -1239,8 +1638,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 justifyContent: 'space-between',
                 gap: 12,
                 padding: '12px 16px',
-                background: 'var(--surface-2)',
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
+                background: ui.panel2,
+                borderBottom: `1px solid ${ui.border}`,
                 flexShrink: 0
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
@@ -1268,17 +1667,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     {activeTab}
                   </div>
                 </div>
-                <button 
-                  className="button secondary" 
-                  onClick={toggleTheme} 
-                  style={{ 
-                    padding: '8px 12px', 
-                    fontSize: 13,
-                    flexShrink: 0
-                  }}
-                >
-                  {theme === 'dark' ? '☀️' : '🌙'}
-                </button>
+                {/* Убрано: локальный переключатель темы рабочей области */}
               </div>
             )}
 
@@ -1286,86 +1675,203 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             {activeTab !== 'Дневник клиента' && activeTab !== 'сны' && (
               <div style={{ 
                 display: 'flex', 
-                gap: 4, 
+                gap: 8, 
                 alignItems: 'center', 
                 flexWrap: 'wrap', 
                 flexShrink: 0, 
-                background: 'var(--surface-2)', 
-                borderBottom: '1px solid rgba(255,255,255,0.08)', 
+                background: ui.panel2, 
+                borderBottom: `1px solid ${ui.border}`, 
                 padding: '8px 12px',
-                overflowX: 'auto'
+                overflowX: 'auto',
+                overflowY: 'visible',
+                position: 'relative',
+                zIndex: 5,
+                boxShadow: isLightTheme ? '0 1px 0 rgba(15,23,42,0.05)' : '0 1px 0 rgba(255,255,255,0.05)'
               }}>
-                <select 
-                  onChange={e => execBlock(e.target.value as any)} 
-                  defaultValue="P" 
-                  style={{ 
-                    padding: '6px 10px', 
-                    borderRadius: 6,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    background: 'var(--surface)',
-                    color: 'var(--text)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="P">Обычный</option>
-                  <option value="H1">Заголовок 1</option>
-                  <option value="H2">Заголовок 2</option>
-                  <option value="H3">Заголовок 3</option>
-                </select>
-                <select 
-                  onChange={e => setFontFamily(e.target.value)} 
-                  defaultValue="Arial" 
-                  style={{ 
-                    padding: '6px 10px', 
-                    borderRadius: 6,
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    background: 'var(--surface)',
-                    color: 'var(--text)',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    outline: 'none'
-                  }}
-                  title="Шрифт"
-                >
-                  <option value="Arial">Arial</option>
-                  <option value="Times New Roman">Times New Roman</option>
-                  <option value="Courier New">Courier New</option>
-                  <option value="Georgia">Georgia</option>
-                  <option value="Verdana">Verdana</option>
-                  <option value="Comic Sans MS">Comic Sans MS</option>
-                  <option value="Trebuchet MS">Trebuchet MS</option>
-                  <option value="Impact">Impact</option>
-                </select>
-              <button className="button secondary" onClick={() => exec('bold')} style={{ padding: '6px 10px', fontSize: 13, fontWeight: 'bold' }} title="Жирный">B</button>
-              <button className="button secondary" onClick={() => exec('italic')} style={{ padding: '6px 10px', fontSize: 13, fontStyle: 'italic' }} title="Курсив">I</button>
-              <button className="button secondary" onClick={() => exec('underline')} style={{ padding: '6px 10px', fontSize: 13, textDecoration: 'underline' }} title="Подчеркнутый">U</button>
-              <button className="button secondary" onClick={() => exec('strikeThrough')} style={{ padding: '6px 10px', fontSize: 13, textDecoration: 'line-through' }} title="Зачеркнутый">S</button>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.12)', margin: '0 4px' }} />
-              <button className="button secondary" onClick={() => exec('insertUnorderedList')} style={{ padding: '6px 10px', fontSize: 13 }} title="Маркированный список">•</button>
-              <button className="button secondary" onClick={() => exec('insertOrderedList')} style={{ padding: '6px 10px', fontSize: 13 }} title="Нумерованный список">1.</button>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.12)', margin: '0 4px' }} />
-              <button className="button secondary" onClick={() => execBlock('BLOCKQUOTE')} style={{ padding: '6px 10px', fontSize: 13 }}>“Цитата”</button>
-              <button className="button secondary" onClick={() => execBlock('PRE')} style={{ padding: '6px 10px', fontSize: 13 }} title="Код">&lt;/&gt;</button>
-              <button className="button secondary" onClick={() => exec('removeFormat')} style={{ padding: '6px 10px', fontSize: 13 }} title="Очистить форматирование">✕</button>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.12)', margin: '0 4px' }} />
-              <button className="button secondary" onClick={() => exec('justifyLeft')} style={{ padding: '6px 10px', fontSize: 13 }} title="По левому краю">⟸</button>
-              <button className="button secondary" onClick={() => exec('justifyCenter')} style={{ padding: '6px 10px', fontSize: 13 }} title="По центру">≡</button>
-              <button className="button secondary" onClick={() => exec('justifyRight')} style={{ padding: '6px 10px', fontSize: 13 }} title="По правому краю">⟹</button>
-              <button className="button secondary" onClick={() => exec('justifyFull')} style={{ padding: '6px 10px', fontSize: 13 }} title="По ширине">⟷</button>
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.12)', margin: '0 4px' }} />
-              <button className="button secondary" onClick={insertLink} style={{ padding: '6px 10px', fontSize: 13 }} title="Вставить ссылку">🔗</button>
-              <button className="button secondary" onClick={removeLink} style={{ padding: '6px 10px', fontSize: 13 }} title="Удалить ссылку">🔗✕</button>
-              <input type="color" title="Цвет текста" onChange={e => setColor(e.target.value)} style={{ height: 28, width: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }} />
-              <input type="color" title="Цвет фона" onChange={e => setBackColor(e.target.value)} style={{ height: 28, width: 32, border: 'none', borderRadius: 4, cursor: 'pointer' }} />
-              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.12)', margin: '0 4px' }} />
-              <button className="button secondary" onClick={() => exec('undo')} style={{ padding: '6px 10px', fontSize: 13 }} title="Отменить">↶</button>
-              <button className="button secondary" onClick={() => exec('redo')} style={{ padding: '6px 10px', fontSize: 13 }} title="Повторить">↷</button>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-                {saving && <span className="small" style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('workArea.saving')}</span>}
-                <button className="button" onClick={() => saveToAPI(true)} style={{ padding: '6px 12px', fontSize: 13 }}>{t('workArea.save')}</button>
-              </div>
+                {/* Группа: стиль и шрифт */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
+                  <select
+                    onChange={e => execBlock(e.target.value as any)}
+                    defaultValue="P"
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.panel,
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                    title="Стиль"
+                  >
+                    <option value="P">Обычный</option>
+                    <option value="H1">Заголовок 1</option>
+                    <option value="H2">Заголовок 2</option>
+                    <option value="H3">Заголовок 3</option>
+                    <option value="BLOCKQUOTE">Цитата</option>
+                    <option value="PRE">Код</option>
+                  </select>
+                  <select
+                    onChange={e => setFontFamily(e.target.value)}
+                    defaultValue="Arial"
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 8,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.panel,
+                      color: 'var(--text)',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                    title="Шрифт"
+                  >
+                    <option value="Arial">Arial</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
+                    <option value="Courier New">Courier New</option>
+                  </select>
+                </div>
+
+                {/* Группа: начертание */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
+                  <button className="button secondary" onClick={() => exec('bold')} style={{ padding: '6px 10px', fontSize: 13, fontWeight: 'bold' }} title="Жирный">B</button>
+                  <button className="button secondary" onClick={() => exec('italic')} style={{ padding: '6px 10px', fontSize: 13, fontStyle: 'italic' }} title="Курсив">I</button>
+                  <button className="button secondary" onClick={() => exec('underline')} style={{ padding: '6px 10px', fontSize: 13, textDecoration: 'underline' }} title="Подчёркнутый">U</button>
+                  <button className="button secondary" onClick={() => exec('strikeThrough')} style={{ padding: '6px 10px', fontSize: 13, textDecoration: 'line-through' }} title="Зачёркнутый">S</button>
+                </div>
+
+                {/* Группа: списки и выравнивание */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
+                  <button className="button secondary" onClick={() => exec('insertUnorderedList')} style={{ padding: '6px 10px', fontSize: 13 }} title="Маркированный список">•</button>
+                  <button className="button secondary" onClick={() => exec('insertOrderedList')} style={{ padding: '6px 10px', fontSize: 13 }} title="Нумерованный список">1.</button>
+                  <div style={{ width: 1, height: 22, background: ui.border, margin: '0 4px' }} />
+                  <button className="button secondary" onClick={() => exec('justifyLeft')} style={{ padding: '6px 10px', fontSize: 13 }} title="По левому краю">⟸</button>
+                  <button className="button secondary" onClick={() => exec('justifyCenter')} style={{ padding: '6px 10px', fontSize: 13 }} title="По центру">≡</button>
+                  <button className="button secondary" onClick={() => exec('justifyRight')} style={{ padding: '6px 10px', fontSize: 13 }} title="По правому краю">⟹</button>
+                  <button className="button secondary" onClick={() => exec('justifyFull')} style={{ padding: '6px 10px', fontSize: 13 }} title="По ширине">⟷</button>
+                </div>
+
+                {/* Группа: ссылки и цвет */}
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
+                  <button className="button secondary" onClick={insertLink} style={{ padding: '6px 10px', fontSize: 13 }} title="Вставить ссылку">🔗</button>
+                  <button className="button secondary" onClick={removeLink} style={{ padding: '6px 10px', fontSize: 13 }} title="Удалить ссылку">🔗✕</button>
+                  <div style={{ width: 1, height: 22, background: ui.border }} />
+                  <button
+                    ref={tablePickerButtonRef}
+                    className="button secondary"
+                    onClick={() => {
+                      setTablePickerOpen(v => !v);
+                      setTablePickerHover({ rows: 4, cols: 4 });
+                      // позиция пересчитается эффектом при открытии
+                    }}
+                    style={{ padding: '6px 10px', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    title="Вставить таблицу"
+                  >
+                    Таблица <span style={{ opacity: 0.7 }}>▾</span>
+                  </button>
+                  <div style={{ width: 1, height: 22, background: ui.border }} />
+                  <label className="small" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Текст
+                    <input type="color" title="Цвет текста" onChange={e => setColor(e.target.value)} style={{ height: 28, width: 32, border: `1px solid ${ui.border}`, borderRadius: 8, cursor: 'pointer', background: ui.panel }} />
+                  </label>
+                  <label className="small" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    Фон
+                    <input type="color" title="Цвет фона" onChange={e => setBackColor(e.target.value)} style={{ height: 28, width: 32, border: `1px solid ${ui.border}`, borderRadius: 8, cursor: 'pointer', background: ui.panel }} />
+                  </label>
+                  <div style={{ width: 1, height: 22, background: ui.border }} />
+                  <button className="button secondary" onClick={deleteCurrentTable} style={{ padding: '6px 10px', fontSize: 13 }} title="Удалить таблицу">
+                    Удалить таблицу
+                  </button>
+
+                  {tablePickerOpen && tablePickerPos && createPortal(
+                    <div
+                      ref={tablePickerPanelRef}
+                      style={{
+                        position: 'fixed',
+                        top: tablePickerPos.top,
+                        left: tablePickerPos.left,
+                        zIndex: 9999,
+                        width: tablePickerPos.width,
+                        maxWidth: 'calc(100vw - 24px)',
+                        padding: 10,
+                        borderRadius: 12,
+                        border: `1px solid ${ui.border}`,
+                        background: ui.panel2,
+                        boxShadow: isLightTheme ? '0 10px 24px rgba(15,23,42,0.12)' : '0 10px 24px rgba(0,0,0,0.35)'
+                      }}
+                    >
+                      <div className="small" style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                        {tablePickerHover ? `Таблица ${tablePickerHover.rows}×${tablePickerHover.cols}` : 'Таблица'}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 4 }}>
+                        {Array.from({ length: 10 }).map((_, r) =>
+                          Array.from({ length: 10 }).map((__, c) => {
+                            const rows = r + 1;
+                            const cols = c + 1;
+                            const active = Boolean(tablePickerHover && rows <= tablePickerHover.rows && cols <= tablePickerHover.cols);
+                            return (
+                              <div
+                                key={`${r}-${c}`}
+                                onMouseEnter={() => setTablePickerHover({ rows, cols })}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  insertTable(rows, cols);
+                                  setTablePickerOpen(false);
+                                  setTablePickerHover(null);
+                                  setTablePickerPos(null);
+                                }}
+                                style={{
+                                  height: 18,
+                                  borderRadius: 4,
+                                  border: `1px solid ${ui.border}`,
+                                  background: active
+                                    ? (isLightTheme ? 'rgba(59,130,246,0.18)' : 'rgba(59,130,246,0.28)')
+                                    : (isLightTheme ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.10)'),
+                                  cursor: 'pointer'
+                                }}
+                                title={`${rows}×${cols}`}
+                              />
+                            );
+                          })
+                        )}
+                      </div>
+                      <div className="small" style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                        После вставки потяните за правый‑нижний угол, чтобы изменить размер таблицы.
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+                </div>
+
+                {/* Группа: история и очистка */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
+                  <button className="button secondary" onClick={() => exec('undo')} style={{ padding: '6px 10px', fontSize: 13 }} title="Отменить">↶</button>
+                  <button className="button secondary" onClick={() => exec('redo')} style={{ padding: '6px 10px', fontSize: 13 }} title="Повторить">↷</button>
+                  <div style={{ width: 1, height: 22, background: ui.border, margin: '0 4px' }} />
+                  <button className="button secondary" onClick={clearFormatting} style={{ padding: '6px 10px', fontSize: 13, fontWeight: 600 }} title="Очистить формат">
+                    Очистить формат
+                  </button>
+                </div>
+
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span
+                    className="small"
+                    style={{
+                      color: 'var(--text-muted)',
+                      fontSize: 12,
+                      minWidth: 92,
+                      textAlign: 'right',
+                      visibility: saving ? 'visible' : 'hidden'
+                    }}
+                  >
+                    {t('workArea.saving')}
+                  </span>
+                  <button className="button" onClick={() => saveToAPI(true)} style={{ padding: '6px 12px', fontSize: 13 }}>{t('workArea.save')}</button>
+                </div>
             </div>
             )}
 
@@ -1468,7 +1974,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                                     borderRadius: 999,
                                     background: 'var(--surface-2)',
                                     color: 'var(--text-muted)',
-                                    border: '1px solid rgba(255,255,255,0.08)'
+                                    border: `1px solid ${ui.border}`
                                   }}
                                 >
                                   {sym}
@@ -1522,24 +2028,70 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
+                  onMouseDown={onEditorMouseDown}
+                  onContextMenu={onEditorContextMenu}
+                  onKeyDown={onEditorKeyDown}
                   onInput={persistContent}
+                  onPaste={handleEditorPaste}
+                  className="workarea-editor"
                   style={{
                     flex: 1,
                     minHeight: 0,
-                    background: theme === 'light' ? '#ffffff' : 'var(--surface-1)',
-                    padding: theme === 'light' ? '48px 60px' : '48px 60px',
+                    background: isLightTheme ? '#ffffff' : 'var(--surface-1)',
+                    padding: '48px 60px',
                     lineHeight: 1.8,
                     overflowY: 'auto',
                     overflowX: 'hidden',
                     opacity: loading ? 0.5 : 1,
                     fontSize: 15,
-                    color: theme === 'light' ? '#1a1a1a' : 'var(--text)',
+                    color: isLightTheme ? '#1a1a1a' : 'var(--text)',
                     fontFamily: 'var(--font-sans)',
                     outline: 'none',
                     maxWidth: '100%',
                     wordWrap: 'break-word'
                   }}
                 />
+                {tableContextMenu.open && createPortal(
+                  <div
+                    ref={tableContextMenuRef}
+                    style={{
+                      position: 'fixed',
+                      top: tableContextMenu.y,
+                      left: tableContextMenu.x,
+                      zIndex: 10000,
+                      minWidth: 220,
+                      padding: 6,
+                      borderRadius: 12,
+                      border: `1px solid ${ui.border}`,
+                      background: ui.panel2,
+                      boxShadow: isLightTheme ? '0 12px 28px rgba(15,23,42,0.14)' : '0 12px 28px rgba(0,0,0,0.38)'
+                    }}
+                    onMouseDown={(e) => {
+                      // не даём редактору терять фокус / выделение
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <button className="button secondary" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', fontSize: 13 }} onClick={() => { addRowBelowFromContext(); setTableContextMenu(v => ({ ...v, open: false })); }}>
+                      Добавить строку
+                    </button>
+                    <button className="button secondary" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', fontSize: 13, marginTop: 6 }} onClick={() => { addColumnRightFromContext(); setTableContextMenu(v => ({ ...v, open: false })); }}>
+                      Добавить столбец
+                    </button>
+                    <div style={{ height: 1, background: ui.border, margin: '8px 6px' }} />
+                    <button className="button secondary" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', fontSize: 13 }} onClick={() => { deleteRowFromContext(); setTableContextMenu(v => ({ ...v, open: false })); }}>
+                      Удалить строку
+                    </button>
+                    <button className="button secondary" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', fontSize: 13, marginTop: 6 }} onClick={() => { deleteColumnFromContext(); setTableContextMenu(v => ({ ...v, open: false })); }}>
+                      Удалить столбец
+                    </button>
+                    <div style={{ height: 1, background: ui.border, margin: '8px 6px' }} />
+                    <button className="button secondary" style={{ width: '100%', justifyContent: 'flex-start', padding: '8px 10px', fontSize: 13 }} onClick={() => { deleteCurrentTable(); setTableContextMenu(v => ({ ...v, open: false })); }}>
+                      Удалить таблицу
+                    </button>
+                  </div>,
+                  document.body
+                )}
               </div>
             )}
           </div>
@@ -1548,11 +2100,15 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   );
 
   if (hideNavbar) {
-    return content;
+    return (
+      <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {content}
+      </div>
+    );
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
       {content}
     </div>

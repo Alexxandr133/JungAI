@@ -297,7 +297,7 @@ export default function ClientPsychologistsList() {
                       </h3>
                       {psych.verified && (
                         <span
-                          title="верефицирован"
+                          title="верифицирован"
                           style={{
                             fontSize: 12,
                             fontWeight: 600,
@@ -311,7 +311,7 @@ export default function ClientPsychologistsList() {
                             flexShrink: 0
                           }}
                         >
-                          верефицирован
+                          верифицирован
                         </span>
                       )}
                     </div>
@@ -466,7 +466,7 @@ export default function ClientPsychologistsList() {
                     </h2>
                     {selectedPsychologist.verified && (
                       <span
-                        title="верефицирован"
+                        title="верифицирован"
                         style={{
                           fontSize: 12,
                           fontWeight: 600,
@@ -480,7 +480,7 @@ export default function ClientPsychologistsList() {
                           flexShrink: 0
                         }}
                       >
-                        верефицирован
+                        верифицирован
                       </span>
                     )}
                   </div>

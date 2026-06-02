@@ -48,7 +48,7 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
   try {
     const client = await prisma.client.findFirst({
       where: { email: req.user!.email },
-      select: { id: true, psychologistId: true }
+      select: { id: true, psychologistId: true, therapyEndedAt: true }
     });
     if (!client) {
       return res.status(404).json({ error: 'Client not found', code: 'NO_CLIENT_PROFILE' });
@@ -56,6 +56,9 @@ router.get('/clients/my-psychologist', requireAuth, requireRole(['client', 'admi
 
     if (!client.psychologistId || client.psychologistId.startsWith('temp-')) {
       return res.status(404).json({ error: 'Psychologist is not selected yet', code: 'NO_PSYCHOLOGIST' });
+    }
+    if (client.therapyEndedAt) {
+      return res.status(404).json({ error: 'Therapy with psychologist has ended', code: 'THERAPY_ENDED' });
     }
 
     const psychologist = await prisma.user.findFirst({
@@ -150,14 +153,20 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     console.log(`[GET /clients] User Role: ${req.user.role}`);
     console.log(`[GET /clients] Authorization Header: ${req.headers.authorization?.substring(0, 50)}...`);
 
+    const status = String(req.query.status || 'active').toLowerCase();
+    const therapyFilter =
+      status === 'archived'
+        ? { therapyEndedAt: { not: null } }
+        : { therapyEndedAt: null };
+
     // КРИТИЧНО: Для психологов - ТОЛЬКО свои клиенты, для админов - всех
     let whereClause: any = {};
 
     if (req.user.role === 'psychologist') {
       // СТРОГАЯ ФИЛЬТРАЦИЯ: только клиенты этого психолога
-      // Упрощенный синтаксис - используем только основное условие
       whereClause = {
-        psychologistId: req.user.id // ТОЛЬКО клиенты этого психолога
+        psychologistId: req.user.id,
+        ...therapyFilter
       };
       console.log(`[GET /clients] Filtering for psychologist ${req.user.id} with whereClause:`, JSON.stringify(whereClause));
     } else if (req.user.role === 'admin') {
@@ -167,7 +176,8 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         AND: [
           { psychologistId: { not: null } },
           { psychologistId: { not: '' } },
-          { psychologistId: { not: { startsWith: 'temp-' } } } // Правильный синтаксис
+          { psychologistId: { not: { startsWith: 'temp-' } } },
+          therapyFilter
         ]
       };
       console.log(`[GET /clients] Admin access - showing all clients (excluding null/temp)`);
@@ -184,7 +194,11 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         name: true,
         email: true,
         phone: true,
-        psychologistId: true, // КРИТИЧНО: включаем psychologistId в результат
+        age: true,
+        city: true,
+        tags: true,
+        therapyEndedAt: true,
+        psychologistId: true,
         createdAt: true,
         registrationToken: true,
         tokenExpiresAt: true
@@ -304,6 +318,9 @@ router.post('/clients', requireAuth, requireRole(['psychologist', 'admin']), req
       name: nameTrim,
       email: emailNorm,
       phone: phone ? String(phone).trim() : undefined,
+      age: age != null && age !== '' ? parseInt(String(age), 10) : undefined,
+      city: city ? String(city).trim() : undefined,
+      tags: Array.isArray(tags) ? tags : undefined,
       psychologistId: req.user!.id,
       registrationToken,
       tokenExpiresAt
@@ -326,7 +343,11 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
         id: true, 
         name: true, 
         email: true, 
-        phone: true, 
+        phone: true,
+        age: true,
+        city: true,
+        tags: true,
+        therapyEndedAt: true,
         psychologistId: true,
         createdAt: true,
         registrationToken: true,
@@ -587,18 +608,99 @@ router.post('/client/profile/avatar', requireAuth, requireRole(['client', 'admin
   }
 });
 
-// Удаление клиента (и связанных сущностей)
+// Завершить терапию (открепить клиента от психолога, данные сохраняются)
+router.post('/clients/:id/end-therapy', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (client.therapyEndedAt) {
+      return res.json({ ok: true, alreadyEnded: true });
+    }
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: { therapyEndedAt: new Date() }
+    });
+    res.json({ ok: true, client: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to end therapy' });
+  }
+});
+
+// Вернуть клиента из архива в активные
+router.post('/clients/:id/restore-therapy', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: { therapyEndedAt: null }
+    });
+    res.json({ ok: true, client: updated });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to restore client' });
+  }
+});
+
+// Обновить карточку клиента (без email и пароля)
+router.patch('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { name, phone, age, city, tags, email, password } = req.body ?? {};
+    if (email !== undefined || password !== undefined) {
+      return res.status(400).json({ error: 'Email и пароль нельзя изменить через эту форму' });
+    }
+
+    const nameTrim = name != null ? String(name).trim() : undefined;
+    if (nameTrim !== undefined && !nameTrim) {
+      return res.status(400).json({ error: 'Имя не может быть пустым' });
+    }
+
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: {
+        ...(nameTrim !== undefined ? { name: nameTrim } : {}),
+        ...(phone !== undefined ? { phone: phone ? String(phone).trim() : null } : {}),
+        ...(age !== undefined ? { age: age === '' || age == null ? null : parseInt(String(age), 10) } : {}),
+        ...(city !== undefined ? { city: city ? String(city).trim() : null } : {}),
+        ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags : null } : {})
+      }
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to update client' });
+  }
+});
+
+// Удаление клиента — только для admin (психолог использует end-therapy)
 router.delete('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   const clientId = req.params.id;
 
-  // Проверяем принадлежность клиента психологу (или роль admin)
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   if (!client) return res.status(404).json({ error: 'Client not found' });
   if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  // Удаляем зависимые записи вручную (отношения не определены на уровне Prisma)
+  if (req.user!.role === 'psychologist') {
+    const updated = await prisma.client.update({
+      where: { id: clientId },
+      data: { therapyEndedAt: client.therapyEndedAt ?? new Date() }
+    });
+    return res.json({ ok: true, ended: true, client: updated });
+  }
+
   await prisma.clientNote.deleteMany({ where: { clientId } });
   await prisma.therapySession.deleteMany({ where: { clientId } });
   await prisma.client.delete({ where: { id: clientId } });

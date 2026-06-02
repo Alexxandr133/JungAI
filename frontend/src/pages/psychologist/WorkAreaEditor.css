@@ -1,0 +1,73 @@
+.workarea-editor :where(.wa-table-wrap) {
+  display: inline-block;
+  max-width: 100%;
+  overflow: visible;
+  margin: 10px 0;
+}
+
+.workarea-editor :where(.wa-table-wrap table) {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0;
+  border: 1px solid rgba(100, 116, 139, 0.55);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.06);
+  font-size: 13px;
+}
+
+.workarea-editor :where(th, td) {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.38);
+  border-right: 1px solid rgba(100, 116, 139, 0.30);
+  vertical-align: top;
+}
+
+.workarea-editor :where(th:last-child, td:last-child) {
+  border-right: none;
+}
+
+.workarea-editor :where(tr:last-child td) {
+  border-bottom: none;
+}
+
+.workarea-editor :where(th) {
+  font-weight: 800;
+  background: rgba(148, 163, 184, 0.26);
+  white-space: nowrap;
+  position: relative;
+}
+
+.workarea-editor :where(tbody tr:nth-child(odd) td) {
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.workarea-editor :where(.wa-col-resizer) {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  width: 12px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.workarea-editor :where(.wa-col-resizer::after) {
+  content: '';
+  position: absolute;
+  top: 16%;
+  right: 5px;
+  width: 2px;
+  height: 68%;
+  border-radius: 2px;
+  background: rgba(100, 116, 139, 0.55);
+  opacity: 0.0;
+  transition: opacity 120ms ease;
+}
+
+.workarea-editor :where(th:hover .wa-col-resizer::after) {
+  opacity: 1;
+}
+

@@ -50,6 +50,16 @@ export default function ClientsList() {
   const [tagInput, setTagInput] = useState('');
   const [tagColor, setTagColor] = useState('#7c5cff');
   const [showModal, setShowModal] = useState(false);
+  const [clientView, setClientView] = useState<'active' | 'archive'>('active');
+  const [editingClient, setEditingClient] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAge, setEditAge] = useState('');
+  const [editCity, setEditCity] = useState('');
+  const [editTags, setEditTags] = useState<{ label: string; color: string }[]>([]);
+  const [editTagInput, setEditTagInput] = useState('');
+  const [editTagColor, setEditTagColor] = useState('#7c5cff');
+  const [savingEdit, setSavingEdit] = useState(false);
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [createdClientLink, setCreatedClientLink] = useState<string | null>(null);
@@ -108,7 +118,11 @@ export default function ClientsList() {
     return preset?.color || hashColorFromLabel(label);
   }
 
-  async function load() {
+  function isArchivedClient(c: any) {
+    return Boolean(c.therapyEndedAt);
+  }
+
+  async function load(view: 'active' | 'archive' = clientView) {
     const demo: any[] = [
       { id: 'c1', name: 'Иван Петров', email: 'ivan@example.com', phone: '+7 900 111-22-33', age: 34, city: 'Москва', tags: [{ label: 'PTSD', color: '#ff6b6b' }, { label: 'Сноведение', color: '#19e0ff' }] },
       { id: 'c2', name: 'Анна Смирнова', email: 'anna@example.com', phone: '+7 900 222-33-44', age: 29, city: 'СПб', tags: [{ label: 'Тревога', color: '#ffcc66' }] },
@@ -117,22 +131,18 @@ export default function ClientsList() {
     const stored = readItemsFromStorage();
     const deletedIds = new Set(readDeletedFromStorage());
     if (!token) {
-      // fallback demo data when unauthenticated / backend unavailable
-      const local = (stored.length > 0 ? stored : demo).filter(c => !deletedIds.has(String(c.id)));
+      const local = (stored.length > 0 ? stored : demo)
+        .filter(c => !deletedIds.has(String(c.id)))
+        .filter(c => view === 'archive' ? isArchivedClient(c) : !isArchivedClient(c));
       setItems(local);
       setError(null);
       return;
     }
     try {
-      const res = await api<{ items: any[] }>('/api/clients', { token });
-      // Обогащаем карточки витринными полями, если их нет в БД
-      const enriched = (res.items || []).map((c, idx) => ({
+      const res = await api<{ items: any[] }>(`/api/clients?status=${view}`, { token });
+      const enriched = (res.items || []).map((c) => ({
         ...c,
-        city: c.city ?? ['Москва', 'СПб', 'Казань', 'Екатеринбург', 'Новосибирск'][idx % 5],
-        age: c.age ?? (28 + (idx % 12)),
-        tags: Array.isArray(c.tags) && c.tags.length > 0 ? c.tags : [
-          { label: ['Тревога', 'PTSD', 'Сноведение', 'Депрессия'][idx % 4], color: ['#ffcc66', '#ff6b6b', '#19e0ff', '#7c5cff'][idx % 4] }
-        ],
+        tags: Array.isArray(c.tags) ? c.tags : []
       }));
       // apply local overrides (e.g., custom tags) for server ids
       const overrides = readOverrides();
@@ -146,11 +156,16 @@ export default function ClientsList() {
       // Затем добавляем только локальные клиенты, которых нет на сервере (созданные оффлайн)
       stored.forEach(it => {
         if (!serverIds.has(String(it.id))) {
-          byId[String(it.id)] = it;
+          const archived = isArchivedClient(it);
+          if (view === 'archive' ? archived : !archived) {
+            byId[String(it.id)] = it;
+          }
         }
       });
-      const combined = Object.values(byId).filter(it => !deletedIds.has(String(it.id)));
-      setItems(combined.length > 0 ? combined : demo);
+      const combined = Object.values(byId)
+        .filter(it => !deletedIds.has(String(it.id)))
+        .filter(it => (view === 'archive' ? isArchivedClient(it) : !isArchivedClient(it)));
+      setItems(combined.length > 0 ? combined : (view === 'archive' ? [] : demo));
       setError(null);
     } catch (e: any) {
       // backend not reachable or 404 -> show demo data
@@ -185,9 +200,9 @@ export default function ClientsList() {
 
   useEffect(() => {
     if (isVerified !== false) {
-      load();
+      load(clientView);
     }
-  }, [token, isVerified]);
+  }, [token, isVerified, clientView]);
 
   // Обновление данных при возврате на страницу
   useEffect(() => {
@@ -311,23 +326,133 @@ export default function ClientsList() {
     }
   }
 
-  async function deleteClient(id: string) {
+  async function endTherapy(id: string, name?: string) {
+    const label = name ? `«${name}»` : 'этого клиента';
+    if (!confirm(`Завершить терапию с клиентом ${label}?\n\nКлиент останется на платформе и будет перенесён в архив. Его можно будет вернуть из архива.`)) {
+      return;
+    }
     if (!token) {
-      setItems(prev => { const next = prev.filter(c => c.id !== id); saveItemsToStorage(next); return next; });
-      const ids = Array.from(new Set([...readDeletedFromStorage(), String(id)]));
-      saveDeletedToStorage(ids);
+      setItems(prev => {
+        const next = prev.map(c => c.id === id ? { ...c, therapyEndedAt: new Date().toISOString() } : c);
+        saveItemsToStorage(next);
+        return next.filter(c => clientView === 'archive' ? isArchivedClient(c) : !isArchivedClient(c));
+      });
       return;
     }
     try {
-      await api(`/api/clients/${id}`, { method: 'DELETE', token });
-      setItems(prev => { const next = prev.filter(c => c.id !== id); saveItemsToStorage(next); return next; });
-      const ids = Array.from(new Set([...readDeletedFromStorage(), String(id)]));
-      saveDeletedToStorage(ids);
-    } catch (e) {
-      // noop: keep UI responsive
-      setItems(prev => { const next = prev.filter(c => c.id !== id); saveItemsToStorage(next); return next; });
-      const ids = Array.from(new Set([...readDeletedFromStorage(), String(id)]));
-      saveDeletedToStorage(ids);
+      await api(`/api/clients/${id}/end-therapy`, { method: 'POST', token });
+      const endedAt = new Date().toISOString();
+      const stored = readItemsFromStorage();
+      if (stored.some(c => String(c.id) === String(id))) {
+        saveItemsToStorage(
+          stored.map(c => (String(c.id) === String(id) ? { ...c, therapyEndedAt: endedAt } : c))
+        );
+      }
+      setClientView('archive');
+      await load('archive');
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось завершить терапию');
+    }
+  }
+
+  async function restoreTherapy(id: string, name?: string) {
+    const label = name ? `«${name}»` : 'этого клиента';
+    if (!confirm(`Вернуть клиента ${label} в активные?`)) return;
+    if (!token) {
+      setItems(prev => {
+        const next = prev.map(c => c.id === id ? { ...c, therapyEndedAt: null } : c);
+        saveItemsToStorage(next);
+        return next.filter(c => clientView === 'archive' ? isArchivedClient(c) : !isArchivedClient(c));
+      });
+      return;
+    }
+    try {
+      await api(`/api/clients/${id}/restore-therapy`, { method: 'POST', token });
+      const stored = readItemsFromStorage();
+      if (stored.some(c => String(c.id) === String(id))) {
+        saveItemsToStorage(
+          stored.map(c => (String(c.id) === String(id) ? { ...c, therapyEndedAt: null } : c))
+        );
+      }
+      setClientView('active');
+      await load('active');
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось вернуть клиента');
+    }
+  }
+
+  function openEditClient(c: any) {
+    setEditingClient(c);
+    setEditName(c.name || '');
+    setEditPhone(c.phone || '');
+    setEditAge(c.age != null ? String(c.age) : '');
+    setEditCity(c.city || '');
+    setEditTags(Array.isArray(c.tags) ? c.tags.map((t: any) => ({ label: String(t.label), color: t.color || getColorForLabel(String(t.label)) })) : []);
+    setEditTagInput('');
+  }
+
+  function closeEditClient() {
+    setEditingClient(null);
+    setSavingEdit(false);
+  }
+
+  function addEditTag(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = editTagInput.trim();
+    if (!trimmed) return;
+    const color = editTagColor || getColorForLabel(trimmed);
+    setEditTags(prev => [...prev, { label: trimmed, color }]);
+    setEditTagInput('');
+  }
+
+  function removeEditTag(index: number) {
+    setEditTags(prev => prev.filter((_, i) => i !== index));
+  }
+
+  async function saveEditClient(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingClient) return;
+    const normalizedTags = editTags.map(t => ({ label: t.label.trim(), color: t.color }));
+    const body = {
+      name: editName.trim(),
+      phone: editPhone.trim() || null,
+      age: editAge ? Number(editAge) : null,
+      city: editCity.trim() || null,
+      tags: normalizedTags
+    };
+    if (!body.name) {
+      setError('Укажите имя клиента');
+      return;
+    }
+    setSavingEdit(true);
+    setError(null);
+    if (!token) {
+      setItems(prev => {
+        const next = prev.map(c => c.id === editingClient.id ? { ...c, ...body } : c);
+        saveItemsToStorage(next);
+        const overrides = readOverrides();
+        overrides[editingClient.id] = { tags: normalizedTags, city: body.city, age: body.age };
+        saveOverrides(overrides);
+        return next;
+      });
+      closeEditClient();
+      return;
+    }
+    try {
+      const updated = await api<any>(`/api/clients/${editingClient.id}`, {
+        method: 'PATCH',
+        token,
+        body
+      });
+      setItems(prev => prev.map(c => c.id === editingClient.id ? { ...c, ...updated, tags: normalizedTags } : c));
+      const overrides = readOverrides();
+      overrides[editingClient.id] = { tags: normalizedTags, city: body.city, age: body.age };
+      saveOverrides(overrides);
+      closeEditClient();
+    } catch (err: any) {
+      setError(err?.message || 'Не удалось сохранить изменения');
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -401,12 +526,35 @@ export default function ClientsList() {
           <div data-tour="clients-add" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: isMobile ? 'stretch' : 'flex-end' }}>
             <PsychologistTourHelpButton tourId="clients" steps={PSYCHOLOGIST_CLIENTS_TOUR_STEPS} userId={user?.id} role={user?.role} />
             <button className={isMobile ? 'button secondary' : 'button secondary'} onClick={() => load()} style={{ padding: isMobile ? '8px 10px' : '10px 20px', minWidth: isMobile ? 44 : undefined }} title="Обновить данные">🔄</button>
-            <button className="button" onClick={() => setShowModal(true)} style={{ padding: isMobile ? '8px 12px' : '10px 20px', fontSize: isMobile ? 14 : 15 }}>Добавить клиента</button>
+            {clientView === 'active' && (
+              <button className="button" onClick={() => setShowModal(true)} style={{ padding: isMobile ? '8px 12px' : '10px 20px', fontSize: isMobile ? 14 : 15 }}>Добавить клиента</button>
+            )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-          <span className="small" style={{ color: 'var(--text-muted)' }}>Показано: {filteredItems.length}<span style={{ opacity: .6 }}>/ {items.length}</span></span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={clientView === 'active' ? 'button' : 'button secondary'}
+              onClick={() => setClientView('active')}
+              style={{ padding: '8px 14px', fontSize: 13 }}
+            >
+              Активные
+            </button>
+            <button
+              type="button"
+              className={clientView === 'archive' ? 'button' : 'button secondary'}
+              onClick={() => setClientView('archive')}
+              style={{ padding: '8px 14px', fontSize: 13 }}
+            >
+              Архив
+            </button>
+          </div>
+          <span className="small" style={{ color: 'var(--text-muted)' }}>
+            {clientView === 'archive' ? 'Архив' : 'Активные'}: {filteredItems.length}
+            <span style={{ opacity: .6 }}> / {items.length}</span>
+          </span>
         </div>
         {error && <div style={{ color: 'red', marginTop: 10 }}>{error}</div>}
 
@@ -560,18 +708,52 @@ export default function ClientsList() {
                   })}
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
-                <Link to={`/clients/${c.id}/profile`} className="button secondary" style={{ padding: isMobile ? '6px 10px' : '6px 10px', fontSize: 13 }}>Профиль</Link>
-                <Link to={`/psychologist/work-area?client=${c.id}`} className="button" style={{ padding: isMobile ? '6px 10px' : '6px 10px', fontSize: 13 }}>Рабочая область</Link>
-                <button onClick={() => deleteClient(c.id)} className="button danger" style={{ padding: '6px 10px', marginLeft: isMobile ? 0 : 'auto', fontSize: 13 }}>Удалить</button>
+              {clientView === 'archive' && c.therapyEndedAt && (
+                <div className="small" style={{ color: 'var(--text-muted)' }}>
+                  Терапия завершена: {new Date(c.therapyEndedAt).toLocaleDateString('ru-RU')}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                <Link to={`/clients/${c.id}/profile`} className="button secondary" style={{ padding: '6px 10px', fontSize: 13 }}>Профиль</Link>
+                {clientView === 'active' && (
+                  <Link to={`/psychologist/work-area?client=${c.id}`} className="button" style={{ padding: '6px 10px', fontSize: 13 }}>Рабочая область</Link>
+                )}
+                <button type="button" onClick={() => openEditClient(c)} className="button secondary" style={{ padding: '6px 10px', fontSize: 13 }}>
+                  Изменить
+                </button>
+                {clientView === 'active' ? (
+                  <button
+                    type="button"
+                    onClick={() => endTherapy(c.id, c.name)}
+                    className="button secondary"
+                    style={{ padding: '6px 10px', marginLeft: isMobile ? 0 : 'auto', fontSize: 13, borderColor: 'rgba(234, 179, 8, 0.5)' }}
+                  >
+                    Завершить терапию
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => restoreTherapy(c.id, c.name)}
+                    className="button"
+                    style={{ padding: '6px 10px', marginLeft: isMobile ? 0 : 'auto', fontSize: 13 }}
+                  >
+                    Вернуть в активные
+                  </button>
+                )}
               </div>
             </div>
           ))}
 
           {items.length === 0 && (
             <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Пока нет клиентов</div>
-              <div className="small">Добавьте первого клиента с помощью формы ниже.</div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                {clientView === 'archive' ? 'Архив пуст' : 'Пока нет клиентов'}
+              </div>
+              <div className="small">
+                {clientView === 'archive'
+                  ? 'Здесь появятся клиенты, у которых вы завершили терапию.'
+                  : 'Добавьте первого клиента с помощью кнопки «Добавить клиента».'}
+              </div>
             </div>
           )}
         </div>
@@ -644,6 +826,66 @@ export default function ClientsList() {
                   Ссылка действительна 7 дней.
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal for editing client */}
+        {editingClient && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}>
+            <div
+              className="card"
+              style={{
+                width: 'min(720px, 96vw)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                padding: isMobile ? 14 : 20,
+                border: fieldBorder,
+                borderRadius: 16
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ fontWeight: 800 }}>Изменить карточку клиента</div>
+                <button type="button" className="button secondary" onClick={closeEditClient} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
+              </div>
+              {editingClient.email && (
+                <div className="small" style={{ marginTop: 8, color: 'var(--text-muted)' }}>
+                  Email (нельзя изменить): <strong style={{ color: 'var(--text)' }}>{editingClient.email}</strong>
+                </div>
+              )}
+              <form onSubmit={saveEditClient} style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+                  <input placeholder="Имя *" value={editName} onChange={e => setEditName(e.target.value)} required style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Город" value={editCity} onChange={e => setEditCity(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Телефон" value={editPhone} onChange={e => setEditPhone(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                  <input placeholder="Возраст" value={editAge} onChange={e => setEditAge(e.target.value)} style={{ padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                </div>
+                <div>
+                  <div className="small" style={{ marginBottom: 6 }}>Теги</div>
+                  <div style={{ display: 'grid', gap: 8, gridTemplateColumns: isMobile ? '1fr' : '1fr auto auto', alignItems: 'center' }}>
+                    <input placeholder="Новый тег" value={editTagInput} onChange={e => setEditTagInput(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
+                    <input type="color" value={editTagColor} onChange={e => setEditTagColor(e.target.value)} style={{ width: isMobile ? '100%' : 56, height: 38, padding: 0, border: 'none', background: 'transparent' }} />
+                    <button type="button" className="button secondary" onClick={addEditTag} style={{ padding: '6px 10px', fontSize: 13 }}>Добавить тег</button>
+                  </div>
+                  {editTags.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                      {editTags.map((t, i) => (
+                        <span key={`${t.label}-${i}`} style={{ padding: '4px 10px', borderRadius: 999, display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: 'var(--text)', background: `color-mix(in srgb, ${t.color} 20%, var(--surface-2))`, border: `1px solid color-mix(in srgb, ${t.color} 50%, var(--navbar-edge))` }}>
+                          {t.label}
+                          <button type="button" onClick={() => removeEditTag(i)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>✕</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <button type="button" className="button secondary" onClick={closeEditClient} style={{ padding: '8px 12px', fontSize: 13 }}>Отмена</button>
+                  <button className="button" type="submit" disabled={savingEdit} style={{ padding: '8px 12px', fontSize: 13 }}>
+                    {savingEdit ? 'Сохранение…' : 'Сохранить'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}

@@ -31,6 +31,7 @@ export function PsychologistNavbar() {
           children: [
             { label: 'Дашборд', path: '/admin', icon: 'dashboard' },
             { label: 'Пользователи', path: '/admin/users', icon: 'user' },
+            { label: 'Каталог психологов', path: '/admin/psychologists-catalog', icon: 'users' },
             { label: 'Верификация', path: '/admin/verification', icon: 'check' },
             { label: 'Тех. запросы', path: '/admin/support', icon: 'wrench' },
             { label: 'Открытый функционал', path: '/admin/open-access', icon: 'unlock' },

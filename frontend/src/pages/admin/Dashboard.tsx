@@ -210,6 +210,29 @@ export default function AdminDashboard() {
               }}
             >
               <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>Каталог психологов на сайте</div>
+                <div className="small" style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.45 }}>
+                  Порядок карточек на /psychologists и скрытие из публичного списка
+                </div>
+              </div>
+              <Link to="/admin/psychologists-catalog" className="button secondary" style={{ padding: '8px 16px', fontSize: 13, flexShrink: 0 }}>
+                Настроить →
+              </Link>
+            </div>
+
+            <div
+              className="card"
+              style={{
+                padding: '14px 16px',
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                borderRadius: 12
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>Управление пользователями</div>
                 <div className="small" style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.45 }}>
                   Пароли, снятие верификации, удаление учётных записей, перенос CRM-клиентов между психологами
