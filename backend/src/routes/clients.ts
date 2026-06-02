@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { config } from '../config';
 import { getUploadsRoot } from '../utils/uploadsRoot';
@@ -673,7 +674,9 @@ router.patch('/clients/:id', requireAuth, requireRole(['psychologist', 'admin'])
         ...(phone !== undefined ? { phone: phone ? String(phone).trim() : null } : {}),
         ...(age !== undefined ? { age: age === '' || age == null ? null : parseInt(String(age), 10) } : {}),
         ...(city !== undefined ? { city: city ? String(city).trim() : null } : {}),
-        ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags : null } : {})
+        ...(tags !== undefined
+          ? { tags: Array.isArray(tags) ? tags : Prisma.JsonNull }
+          : {})
       }
     });
 
