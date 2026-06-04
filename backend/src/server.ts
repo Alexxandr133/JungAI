@@ -108,12 +108,16 @@ app.use('/uploads', express.static(uploadsStaticPath, {
 }));
 
 // Общий rate limiter (увеличен для предотвращения блокировок при перезагрузке)
-const limiter = rateLimit({ 
-  windowMs: 60_000, 
-  max: 300, // Увеличено с 120 до 300 запросов в минуту
+const limiter = rateLimit({
+  windowMs: 60_000,
+  max: 400,
   message: 'Слишком много запросов, попробуйте позже',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const u = req.originalUrl || req.url || '';
+    return req.method === 'GET' && u.includes('/ai/psychologist/transcriptions/');
+  },
 });
 
 app.use(limiter);

@@ -423,6 +423,25 @@ model AIChatShortcut {
   updatedAt       DateTime @updatedAt
 }
 
+// Транскрибации аудио (текст сохраняется, файл — нет)
+model AITranscription {
+  id               String   @id @default(cuid())
+  psychologistId   String
+  title            String
+  sourceFileName   String
+  text             String   @default("")
+  language         String?
+  durationSec      Float?
+  status           String   @default("completed") // processing | completed | failed
+  progressPercent  Int      @default(100)
+  progressStage    String?
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([psychologistId, createdAt])
+}
+
 model PlatformUpdate {
   id          String   @id @default(cuid())
   title       String

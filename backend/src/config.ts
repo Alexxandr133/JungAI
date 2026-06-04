@@ -21,6 +21,12 @@ export const config = {
   openRouterSiteUrl: process.env.OPENROUTER_SITE_URL || '',
   openRouterSiteName: process.env.OPENROUTER_SITE_NAME || '',
   aiModelDefault: process.env.AI_MODEL_DEFAULT || 'deepseek/deepseek-chat-v3-0324',
+  /** Модель OpenRouter для запросов с изображениями (vision) */
+  aiVisionModel: process.env.AI_VISION_MODEL || 'openai/gpt-4o-mini',
+  /** STT: модели через запятую для /audio/transcriptions */
+  aiTranscriptionModels: process.env.AI_TRANSCRIPTION_MODEL || '',
+  /** Запасной режим: chat/completions + input_audio */
+  aiTranscriptionChatModels: process.env.AI_TRANSCRIPTION_CHAT_MODEL || '',
   aiAllowedModels: (process.env.AI_ALLOWED_MODELS || '')
     .split(',')
     .map((s) => s.trim())

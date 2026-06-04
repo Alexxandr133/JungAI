@@ -29,6 +29,9 @@ import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatform
 import { PSYCHOLOGIST_AI_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 import { checkVerification } from '../../utils/verification';
+import { Paperclip, Mic, ChevronLeft } from 'lucide-react';
+import { AITranscriptionPanel } from './AITranscriptionPanel';
+import { getActiveSttJobIds, removeActiveSttJob } from './transcriptionStorage';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -85,6 +88,24 @@ type DreamScopePreview = {
   selectedClient?: string | null;
 };
 
+type PendingAiAttachment = {
+  id: string;
+  name: string;
+  kind: 'image' | 'document';
+  mimeType: string;
+  sizeBytes: number;
+  textPreview?: string;
+};
+
+const AI_CHAT_FILE_ACCEPT = '.pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp,.gif';
+const AI_CHAT_MAX_ATTACHMENTS = 5;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
 const STORAGE_KEY = 'psychologist_ai_chats';
 const FOLDERS_STORAGE_KEY = 'psychologist_ai_folders';
 const SHORTCUTS_STORAGE_KEY = 'psychologist_ai_shortcuts';
@@ -125,6 +146,9 @@ export default function PsychologistAIChat() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAiAttachment[]>([]);
+  const [uploadingAttachments, setUploadingAttachments] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsPanelCollapsed, setSettingsPanelCollapsed] = useState(() => {
@@ -162,6 +186,8 @@ export default function PsychologistAIChat() {
   const [aiSettings, setAiSettings] = useState<PsychologistAiSettings>(() => ({ ...DEFAULT_PSYCHOLOGIST_AI_SETTINGS }));
   const [aiDraft, setAiDraft] = useState<PsychologistAiSettings>(() => ({ ...DEFAULT_PSYCHOLOGIST_AI_SETTINGS }));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aiScreen, setAiScreen] = useState<'chat' | 'transcription'>('chat');
+  const [sttBusy, setSttBusy] = useState(() => getActiveSttJobIds().length > 0);
   const [personalityText, setPersonalityText] = useState('');
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
@@ -174,6 +200,7 @@ export default function PsychologistAIChat() {
   const [dreamScopeStep, setDreamScopeStep] = useState<'idle' | 'counting' | 'ready'>('idle');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
   const currentChatIdRef = useRef<string | null>(null);
   const chatsRef = useRef<Chat[]>([]);
@@ -191,6 +218,31 @@ export default function PsychologistAIChat() {
       setShowOnboardingModal(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    const tick = async () => {
+      const ids = getActiveSttJobIds();
+      if (!ids.length) {
+        setSttBusy(false);
+        return;
+      }
+      setSttBusy(true);
+      try {
+        const res = await api<{ item: { status: string } }>(
+          `/api/ai/psychologist/transcriptions/${ids[0]}`,
+          { token }
+        );
+        if (res.item.status !== 'processing') removeActiveSttJob(ids[0]);
+      } catch {
+        /* ignore */
+      }
+      setSttBusy(getActiveSttJobIds().length > 0);
+    };
+    void tick();
+    const interval = setInterval(() => void tick(), 10000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
@@ -846,14 +898,46 @@ export default function PsychologistAIChat() {
     }
   }
 
+  async function handleAttachmentFiles(fileList: FileList | null) {
+    if (!fileList?.length || !token) return;
+    setAttachmentError(null);
+    const slotsLeft = AI_CHAT_MAX_ATTACHMENTS - pendingAttachments.length;
+    if (slotsLeft <= 0) {
+      setAttachmentError(`Можно прикрепить не более ${AI_CHAT_MAX_ATTACHMENTS} файлов`);
+      return;
+    }
+    const files = Array.from(fileList).slice(0, slotsLeft);
+    const fd = new FormData();
+    files.forEach((f) => fd.append('files', f));
+    setUploadingAttachments(true);
+    try {
+      const res = await api<{ attachments: PendingAiAttachment[] }>('/api/ai/psychologist/attachments', {
+        method: 'POST',
+        token,
+        body: fd,
+      });
+      setPendingAttachments((prev) => [...prev, ...(res.attachments || [])]);
+    } catch (e: any) {
+      setAttachmentError(e?.message || 'Не удалось загрузить файлы');
+    } finally {
+      setUploadingAttachments(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function removePendingAttachment(id: string) {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+    setAttachmentError(null);
+  }
+
   async function sendMessage(options?: {
     forcedMessage?: string;
     dreamsContextRangeOverride?: DreamsContextRange;
     skipDreamScopePrompt?: boolean;
   }) {
-    // Блокируем отправку, если уже идет отправка или загрузка
     const preparedMessage = (options?.forcedMessage ?? input).trim();
-    if (!preparedMessage || loading || isSending || sendingRef.current || !token) return;
+    const hasAttachments = pendingAttachments.length > 0;
+    if ((!preparedMessage && !hasAttachments) || loading || isSending || sendingRef.current || !token) return;
 
     if (
       !options?.skipDreamScopePrompt &&
@@ -867,7 +951,19 @@ export default function PsychologistAIChat() {
       return;
     }
 
-    const userMessage = preparedMessage;
+    const userMessage =
+      preparedMessage || (hasAttachments ? 'Проанализируй прикреплённые файлы.' : '');
+    const attachmentIds = pendingAttachments.map((a) => a.id);
+    const attachmentLabels = pendingAttachments.map((a) =>
+      a.kind === 'image' ? `📎 ${a.name} (изображение)` : `📎 ${a.name}`
+    );
+    const userBubbleText =
+      attachmentLabels.length > 0
+        ? `${userMessage}\n\n${attachmentLabels.join('\n')}`
+        : userMessage;
+
+    setPendingAttachments([]);
+    setAttachmentError(null);
     // Всегда очищаем поле после фактической отправки (в т.ч. после модалки объёма снов: там forcedMessage, иначе текст оставался в поле).
     setInput('');
     requestAnimationFrame(() => {
@@ -883,7 +979,7 @@ export default function PsychologistAIChat() {
     // Используем текущие сообщения для истории (без нового пользовательского сообщения)
     // так как оно передается отдельно как `message`
     const conversationHistory = messages;
-    const newMessages = [...messages, { role: 'user' as const, content: userMessage }];
+    const newMessages = [...messages, { role: 'user' as const, content: userBubbleText }];
     setMessages(newMessages);
     setLoading(true);
     const chatsSnapshot = chatsRef.current;
@@ -945,7 +1041,8 @@ export default function PsychologistAIChat() {
             dreamsContextRange: options?.dreamsContextRangeOverride ?? aiSettings.dreamsContextRange,
             includeDreamsInContext: aiSettings.includeDreamsInContext,
             personalization: personalityText.trim(),
-            analysisMemory: chatsSnapshot.find(c => c.id === activeChatId)?.analysisMemory || ''
+            analysisMemory: chatsSnapshot.find(c => c.id === activeChatId)?.analysisMemory || '',
+            ...(attachmentIds.length ? { attachmentIds } : {}),
           }
         }
       );
@@ -1833,39 +1930,120 @@ export default function PsychologistAIChat() {
             }}
           >
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: isMobileView ? 14 : 15, color: 'var(--text)' }}>AI Ассистент</div>
+              <div style={{ fontWeight: 700, fontSize: isMobileView ? 14 : 15, color: 'var(--text)' }}>
+                {aiScreen === 'transcription' ? 'Транскрибация' : 'AI Ассистент'}
+              </div>
               <div className="small" style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {MODALITY_OPTIONS.find(m => m.id === aiSettings.modality)?.label ?? aiSettings.modality}
+                {aiScreen === 'transcription'
+                  ? 'Загрузите запись — получите текст расшифровки'
+                  : (MODALITY_OPTIONS.find(m => m.id === aiSettings.modality)?.label ?? aiSettings.modality)}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-              <PsychologistTourHelpButton tourId="ai" steps={PSYCHOLOGIST_AI_TOUR_STEPS} userId={user?.id} role={user?.role} />
-              <button
-                type="button"
-                onClick={() => {
-                  setAiDraft(aiSettings);
-                  setSettingsOpen(true);
-                }}
-                title="Настройки ИИ"
-                style={{
-                  flexShrink: 0,
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'var(--surface-2)',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 0,
-                  lineHeight: 0,
-                  boxSizing: 'border-box'
-                }}
-              >
-                <PlatformIcon name="settings" size={20} strokeWidth={1.75} style={{ display: 'block', flexShrink: 0 }} />
-              </button>
+              {aiScreen === 'chat' && (
+                <button
+                  type="button"
+                  className="ai-header-icon-btn"
+                  onClick={() => setAiScreen('transcription')}
+                  title="Транскрибация аудио"
+                  style={{
+                    flexShrink: 0,
+                    height: 40,
+                    padding: '0 12px',
+                    borderRadius: 10,
+                    border: sttBusy ? '1px solid rgba(91, 124, 250, 0.5)' : '1px solid rgba(255,255,255,0.12)',
+                    background: sttBusy ? 'rgba(91, 124, 250, 0.12)' : 'var(--surface-2)',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    boxSizing: 'border-box',
+                    position: 'relative',
+                  }}
+                >
+                  <Mic size={18} strokeWidth={2} />
+                  {!isMobileView && <span>Транскрибация</span>}
+                  {sttBusy && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 4,
+                        right: 4,
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: 'var(--primary)',
+                      }}
+                      aria-hidden
+                    />
+                  )}
+                </button>
+              )}
+              {aiScreen === 'transcription' && (
+                <button
+                  type="button"
+                  className="ai-header-icon-btn"
+                  onClick={() => setAiScreen('chat')}
+                  title="Вернуться в чат"
+                  style={{
+                    flexShrink: 0,
+                    height: 40,
+                    padding: '0 14px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(91, 124, 250, 0.45)',
+                    background: 'rgba(91, 124, 250, 0.15)',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    boxSizing: 'border-box',
+                    marginLeft: 'auto',
+                  }}
+                >
+                  <ChevronLeft size={18} strokeWidth={2} />
+                  <span>Чат</span>
+                </button>
+              )}
+              {aiScreen === 'chat' && (
+                <PsychologistTourHelpButton tourId="ai" steps={PSYCHOLOGIST_AI_TOUR_STEPS} userId={user?.id} role={user?.role} />
+              )}
+              {aiScreen === 'chat' && (
+                <button
+                  type="button"
+                  className="ai-header-icon-btn"
+                  onClick={() => {
+                    setAiDraft(aiSettings);
+                    setSettingsOpen(true);
+                  }}
+                  title="Настройки ИИ"
+                  style={{
+                    flexShrink: 0,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'var(--surface-2)',
+                    color: 'var(--text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                    lineHeight: 0,
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <PlatformIcon name="settings" size={20} strokeWidth={1.75} style={{ display: 'block', flexShrink: 0 }} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1923,6 +2101,14 @@ export default function PsychologistAIChat() {
             }}
           />
 
+          {aiScreen === 'transcription' && token ? (
+            <AITranscriptionPanel
+              token={token}
+              isMobileView={isMobileView}
+              onJobsChange={setSttBusy}
+            />
+          ) : (
+          <>
           {/* Mobile back button */}
           {isMobileView && currentChatId && (
             <div style={{
@@ -2318,8 +2504,102 @@ export default function PsychologistAIChat() {
                     </div>
                   )}
 
+                  {pendingAttachments.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                      {pendingAttachments.map((att) => (
+                        <div
+                          key={att.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            background: 'var(--surface-2)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            fontSize: 12,
+                            maxWidth: '100%',
+                          }}
+                        >
+                          <span>{att.kind === 'image' ? '🖼️' : '📄'}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
+                            {att.name}
+                          </span>
+                          <span style={{ opacity: 0.6 }}>{formatFileSize(att.sizeBytes)}</span>
+                          <button
+                            type="button"
+                            onClick={() => removePendingAttachment(att.id)}
+                            disabled={loading || isSending || uploadingAttachments}
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              padding: 0,
+                              fontSize: 14,
+                            }}
+                            title="Убрать"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {attachmentError && (
+                    <div style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>{attachmentError}</div>
+                  )}
+
                   {/* Input field */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={AI_CHAT_FILE_ACCEPT}
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={(e) => void handleAttachmentFiles(e.target.files)}
+                    />
+                    <button
+                      type="button"
+                      className="ai-chat-attach-btn"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={
+                        loading ||
+                        isSending ||
+                        uploadingAttachments ||
+                        pendingAttachments.length >= AI_CHAT_MAX_ATTACHMENTS
+                      }
+                      title="Прикрепить PDF, Word, изображение (до 5 файлов, 8 МБ)"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        minWidth: 48,
+                        minHeight: 48,
+                        padding: 0,
+                        margin: 0,
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxSizing: 'border-box',
+                        borderRadius: 12,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: 'var(--surface-2)',
+                        color: 'var(--text)',
+                        lineHeight: 1,
+                        cursor:
+                          loading || isSending || uploadingAttachments ? 'not-allowed' : 'pointer',
+                        opacity:
+                          loading || isSending || uploadingAttachments ? 0.5 : 1,
+                      }}
+                    >
+                      {uploadingAttachments ? (
+                        <span style={{ fontSize: 14, lineHeight: 1, fontWeight: 600 }}>…</span>
+                      ) : (
+                        <Paperclip size={20} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
+                      )}
+                    </button>
                     <div style={{ flex: 1, position: 'relative' }}>
                       <textarea
                         ref={inputRef}
@@ -2338,12 +2618,30 @@ export default function PsychologistAIChat() {
                             }
                           }
                         }}
-                        placeholder="Напишите сообщение..."
+                        placeholder="Напишите сообщение или прикрепите файл (Ctrl+V — вставить фото)..."
                         disabled={loading || isSending}
+                        onPaste={(e) => {
+                          const items = e.clipboardData?.items;
+                          if (!items?.length) return;
+                          const imageFiles: File[] = [];
+                          for (let i = 0; i < items.length; i++) {
+                            const item = items[i];
+                            if (item.kind === 'file' && item.type.startsWith('image/')) {
+                              const f = item.getAsFile();
+                              if (f) imageFiles.push(f);
+                            }
+                          }
+                          if (imageFiles.length) {
+                            e.preventDefault();
+                            const dt = new DataTransfer();
+                            imageFiles.forEach((f) => dt.items.add(f));
+                            void handleAttachmentFiles(dt.files);
+                          }
+                        }}
                         style={{
                           width: '100%',
                           padding: '12px 16px',
-                          paddingRight: 48,
+                          paddingRight: 16,
                           borderRadius: 12,
                           border: '1px solid rgba(255,255,255,0.12)',
                           background: 'var(--surface-2)',
@@ -2371,14 +2669,14 @@ export default function PsychologistAIChat() {
                       onClick={() => {
                         void sendMessage();
                       }}
-                      disabled={!input.trim() || loading || isSending}
+                      disabled={(!input.trim() && !pendingAttachments.length) || loading || isSending}
                       style={{
                         padding: '12px 20px',
                         fontSize: 15,
                         fontWeight: 600,
                         whiteSpace: 'nowrap',
-                        opacity: (!input.trim() || loading || isSending) ? 0.5 : 1,
-                        cursor: (!input.trim() || loading || isSending) ? 'not-allowed' : 'pointer',
+                        opacity: ((!input.trim() && !pendingAttachments.length) || loading || isSending) ? 0.5 : 1,
+                        cursor: ((!input.trim() && !pendingAttachments.length) || loading || isSending) ? 'not-allowed' : 'pointer',
                         minWidth: 100,
                         height: 48
                       }}
@@ -2389,6 +2687,8 @@ export default function PsychologistAIChat() {
                 </div>
               </div>
             </>
+          )}
+          </>
           )}
         </div>
       </div>

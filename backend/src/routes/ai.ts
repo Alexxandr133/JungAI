@@ -1,10 +1,27 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import { mergeDreamKeywords } from '../utils/dreamKeywords';
 import { config } from '../config';
 import { OpenAI } from 'openai';
 import { assertAiQuotaAvailable, consumeAiTokens, getAiQuotaStatus } from '../services/aiTokenQuota';
+import {
+  AI_TRANSCRIPTION_MAX_BYTES,
+  isAllowedTranscriptionAudio,
+  openRouterAudioFormat,
+} from '../services/audioTranscription';
+import {
+  createAiTranscription,
+  deleteAiTranscription,
+  failAiTranscription,
+  findAiTranscriptionForPsychologist,
+  listAiTranscriptions,
+  reconcileStaleTranscriptions,
+  serializeTranscription,
+  updateAiTranscriptionTitle,
+} from '../repositories/aiTranscriptionRepository';
+import { isTranscriptionJobActive, runTranscriptionJob } from '../services/transcriptionJob';
 import {
   appendArchetypeLanguageGuard,
   appendPersonalization,
@@ -17,8 +34,46 @@ import {
   normalizePsychologistModality,
   type ResponseStyle
 } from '../utils/psychologistAiModality';
+import {
+  AI_CHAT_MAX_FILES,
+  AI_CHAT_MAX_FILE_BYTES,
+  appendVisionSystemHint,
+  buildOpenRouterUserContent,
+  formatUserMessageForHistory,
+  isAllowedAiChatFile,
+  messagesIncludeImages,
+  openRouterContentToString,
+  resolveAiChatAttachments,
+  resolveChatModelForAttachments,
+  storeAiChatFileUpload,
+  type OpenRouterContentPart,
+} from '../utils/aiChatAttachments';
 
 type DreamsContextRange = '30d' | '90d' | '365d' | 'all';
+
+const uploadAiChatFiles = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: AI_CHAT_MAX_FILE_BYTES, files: AI_CHAT_MAX_FILES },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedAiChatFile(file.mimetype, file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Неподдерживаемый тип файла. Разрешены: PDF, DOCX, TXT, JPG, PNG, WEBP, GIF.'));
+    }
+  },
+});
+
+const uploadTranscriptionAudio = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: AI_TRANSCRIPTION_MAX_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedTranscriptionAudio(file.mimetype, file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Неподдерживаемый аудиоформат. Разрешены: MP3, WAV, M4A, WEBM, OGG, FLAC.'));
+    }
+  },
+});
 const MAX_DREAM_ROWS_BY_RANGE: Record<DreamsContextRange, number> = {
   '30d': 150,
   '90d': 150,
@@ -162,18 +217,28 @@ function isRetryableOpenRouterNetworkError(error: any): boolean {
   );
 }
 
+type OpenRouterChatMessage = {
+  role: 'system' | 'user' | 'assistant';
+  content: string | OpenRouterContentPart[];
+};
+
 async function createOpenRouterChatCompletionWithRetry(input: {
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: OpenRouterChatMessage[];
   temperature: number;
   maxTokens: number;
 }) {
   if (!openRouterClient) throw new Error('OpenRouter API не настроен.');
   let lastError: any = null;
-  const modelsInOrder = [
-    input.model,
-    ...(input.model !== AI_FALLBACK_MODEL && ALLOWED_AI_MODELS.has(AI_FALLBACK_MODEL) ? [AI_FALLBACK_MODEL] : [])
-  ];
+  const skipTextOnlyFallback = messagesIncludeImages(input.messages);
+  const modelsInOrder = skipTextOnlyFallback
+    ? [input.model]
+    : [
+        input.model,
+        ...(input.model !== AI_FALLBACK_MODEL && ALLOWED_AI_MODELS.has(AI_FALLBACK_MODEL)
+          ? [AI_FALLBACK_MODEL]
+          : []),
+      ];
 
   for (const modelForAttempt of modelsInOrder) {
     for (let attempt = 1; attempt <= OPENROUTER_MAX_ATTEMPTS_PER_MODEL; attempt++) {
@@ -513,6 +578,41 @@ router.get('/ai/tokens/quota', requireAuth, async (req: AuthedRequest, res) => {
   }
 });
 
+// Загрузка файлов для ИИ-чата (PDF, DOCX, изображения)
+router.post(
+  '/ai/psychologist/attachments',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  (req, res, next) => {
+    uploadAiChatFiles.array('files', AI_CHAT_MAX_FILES)(req, res, (err: any) => {
+      if (err) {
+        const msg =
+          err.code === 'LIMIT_FILE_SIZE'
+            ? `Файл слишком большой (макс. ${AI_CHAT_MAX_FILE_BYTES / 1024 / 1024} МБ)`
+            : err.message || 'Ошибка загрузки файла';
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    try {
+      const files = (req.files as Express.Multer.File[]) || [];
+      if (!files.length) {
+        return res.status(400).json({ error: 'Выберите хотя бы один файл' });
+      }
+      const attachments = [];
+      for (const file of files) {
+        attachments.push(await storeAiChatFileUpload(req.user!.id, file));
+      }
+      res.json({ attachments });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || 'Не удалось обработать файлы' });
+    }
+  }
+);
+
 // Чат ассистента психолога
 router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
@@ -533,11 +633,25 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       analysisMemory: analysisMemoryRaw,
     } = req.body ?? {};
     const clientModeEnabled = parsePsychologistClientModeEnabled(req.body);
-    const model = await getPlatformAiModel();
+    const baseModel = await getPlatformAiModel();
+    const chatAttachments = resolveAiChatAttachments(req.user!.id, req.body?.attachmentIds);
+    const { model, usedVisionModel } = resolveChatModelForAttachments(
+      baseModel,
+      chatAttachments,
+      ALLOWED_AI_MODELS
+    );
 
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Сообщение обязательно' });
+    const messageText =
+      typeof message === 'string' && message.trim()
+        ? message.trim()
+        : chatAttachments.length
+          ? 'Проанализируй прикреплённые файлы.'
+          : '';
+
+    if (!messageText) {
+      return res.status(400).json({ error: 'Сообщение или файлы обязательны' });
     }
+    const userHistoryContent = formatUserMessageForHistory(messageText, chatAttachments);
     const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
 
     const modality = normalizePsychologistModality(modalityRaw);
@@ -571,14 +685,15 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       }
       systemPrompt = appendPersonalization(systemPrompt, personalization);
       systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
+      systemPrompt = appendVisionSystemHint(systemPrompt, chatAttachments);
 
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      const messages: OpenRouterChatMessage[] = [
         { role: 'system', content: systemPrompt },
         ...safeConversationHistory.map((msg: any) => ({
           role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
           content: msg.content
         })),
-        { role: 'user', content: message }
+        { role: 'user', content: buildOpenRouterUserContent(messageText, chatAttachments, model) }
       ];
 
       let assistantMessage = 'Извините, не удалось получить ответ.';
@@ -586,6 +701,8 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       try {
         console.log('Sending request to OpenRouter API (psychologist general mode, no client data)...', {
           model,
+          baseModel,
+          usedVisionModel,
           messagesCount: messages.length,
           hasOpenRouterKey: !!apiKey
         });
@@ -599,7 +716,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
         const quota = await consumeAiTokens(req.user!.id, {
           usageTotal: (chatCompletion as any)?.usage?.total_tokens,
-          promptText: messages.map((m: any) => m.content).join('\n'),
+          promptText: messages.map((m) => openRouterContentToString(m.content)).join('\n'),
           completionText: assistantMessage
         });
         return res.json({
@@ -607,7 +724,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
           quota,
           conversationHistory: [
             ...safeConversationHistory,
-            { role: 'user', content: message },
+            { role: 'user', content: userHistoryContent },
             { role: 'assistant', content: assistantMessage }
           ]
         });
@@ -631,7 +748,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     /** Сны в запрос: и модальность разрешает, и тумблер психолога включён */
     const passDreamData = includeDreamsInContext && modalityPolicy.allowDreams;
-    const isDreamAnalysisRequest = messageLooksLikeDreamAnalysis(message) && passDreamData;
+    const isDreamAnalysisRequest = messageLooksLikeDreamAnalysis(messageText) && passDreamData;
     maxTokens = isDreamAnalysisRequest
       ? Math.max(baseMaxTokens, DREAM_ANALYSIS_MAX_OUTPUT_TOKENS)
       : baseMaxTokens;
@@ -902,26 +1019,30 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     );
     systemPrompt = appendPersonalization(systemPrompt, personalization);
     systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
+    systemPrompt = appendVisionSystemHint(systemPrompt, chatAttachments);
 
     const dreamCountForAnalysis = allDreams.length;
     const userPrompt = `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}
 ${previousAnalysisMemory ? `\n\nСохраненный анализ по этому чату (используй как рабочую память):\n${previousAnalysisMemory}\n` : ''}
 ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передано ${dreamCountForAnalysis} снов(а). Дай структурированный разбор ПО КАЖДОМУ сну без пропусков в формате "Сон 1 ... Сон ${dreamCountForAnalysis}". Нельзя объединять сны. После разборов добавь общий итог по паттернам.\n` : ''}
 
-Вопрос психолога: ${message}`;
+Вопрос психолога: ${messageText}`;
 
-    // Формируем историю сообщений для DeepSeek-R1
-    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    const userPromptWithAttachments = buildOpenRouterUserContent(userPrompt, chatAttachments, model);
+
+    const messages: OpenRouterChatMessage[] = [
       { role: 'system', content: systemPrompt },
       ...safeConversationHistory.map((msg: any) => ({
         role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
         content: msg.content
       })),
-      { role: 'user', content: userPrompt }
+      { role: 'user', content: userPromptWithAttachments }
     ];
 
     console.log('Sending request to OpenRouter API...', { 
       model,
+      baseModel,
+      usedVisionModel,
       messagesCount: messages.length,
       hasOpenRouterKey: !!apiKey,
       modality
@@ -929,7 +1050,7 @@ ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передан
 
     let assistantMessage = 'Извините, не удалось получить ответ.';
     let quota = quotaBefore;
-    const analysisMemoryUpdated = messageLooksLikeDreamAnalysis(message) && passDreamData;
+    const analysisMemoryUpdated = messageLooksLikeDreamAnalysis(messageText) && passDreamData;
 
     try {
       console.log('Using OpenRouter API...');
@@ -943,7 +1064,7 @@ ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передан
       assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
       quota = await consumeAiTokens(req.user!.id, {
         usageTotal: (chatCompletion as any)?.usage?.total_tokens,
-        promptText: messages.map((m: any) => m.content).join('\n'),
+        promptText: messages.map((m) => openRouterContentToString(m.content)).join('\n'),
         completionText: assistantMessage
       });
       
@@ -984,7 +1105,7 @@ ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передан
       analysisMemoryUpdated,
       conversationHistory: [
         ...safeConversationHistory,
-        { role: 'user', content: message },
+        { role: 'user', content: userHistoryContent },
         { role: 'assistant', content: assistantMessage }
       ]
     });
@@ -1716,5 +1837,158 @@ router.delete('/ai/psychologist/shortcuts/:id', requireAuth, requireRole(['psych
     res.status(500).json({ error: error.message || 'Failed to delete shortcut' });
   }
 });
+
+// ——— Транскрибация аудио (текст в БД, файл не хранится) ———
+
+router.get(
+  '/ai/psychologist/transcriptions',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const items = await listAiTranscriptions(req.user!.id);
+      res.json({
+        items: items.map(serializeTranscription),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось загрузить транскрибации' });
+    }
+  }
+);
+
+router.post(
+  '/ai/psychologist/transcriptions',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  (req, res, next) => {
+    uploadTranscriptionAudio.single('audio')(req, res, (err: any) => {
+      if (err) {
+        const msg =
+          err.code === 'LIMIT_FILE_SIZE'
+            ? `Файл слишком большой (макс. ${Math.round(AI_TRANSCRIPTION_MAX_BYTES / 1024 / 1024)} МБ)`
+            : err.message || 'Ошибка загрузки аудио';
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    try {
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({ error: 'Выберите аудиофайл' });
+      }
+
+      await assertAiQuotaAvailable(req.user!.id);
+      const format = openRouterAudioFormat(file.mimetype, file.originalname);
+      const language =
+        typeof req.body?.language === 'string' ? req.body.language.trim() : undefined;
+
+      const baseName = (file.originalname || 'Запись').replace(/\.[^.]+$/, '') || 'Запись';
+      const title =
+        typeof req.body?.title === 'string' && req.body.title.trim()
+          ? req.body.title.trim().slice(0, 200)
+          : baseName.slice(0, 200);
+
+      const row = await createAiTranscription({
+        psychologistId: req.user!.id,
+        title,
+        sourceFileName: file.originalname || 'audio',
+        text: '',
+        language: language || null,
+        status: 'processing',
+        progressPercent: 5,
+        progressStage: 'Загрузка',
+      });
+
+      const buffer = Buffer.from(file.buffer);
+      runTranscriptionJob({
+        id: row.id,
+        psychologistId: req.user!.id,
+        buffer,
+        format,
+        language,
+      });
+
+      res.status(202).json({ item: serializeTranscription(row) });
+    } catch (error: any) {
+      console.error('Transcription error:', error);
+      res.status(400).json({ error: error?.message || 'Не удалось начать транскрибацию' });
+    }
+  }
+);
+
+router.get(
+  '/ai/psychologist/transcriptions/:id',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      await reconcileStaleTranscriptions(req.user!.id);
+      let row = await findAiTranscriptionForPsychologist(req.params.id, req.user!.id);
+      if (!row) {
+        return res.status(404).json({ error: 'Транскрибация не найдена' });
+      }
+      if (row.status === 'processing' && !isTranscriptionJobActive(row.id)) {
+        row =
+          (await failAiTranscription(
+            row.id,
+            req.user!.id,
+            'Обработка прервана (перезапуск сервера). Загрузите файл снова.'
+          )) || row;
+      }
+      res.json({ item: serializeTranscription(row) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось загрузить транскрибацию' });
+    }
+  }
+);
+
+router.patch(
+  '/ai/psychologist/transcriptions/:id',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const rawTitle = req.body?.title;
+      if (typeof rawTitle !== 'string' || !rawTitle.trim()) {
+        return res.status(400).json({ error: 'Укажите название (title)' });
+      }
+      const title = rawTitle.trim().slice(0, 200);
+      const row = await updateAiTranscriptionTitle(id, req.user!.id, title);
+      if (!row) {
+        return res.status(404).json({ error: 'Транскрибация не найдена' });
+      }
+      res.json({ item: serializeTranscription(row) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось переименовать' });
+    }
+  }
+);
+
+router.delete(
+  '/ai/psychologist/transcriptions/:id',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const row = await findAiTranscriptionForPsychologist(id, req.user!.id);
+      if (!row) {
+        return res.status(404).json({ error: 'Транскрибация не найдена' });
+      }
+      await deleteAiTranscription(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось удалить' });
+    }
+  }
+);
 
 export default router;

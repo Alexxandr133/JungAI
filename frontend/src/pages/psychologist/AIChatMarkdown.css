@@ -106,3 +106,25 @@
   font-size: 1.06em;
 }
 
+/* Кнопка прикрепления: сброс глобального padding у button из index.css */
+.ai-chat-attach-btn {
+  font-weight: 500;
+}
+
+.ai-chat-attach-btn:hover:not(:disabled) {
+  border-color: rgba(91, 124, 250, 0.45) !important;
+  background: rgba(91, 124, 250, 0.08);
+}
+
+.ai-chat-attach-btn:focus-visible {
+  outline: 2px solid rgba(91, 124, 250, 0.5);
+  outline-offset: 2px;
+}
+
+.ai-header-icon-btn {
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  line-height: 1;
+}
+

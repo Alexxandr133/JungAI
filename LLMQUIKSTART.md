@@ -81,11 +81,15 @@ JingAI — monorepo-платформа для психологов и клиен
 - Backend генерирует LiveKit token.
 
 ### 5.3 Сообщества/публикации
-- Лента, комментарии, лайки.
-- Постинг от сообщества строго по ownerId (исправлено ранее как критичная уязвимость).
+- In-memory заменён на Prisma (`Community`, `PublicationPost`, …) — подробности в **§21**.
+- Маршруты: `/publications` (мои посты/сообщества), `/feed` (общая лента), `/publications/post/:id` (статья + комментарии).
+- Постинг от сообщества — только owner/moderator; `authorMode`: `account` | `community`.
+- Реакции на посты в UI убраны; комментарии только на странице полной публикации.
 
 ### 5.4 AI
 - AI чаты, папки, шорткаты.
+- Прикрепление файлов в чат (PDF/DOCX/изображения) — см. **§22**.
+- Подстраница **Транскрибация** (аудио → текст в БД, файл не хранится) — см. **§22**.
 - Настройки/персонализация AI психолога.
 - Модальность (важно не смешивать школы терапии в промптах/контексте).
 
@@ -330,4 +334,378 @@ JingAI — monorepo-платформа для психологов и клиен
 ### 19.6 Напоминание по деплою этого релиза
 - После `git pull`: `npm ci` → `npm -w backend run prisma:generate` → `npm -w backend run prisma:migrate:deploy` → **`npm run build:backend && npm run build:frontend`** → `pm2 restart jingai-backend --update-env`.
 - Убедиться, что nginx отдаёт актуальный `frontend/dist` из каталога деплоя (или скопировать собранный фронт в свой `root`).
+
+---
+
+## 20) Релиз 2026-06-02 — клиенты (архив), каталог психологов, ИИ-чат, рабочая область
+
+Кратко для ассистента: релиз на `main` с **двумя миграциями Prisma**; на проде обязательны backup `prod.db`, `prisma migrate deploy`, сборка backend **и** frontend. Коммиты: `98376ce` (основной), `04f1332` (fix tsc tags), `26139ab` (fix папок ИИ).
+
+### 20.1 Git / коммиты
+
+| Коммит | Содержание |
+|--------|------------|
+| `98376ce` | Основной релиз: CRM клиентов, админ-каталог, ИИ, рабочая область, 2 миграции, docs RKN/Gamma |
+| `04f1332` | `fix(backend)`: `Prisma.JsonNull` для поля `tags` в `PATCH /clients/:id` — без этого `npm run build:backend` падает на tsc |
+| `26139ab` | `fix(ai)`: папки ИИ — `updateMany` вместо `update`, фронт синхронизирует одну папку |
+
+### 20.2 Миграции Prisma (обязательны на проде)
+
+1. **`20260602160000_client_therapy_archive_fields`**
+   - Модель `Client`: `age`, `city`, `tags` (Json), `therapyEndedAt` (DateTime?).
+   - «Завершить терапию» = `therapyEndedAt` заполняется, клиент **не удаляется** с платформы.
+   - Активные: `psychologistId` + `therapyEndedAt IS NULL`.
+   - Архив: `psychologistId` + `therapyEndedAt IS NOT NULL`.
+
+2. **`20260602180000_psychologist_catalog_ranking`**
+   - Модель `User`: `catalogSortOrder` (Int, default 0), `catalogHidden` (Boolean, default false).
+   - Миграция проставляет начальный порядок существующим психологам по `createdAt`.
+
+Проверка после migrate:
+
+```bash
+sqlite3 backend/prisma/prod.db "PRAGMA table_info(Client);" | grep -E 'age|therapyEndedAt'
+sqlite3 backend/prisma/prod.db "PRAGMA table_info(User);" | grep -E 'catalogSortOrder|catalogHidden'
+```
+
+### 20.3 Клиенты психолога (`/clients`)
+
+**Backend** — `backend/src/routes/clients.ts`:
+- `GET /api/clients?status=active|archived` (по умолчанию `active`).
+- `POST /api/clients/:id/end-therapy` — завершить терапию (открепление).
+- `POST /api/clients/:id/restore-therapy` — вернуть из архива.
+- `PATCH /api/clients/:id` — имя, телефон, возраст, город, теги; **email и пароль нельзя**.
+- `DELETE /api/clients/:id` для психолога теперь тоже завершает терапию (soft); полное удаление — только `admin`.
+- `GET /clients/my-psychologist` — если `therapyEndedAt` задан, клиент не видит этого психолога (`THERAPY_ENDED`).
+
+**Frontend** — `frontend/src/pages/clients/List.tsx`:
+- Вкладки «Активные» / «Архив».
+- Кнопка «Завершить терапию» с confirm; после успеха — переход в архив.
+- «Изменить» — модалка редактирования карточки.
+- **Важно:** `localStorage` (`clients.items`) может подмешивать старые записи без `therapyEndedAt` в активный список — в `load()` добавлена фильтрация по вкладке и обновление `therapyEndedAt` в localStorage при end-therapy.
+
+**TypeScript / IDE:** после изменения `schema.prisma` локально нужен `npm -w backend run prisma:generate`. Красные подчёркивания в IDE при устаревшем Prisma Client — ложные, если `npm -w backend run build` проходит.
+
+**PATCH tags:** для очистки тегов использовать `Prisma.JsonNull`, не `null` (иначе ошибка tsc).
+
+### 20.4 Публичный каталог психологов
+
+**Backend:**
+- `GET /api/psychologists/public` — только `isVerified: true`, `catalogHidden: false`, сортировка `catalogSortOrder ASC`, `createdAt ASC`.
+- `GET /api/psychologists/public/:id` — 404 если скрыт (`catalogHidden`).
+- Статистика на главной (`/public/stats`) — считает только не скрытых.
+
+**Админка:**
+- Страница `/admin/psychologists-catalog` — `frontend/src/pages/admin/PsychologistsCatalog.tsx`.
+- API: `GET/PUT /api/admin/psychologists-catalog`.
+- Порядок: ↑↓, «Скрыть»/«Показать», «Сохранить порядок».
+- Пункт меню админа и карточка на `/admin`.
+
+### 20.5 ИИ-ассистент психолога
+
+**Контекст** — `backend/src/routes/ai.ts`:
+- Увеличены лимиты истории (`MAX_CONVERSATION_MESSAGES`, `MAX_HISTORY_MESSAGE_CHARS`, `MAX_TOTAL_HISTORY_CHARS`) — контекст «не обрывается» через 2 сообщения.
+
+**Markdown** — `frontend/src/pages/psychologist/AIChat.tsx` + `AIChatMarkdown.css`:
+- Ответы рендерятся через `react-markdown` + `remark-gfm` + `remark-breaks`.
+- Таблицы с границами, зеброй; ширина bubble ~92% на десктопе.
+
+**Копирование таблиц в рабочую область:**
+- При копировании выделения с `<table>` в буфер кладётся `text/html` (не только markdown `| |`).
+
+**Папки чатов (исчезали / P2025):**
+- Симптом: `Failed to save folder`, Prisma `P2025` на `aIChatFolder.update`.
+- Причина 1: фронт вызывал `saveFolders()` для **всех** папок из localStorage, в т.ч. с id, которых нет в БД.
+- Причина 2: backend делал `update` по id без записи → P2025.
+- Фикс (`26139ab`): backend `updateMany` → если 0 строк, `create`; фронт `saveFolders(newFolders, syncFolderId?)` — POST только изменённой папки.
+- Upsert папок на backend: `POST /api/ai/psychologist/folders` с телом `{ id?, name }`.
+
+**Сайдбар настроек ИИ:**
+- Блок «Настройки режимов» сворачивается (стрелка ▴/▾), состояние в `localStorage` (`psychologist_ai_settings_panel_collapsed`).
+
+### 20.6 Рабочая область (`/psychologist/work-area`)
+
+**Файлы:** `WorkArea.tsx`, `WorkAreaEditor.css`.
+
+- Тема только глобальная (`useAppearance`), локальная кнопка ☀️ убрана.
+- Layout: `100vh`, скролл только в контенте; `key={activeTab}` — нет «протекания» текста между вкладками.
+- Панель инструментов Word-like (группы, подписи).
+- Таблицы: вставка через сетку 10×10 (Jira-style) в portal (`position: fixed`), ресайз столбцов `.wa-col-resizer`, контекстное меню (строка/столбец).
+- Вставка из ИИ: `sanitizePastedRichHtml` на paste.
+- Индикатор «Сохранение…» с фиксированной шириной — без скачка layout при autosave.
+
+### 20.7 Прочее UI (тот же период разработки, в репозитории ранее)
+
+- Админ: редиректы на `/admin`, компактный дашборд, метрики видео (`f9fe58b`).
+- VoiceRoom: настройки камеры/мика в dropdown (`VoiceRoom.tsx`, `VoiceRoom.css`).
+- Список психологов: «верефицирован» → «Верифицирован» (`guest/client PsychologistsList`, `PublicProfile`).
+
+### 20.8 Документация в репозитории
+
+- `docs/RKN_OPERATOR_NOTIFICATION.md` — черновик уведомления РКН для ИП.
+- `docs/DATA_SECURITY_PRESENTATION_GAMMA.md` — текст презентации по безопасности (Gamma, до 10 слайдов).
+
+### 20.9 Деплой на прод (подтверждённый сценарий, 2026-06-02)
+
+```bash
+cd /var/www/jingai
+grep DATABASE_URL backend/.env   # prod.db, ~8MB, не пустой
+pm2 stop jingai-backend
+
+TS=$(date +%Y%m%d_%H%M%S)
+mkdir -p /root/jingai-backups
+sqlite3 backend/prisma/prod.db ".backup /root/jingai-backups/prod_${TS}.db"
+cp -a backend/prisma/prod.db /root/jingai-backups/prod_${TS}.db.copy
+tar -czf /root/jingai-backups/uploads_${TS}.tar.gz -C backend uploads
+
+git pull --ff-only origin main
+npm ci
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend && npm run build:frontend
+pm2 restart jingai-backend --update-env
+```
+
+**Замечания с реального деплоя:**
+- `sqlite3 ... ".backup ~/jingai-backups/..."` — **не работает** с `~` в пути; использовать абсолютный путь `/root/jingai-backups/...`.
+- Первая сборка backend упала: `tags: null` в `clients.ts` → исправлено в `04f1332`.
+- Фронт мог собраться, пока backend падал — на проде нужен повторный `build:backend` после pull `04f1332` и `26139ab`.
+- `pm2 logs` error.log показывает **хвост файла** — старые P2025 до рестарта не значат, что ошибка актуальна. Проверка фикса папок: `grep updateMany backend/dist/routes/ai.js` или `pm2 flush` + тест в UI.
+
+### 20.10 Чек-лист приёмки после деплоя
+
+- [ ] Логин психолога / админа
+- [ ] `/clients` — активные, «Завершить терапию», архив, «Вернуть в активные», «Изменить»
+- [ ] `/psychologists` — порядок и скрытые (админ → каталог)
+- [ ] `/admin/psychologists-catalog` — сохранение порядка
+- [ ] ИИ — markdown/таблицы, папки (создать/переименовать без P2025 в свежих логах)
+- [ ] Рабочая область — таблица, paste из ИИ, нет скачка при сохранении
+- [ ] `sqlite3 prod.db "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC LIMIT 3;"` — обе миграции `20260602*`
+
+### 20.11 Известные нерелизные/фоновые ошибки в логах
+
+- `LIMIT_FILE_SIZE` (multer) — загрузка документа верификации > лимита (~5 MB), не связано с этим релизом.
+
+---
+
+## 21) Publications + Communities (MVP, 2026-04-26)
+
+Пересборка соц-блока: авторы — психологи/исследователи, публичные сообщества, лента в стиле соцсети.
+
+### 21.1 Миграции Prisma
+
+- `20260426122000_add_publications_communities_mvp` — `Community`, `CommunityMember`, `PublicationPost`, `PublicationComment`, `PublicationReaction`.
+- `20260426123500_add_publication_post_image_url` — `PublicationPost.imageUrl`.
+- `20260426125500_add_publication_post_author_mode` — `PublicationPost.authorMode` (`account` | `community`).
+
+### 21.2 Backend (`backend/src/routes/community.ts`)
+
+Основные endpoint’ы (префикс `/api`):
+- `GET/POST /communities`, `GET /communities/:slug`, `PATCH /communities/:id`
+- `POST /communities/:id/subscription` — подписка/отписка
+- `GET /publications/feed` — лента (`communityId`, `authorId`)
+- `GET /publications/discovery`, `GET /publications/me`
+- `POST /publications/posts`, `PATCH /publications/posts/:id`, `POST .../publish`
+- `GET /publications/posts/:id`, `POST .../comments`
+- Публично (гость): `GET /public/publications/discovery`, `GET /public/publications/posts/:id`
+- Legacy: `GET /community/feed|events|courses` — прокси/заглушки для старых клиентов
+
+**Грабля:** `POST /publications/posts` → 500 `Unknown argument imageUrl` / `authorMode`, если на сервере не выполнен `prisma generate` после миграции. В роуте есть **fallback**: повторный `create` без неизвестных полей.
+
+Создание сообществ/постов: роли `psychologist`, `researcher`, `admin`. Клиент — чтение.
+
+### 21.3 Frontend
+
+| Путь | Файл | Назначение |
+|------|------|------------|
+| `/publications` | `Publications.tsx` | Профиль, мои сообщества, composer, черновики/публикация |
+| `/feed` | `Feed.tsx` | Общая лента, фильтры, авторы |
+| `/publications/community/:slug` | `CommunityView.tsx` | Шапка (cover+avatar), лента сообщества, подписчики, inline-управление |
+| `/publications/community/:id/manage` | `CommunityManage.tsx` | Расширенное управление |
+| `/publications/post/:id` | `PostView.tsx` | Полная статья + комментарии (единственное место для комментариев) |
+
+Навигация: в `PsychologistNavbar` / `ResearcherNavbar` выпадающий пункт **«Сообщества»** → Публикации / Лента.
+
+UX-решения:
+- Карточки сообществ с `avatar`/`cover`; кнопка «Создать сообщество» — отдельный dashed-блок.
+- Посты с `imageUrl` (часто data URL из FileReader, без отдельного upload-endpoint).
+- Реакции на посты в UI скрыты; в ленте нет формы комментария.
+- Черновики: `status` draft → `POST .../publish`.
+- Rich composer: `PublicationComposer.tsx` (contentEditable + toolbar).
+
+Seed: `backend/src/seed.ts` — демо-сообщества и стартовый пост.
+
+---
+
+## 22) ИИ-чат: вложения + транскрибация (2026-06-02, отладка локально)
+
+**Статус:** отлажено локально; релиз на прод — §22.5 (миграции Prisma, `ffmpeg-static`, переменные `.env`).
+
+### 22.1 Prisma / БД
+
+**Новая миграция (только эта фича):**
+
+| Миграция | Модель | Назначение |
+|----------|--------|------------|
+| `20260602190000_ai_transcriptions` | `AITranscription` | Таблица транскрибаций |
+| `20260604120000_ai_transcription_status` | `AITranscription` | `status`, `progressPercent`, `progressStage`, `errorMessage` (фоновая обработка) |
+
+Поля `AITranscription`:
+- `psychologistId`, `title`, `sourceFileName`, `text`
+- `language?`, `durationSec?`
+- `status` — `processing` | `completed` | `failed`
+- `progressPercent`, `progressStage?`, `errorMessage?`
+- `createdAt`, `updatedAt`
+- Индекс: `(psychologistId, createdAt)`
+
+**Схема:** `backend/prisma/schema.prisma` (блок после `AIChatShortcut`).
+
+**Зависимости backend (npm):** `pdf-parse` (v2, класс `PDFParse`), `mammoth` — вложения PDF/DOCX; **`ffmpeg-static`** — нарезка длинного аудио на сервере (бинарник в `node_modules`, в PATH системы ffmpeg не нужен).
+
+**Локально уже выполнено (2026-06-02):**
+```bash
+cd backend
+npx prisma generate
+npm run prisma:migrate:deploy
+```
+- Применена миграция `20260602190000_ai_transcriptions` на **`backend/prisma/prisma/dev.db`** (путь из `DATABASE_URL` в `backend/.env`).
+- После `prisma generate` перезапустить backend dev-сервер.
+
+**На проде (до деплоя):** обе миграции `20260602190000_*` и `20260604120000_*` нужно применить через `prisma migrate deploy`.
+
+### 22.2 Прикрепление файлов в ИИ-чат
+
+**Файлы:**
+- `backend/src/utils/aiChatAttachments.ts` — парсинг, in-memory store по `attachmentId` (TTL 1 ч), vision/STT-хелперы
+- `backend/src/routes/ai.ts` — `POST /api/ai/psychologist/attachments`, поле `attachmentIds` в `POST /api/ai/psychologist/chat`
+- `frontend/src/pages/psychologist/AIChat.tsx` — кнопка 📎 (lucide `Paperclip`), чипы файлов, Ctrl+V для фото
+- `frontend/src/pages/psychologist/AIChatMarkdown.css` — `.ai-chat-attach-btn` (сброс глобального `padding` у `button`)
+
+**Форматы:** PDF, DOCX, TXT, JPG/PNG/WEBP/GIF; до 5 файлов × 8 МБ.
+
+**Поток:** multipart upload → парсинг на сервере → в чат уходят только `attachmentIds` (не base64 в JSON, лимит `express.json` 1 MB не бьёт).
+
+**PDF:** `pdf-parse` v2 — **`PDFParse`**, не `require('pdf-parse')()` как функция (иначе `pdfParse is not a function`).
+
+**Изображения:** при несовместимой платформенной модели автопереключение на vision-модель (`AI_VISION_MODEL`, по умолчанию `openai/gpt-4o-mini`); в `.env` опционально:
+```env
+AI_VISION_MODEL=openai/gpt-4o-mini
+```
+
+### 22.3 Транскрибация (подстраница ИИ)
+
+**UI:** кнопка **«Транскрибация»** в шапке AI-чата (перед «Инфо» и шестерёнкой) → экран `aiScreen === 'transcription'`, возврат кнопкой «Чат».
+
+**Файлы:**
+- `frontend/src/pages/psychologist/AITranscriptionPanel.tsx` + `AITranscriptionPanel.css`
+- `backend/src/services/audioTranscription.ts`, `audioChunking.ts`, `transcriptionJob.ts` — STT + ffmpeg + фоновые задачи
+- `backend/src/repositories/aiTranscriptionRepository.ts`
+- `backend/src/routes/ai.ts` — CRUD транскрибаций
+- `frontend/src/pages/psychologist/transcriptionStorage.ts` — опрос статуса после перезагрузки страницы
+
+**API (префикс `/api`, роли psychologist/admin + verification):**
+| Метод | Путь | Описание |
+|-------|------|----------|
+| GET | `/ai/psychologist/transcriptions` | Список (до 200, новые сверху) |
+| POST | `/ai/psychologist/transcriptions` | multipart `audio` → **202**, фоновая транскрибация (`processing` → `completed`) |
+| GET | `/ai/psychologist/transcriptions/:id` | Статус одной задачи (опрос прогресса) |
+| PATCH | `/ai/psychologist/transcriptions/:id` | JSON `{ "title": "..." }` — переименовать (до 200 символов) |
+| DELETE | `/ai/psychologist/transcriptions/:id` | Удалить запись |
+
+**STT (по умолчанию `chat-first`):** Gemini/OpenRouter `input_audio`; запасной STT endpoint. Длинные файлы режутся **`ffmpeg-static`** (части по **`AI_TRANSCRIPTION_CHUNK_SEC`**, по умолчанию **600 с**). **`AI_TRANSCRIPTION_MAX_MB=0`** — без лимита (практически до 4 ГБ на запрос). Список API отдаёт только **`completed`**; идущая работа — в UI зоны загрузки + опрос `GET .../:id`.
+
+**`.env` на проде — добавить в `backend/.env` (не коммитить!):**
+```env
+# Транскрибация (OpenRouter — ключ уже должен быть)
+AI_TRANSCRIPTION_STRATEGY=chat-first
+AI_TRANSCRIPTION_CHAT_MODEL=google/gemini-2.5-flash
+AI_TRANSCRIPTION_LANGUAGE=ru
+AI_TRANSCRIPTION_MAX_MB=0
+AI_TRANSCRIPTION_CHUNK_MB=8
+AI_TRANSCRIPTION_CHUNK_SEC=600
+AI_TRANSCRIPTION_DIARIZE=true
+AI_TRANSCRIPTION_REFINE_MODEL=google/gemini-2.5-flash
+AI_TRANSCRIPTION_STALE_MIN=25
+
+# Вложения в ИИ-чат (если ещё нет)
+AI_VISION_MODEL=openai/gpt-4o-mini
+```
+
+**Спикеры:** при `AI_TRANSCRIPTION_DIARIZE=true` (по умолчанию) модель помечает реплики «Спикер 1:», «Спикер 2:»…; для записей из нескольких ffmpeg-частей — дополнительный текстовый проход *refine* выравнивает метки на стыках. Отключить: `AI_TRANSCRIPTION_DIARIZE=false`.
+
+`stt-first` — сначала классический STT endpoint. Проверка баланса: https://openrouter.ai/credits
+
+**Квота:** списание через `consumeAiTokens` по длине текста транскрипта.
+
+**config:** `backend/src/config.ts` — `aiVisionModel`, `aiTranscriptionChatModels`, `aiTranscriptionModels`.
+
+### 22.4 Чек-лист локальной отладки
+
+- [ ] `prisma generate` + `prisma:migrate:deploy` на dev.db
+- [ ] Перезапуск `npm -w backend run dev`
+- [ ] ИИ-чат: PDF/DOCX/фото в сообщении
+- [ ] Транскрибация: загрузка MP3/WAV, текст в списке, копирование, удаление
+- [ ] `OPENROUTER_API_KEY` задан в `backend/.env`
+
+### 22.5 Деплой на прод (ИИ-вложения + транскрибация)
+
+**Полный сценарий** — расширение §20.9. Перед деплоем: коммит на `main` с миграциями и `package-lock.json` (в т.ч. `ffmpeg-static`).
+
+**1) На сервере — backup и pull:**
+```bash
+cd /var/www/jingai
+grep DATABASE_URL backend/.env    # должно быть prod.db, файл не пустой
+pm2 stop jingai-backend
+
+TS=$(date +%Y%m%d_%H%M%S)
+mkdir -p /root/jingai-backups
+sqlite3 backend/prisma/prod.db ".backup /root/jingai-backups/prod_${TS}.db"
+cp -a backend/prisma/prod.db /root/jingai-backups/prod_${TS}.db.copy
+
+git pull --ff-only origin main
+```
+
+**2) Зависимости (обязательно `npm ci` — подтянет `ffmpeg-static`):**
+```bash
+npm ci
+```
+
+**3) Prisma (две миграции транскрибации + generate):**
+```bash
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+```
+
+Ожидаемые новые миграции:
+- `20260602190000_ai_transcriptions`
+- `20260604120000_ai_transcription_status`
+
+**4) Переменные `backend/.env` на сервере** — вручную дописать блок из §22.3 (`AI_TRANSCRIPTION_*`, `AI_VISION_MODEL`). Файл **не в git**. После правок: `pm2 restart jingai-backend --update-env`.
+
+**5) Сборка и запуск:**
+```bash
+npm run build:backend && npm run build:frontend
+pm2 restart jingai-backend --update-env
+pm2 logs jingai-backend --lines 80
+```
+
+**6) Проверка БД:**
+```bash
+sqlite3 backend/prisma/prod.db "SELECT migration_name FROM _prisma_migrations WHERE migration_name LIKE '%transcription%';"
+sqlite3 backend/prisma/prod.db ".schema AITranscription"
+```
+
+**7) Проверка ffmpeg (опционально):**
+```bash
+ls -la backend/node_modules/ffmpeg-static/ffmpeg 2>/dev/null || ls backend/node_modules/ffmpeg-static/
+```
+Системный `ffmpeg` не обязателен — используется бинарник из пакета.
+
+### 22.6 Приёмка после деплоя
+
+- [ ] ИИ-чат: PDF/DOCX/фото, vision
+- [ ] Транскрибация: загрузка → прогресс в зоне файла (не в списке) → готовая запись в списке → модалка по клику
+- [ ] Переименование (PATCH), удаление
+- [ ] Длинный файл (если есть): в логах `[STT] audio split` с несколькими частями
+- [ ] `OPENROUTER_API_KEY` и квота OpenRouter
 
