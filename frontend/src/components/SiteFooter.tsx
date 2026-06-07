@@ -25,7 +25,7 @@ export function SiteFooter() {
         <div>
           <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 8 }}>JungAI</div>
           <p className="small" style={{ color: 'var(--text-muted)', margin: 0, lineHeight: 1.55, maxWidth: 320 }}>
-            Платформа аналитической психологии для специалистов, клиентов и исследователей.
+            Интеллектуальный партнер для специалистов.
           </p>
         </div>
 
@@ -85,7 +85,7 @@ export function SiteFooter() {
         }}
       >
         <span>
-          © {year} {OPERATOR_INFO.shortName}
+          © {year} JungAI - платформа аналитической психологии
         </span>
         <span>Оператор ПДн: реестр РКН № {OPERATOR_INFO.rknRegistryNumber}</span>
       </div>

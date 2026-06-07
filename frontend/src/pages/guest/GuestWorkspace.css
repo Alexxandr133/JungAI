@@ -1,0 +1,9 @@
+.guest-home .button:not(.secondary):not(.danger) {
+  background: var(--primary-600);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.guest-home .button:not(.secondary):not(.danger):hover {
+  background: var(--primary);
+}

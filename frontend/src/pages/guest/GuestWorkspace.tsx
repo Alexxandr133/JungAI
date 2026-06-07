@@ -6,6 +6,7 @@ import { GuestNavbar } from '../../components/GuestNavbar';
 import { SiteFooter } from '../../components/SiteFooter';
 import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 import '../../styles/tokens.css';
+import './GuestWorkspace.css';
 
 /** Пример для плашки, пока нет снов за текущие сутки с достаточным текстом */
 const DEMO_SYMBOL_WORDS: Array<{ symbol: string; count: number }> = [
@@ -190,7 +191,62 @@ export default function GuestWorkspace() {
     description: string;
     path: string;
     color: string;
+    tag?: string;
   }> = [
+    {
+      icon: 'bot',
+      title: 'ИИ-ассистент',
+      description:
+        'Анализ снов, клиентских материалов и рабочих заметок. Рекомендации и поддержка в разборе смыслов — прямо в чате на платформе, без сторонних сервисов.',
+      path: '/register',
+      color: 'var(--surface-2)',
+      tag: 'Экосистема'
+    },
+    {
+      icon: 'activity',
+      title: 'Транскрибация аудио',
+      description:
+        'Загружайте записи сессий и получайте текстовую расшифровку для архива, анализа и дальнейшей работы с материалом.',
+      path: '/register',
+      color: 'var(--surface-2)',
+      tag: 'Экосистема'
+    },
+    {
+      icon: 'messages',
+      title: 'Видеозвонки',
+      description:
+        'Онлайн-встречи с клиентами и коллегами встроены в JungAI — расписание, комната и гостевой доступ по ссылке на одной платформе.',
+      path: '/register',
+      color: 'var(--surface-2)',
+      tag: 'Экосистема'
+    },
+    {
+      icon: 'briefcase',
+      title: 'CRM и клиенты',
+      description:
+        'Учёт клиентов, заметки, материалы и история работы — всё связано между собой и доступно в личном кабинете специалиста.',
+      path: '/register',
+      color: 'var(--surface-2)',
+      tag: 'Экосистема'
+    },
+    {
+      icon: 'calendar',
+      title: 'Календарь и запись',
+      description:
+        'Расписание сессий, события и публичная запись на приём через страницу календаря — без отдельных сервисов бронирования.',
+      path: '/register',
+      color: 'var(--surface-2)',
+      tag: 'Экосистема'
+    },
+    {
+      icon: 'clipboard',
+      title: 'Рабочая область',
+      description:
+        'Заметки, документы и материалы сессии в структурированном пространстве — для ведения терапии и исследовательской работы.',
+      path: '/register',
+      color: 'var(--surface-2)',
+      tag: 'Экосистема'
+    },
     {
       icon: 'chart',
       title: 'Психологические тесты',
@@ -200,15 +256,15 @@ export default function GuestWorkspace() {
     },
     {
       icon: 'library',
-      title: 'Публикации',
-      description: 'Читайте статьи и исследования от психологов и исследователей',
+      title: 'Публикации и сообщества',
+      description: 'Читайте статьи и исследования, участвуйте в сообществах психологов и исследователей',
       path: '/guest/publications',
       color: 'var(--surface-2)'
     },
     {
       icon: 'dreams',
       title: 'Запись снов',
-      description: 'Ведите дневник сновидений и делитесь своими снами с сообществом',
+      description: 'Ведите дневник сновидений, отслеживайте символы и делитесь снами с сообществом',
       path: '/guest/dreams',
       color: 'var(--surface-2)'
     },
@@ -229,7 +285,7 @@ export default function GuestWorkspace() {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="guest-home" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <GuestNavbar />
       <main
         style={{
@@ -242,25 +298,19 @@ export default function GuestWorkspace() {
       >
         {/* Hero Section */}
         <div style={{ textAlign: 'center', marginBottom: 64, padding: '40px 0' }}>
-          <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: '0.5px', color: 'var(--primary)', marginBottom: 16 }}>
-            Психология • Исследования • Искусственный интеллект
-          </div>
-          <h1 style={{ 
-            margin: 0, 
-            fontSize: 'clamp(32px, 5vw, 56px)', 
-            fontWeight: 800, 
+          <h1 style={{
+            margin: 0,
+            fontSize: 'clamp(32px, 5vw, 56px)',
+            fontWeight: 800,
             lineHeight: 1.2,
-            background: 'linear-gradient(135deg, var(--text) 0%, var(--primary) 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
+            color: 'var(--text)',
             marginBottom: 24
           }}>
             JungAI — платформа аналитической психологии
           </h1>
-          <p style={{ 
-            margin: '0 auto', 
-            maxWidth: 720, 
+          <p style={{
+            margin: '0 auto',
+            maxWidth: 720,
             fontSize: 18,
             lineHeight: 1.7,
             color: 'var(--text-muted)',
@@ -273,15 +323,15 @@ export default function GuestWorkspace() {
           </p>
           {!user && (
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button 
-                className="button" 
+              <button
+                className="button"
                 onClick={() => navigate('/register')}
                 style={{ padding: '14px 32px', fontSize: 16, fontWeight: 600 }}
               >
                 Начать бесплатно
               </button>
-              <button 
-                className="button secondary" 
+              <button
+                className="button secondary"
                 onClick={() => navigate('/login')}
                 style={{ padding: '14px 32px', fontSize: 16, fontWeight: 600 }}
               >
@@ -414,9 +464,16 @@ export default function GuestWorkspace() {
 
         {/* Features Grid */}
         <div style={{ marginBottom: 64 }}>
-          <h2 style={{ fontSize: 32, fontWeight: 800, marginBottom: 32, textAlign: 'center' }}>
-            Возможности платформы
-          </h2>
+          <div style={{ textAlign: 'center', marginBottom: 40, maxWidth: 820, marginLeft: 'auto', marginRight: 'auto' }}>
+            <h2 style={{ fontSize: 32, fontWeight: 800, marginBottom: 16 }}>
+              Возможности платформы
+            </h2>
+            <p style={{ margin: 0, fontSize: 17, lineHeight: 1.65, color: 'var(--text-muted)' }}>
+              JungAI — единая экосистема инструментов для практики, исследований и личной работы.
+              ИИ, транскрибация, видеозвонки, CRM, календарь и дневники — всё на одной платформе,
+              без переключения между сервисами.
+            </p>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
             {features.map((feature, idx) => (
               <div
@@ -433,21 +490,41 @@ export default function GuestWorkspace() {
                 }}
               >
                 <div style={{ position: 'relative', zIndex: 1 }}>
-                  <div
-                    style={{
-                      marginBottom: 16,
-                      width: 56,
-                      height: 56,
-                      borderRadius: 14,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: 'var(--surface)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      color: 'var(--primary)'
-                    }}
-                  >
-                    <PlatformIcon name={feature.icon} size={30} strokeWidth={1.6} />
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+                    <div
+                      style={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 14,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: 'var(--surface)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: 'var(--primary)',
+                        flexShrink: 0
+                      }}
+                    >
+                      <PlatformIcon name={feature.icon} size={30} strokeWidth={1.6} />
+                    </div>
+                    {feature.tag && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                          color: 'var(--primary)',
+                          border: '1px solid rgba(124, 92, 255, 0.35)',
+                          background: 'rgba(124, 92, 255, 0.1)',
+                          padding: '4px 10px',
+                          borderRadius: 999,
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {feature.tag}
+                      </span>
+                    )}
                   </div>
                   <h3 style={{ margin: 0, marginBottom: 12, fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>
                     {feature.title}
@@ -471,15 +548,15 @@ export default function GuestWorkspace() {
               Зарегистрируйтесь, чтобы получить доступ ко всем функциям платформы
             </p>
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button 
-                className="button" 
+              <button
+                className="button"
                 onClick={() => navigate('/register')}
                 style={{ padding: '14px 32px', fontSize: 16, fontWeight: 600 }}
               >
                 Зарегистрироваться
               </button>
-              <button 
-                className="button secondary" 
+              <button
+                className="button secondary"
                 onClick={() => navigate('/login')}
                 style={{ padding: '14px 32px', fontSize: 16, fontWeight: 600 }}
               >
@@ -493,4 +570,3 @@ export default function GuestWorkspace() {
     </div>
   );
 }
-

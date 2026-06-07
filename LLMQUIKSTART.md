@@ -709,3 +709,102 @@ ls -la backend/node_modules/ffmpeg-static/ffmpeg 2>/dev/null || ls backend/node_
 - [ ] Длинный файл (если есть): в логах `[STT] audio split` с несколькими частями
 - [ ] `OPENROUTER_API_KEY` и квота OpenRouter
 
+---
+
+## 23) Релиз 2026-06-02 — юридический блок, сессия, главная (guest)
+
+Кратко для ассистента: релиз на `main` — **без новых миграций Prisma**; на проде после `git pull` обязательны сборка **frontend** (и backend, если менялся), перезапуск PM2. Юридические markdown лежат в `frontend/public/legal/` — оттуда их читает UI.
+
+### 23.1 Git / коммиты (ожидаемая цепочка на `main`)
+
+| Коммит | Содержание |
+|--------|------------|
+| `30ba767` | Юридический UI: `/terms`, `/privacy`, `/personal-data-consent`, `/contacts`; футер, cookie-баннер, чекбоксы при регистрации; фикс истечения JWT + `SessionExpiredModal`; гостевой звонок `?guest=1`; fix Prisma-фильтра клиентов в админке (`clients.ts`) |
+| `3dd02d8` | Синхронизация `docs/USER_AGREEMENT.md`, `docs/PERSONAL_DATA_CONSENT.md` → `frontend/public/legal/` (сайт читает **public**, не `docs/`) |
+| *(текущий)* | Главная guest: карточки экосистемы (ИИ, транскрибация, видео, CRM, календарь, рабочая область); спокойные кнопки без градиента (`GuestWorkspace.css`); футер «© JungAI - платформа аналитической психологии» |
+
+**Важно:** правки текстов соглашений — в `docs/` **и** копировать в `frontend/public/legal/` (или только в public, если docs — черновик).
+
+### 23.2 Юридические страницы и UI
+
+| Путь | Источник контента |
+|------|-------------------|
+| `/terms` | `frontend/public/legal/terms.md` |
+| `/privacy` | `frontend/public/legal/privacy.md` (копия `conf.md`) |
+| `/personal-data-consent` | `frontend/public/legal/personal-data-consent.md` |
+| `/contacts` | React: `frontend/src/pages/legal/ContactsPage.tsx` + `frontend/src/content/operatorInfo.ts` |
+
+**Файлы:**
+- `frontend/src/pages/legal/LegalDocumentPage.tsx` — загрузка markdown из `/legal/*.md`
+- `frontend/src/components/SiteFooter.tsx` — ссылки на документы
+- `frontend/src/components/CookieConsentBanner.tsx` — баннер cookie (`localStorage`: `jingai_cookie_consent_v1`)
+- `frontend/src/components/LegalRegistrationConsent.tsx` — чекбоксы в `Register.tsx` и `RegisterClient.tsx`
+
+**Оператор ПДн (в текстах и UI):** ИП Вдовин Сергей Александрович, реестр РКН № 15-26-005049, `inbox@jung-ai.ru`.
+
+**Не сделано (отдельная задача):** отдельный чекбокс трансграничной передачи ПДн **перед первым ИИ-чатом** (не при регистрации).
+
+### 23.3 Auth / сессия / гостевой звонок
+
+- `frontend/src/utils/authSession.ts` — событие `jingai:auth-session-expired`
+- `frontend/src/components/SessionExpiredModal.tsx` — модалка «Сессия истекла»
+- `frontend/src/context/AuthContext.tsx` — bootstrap `/api/auth/me` при старте, `authReady`
+- `frontend/src/pages/room/VoiceRoom.tsx` — `?guest=1` принудительный гостевой режим (без ложной «верификации» при `jwt expired`)
+
+### 23.4 Backend fix (в `30ba767`)
+
+- `backend/src/routes/clients.ts` — фильтр админского списка клиентов: Prisma 6 не принимает `not: { startsWith }` на nullable поле; заменено на `NOT: { psychologistId: { startsWith: 'temp-' } }`.
+
+### 23.5 Главная страница (`/` → `GuestWorkspace.tsx`)
+
+- Блок «Возможности платформы»: 6 карточек экосистемы + публичные разделы (тесты, публикации, сны, психологи).
+- Кнопки на главной без градиента: класс `.guest-home .button` в `GuestWorkspace.css`.
+- График «Частота символов» — исходный градиент cyan→violet (`barFillForRank` в `GuestWorkspace.tsx`).
+- Убрана строка-подзаголовок «Психология • Исследования • ИИ» под hero.
+
+### 23.6 Nginx (если ещё не на проде)
+
+Для транскрибации/вложений — лимит тела запроса (иначе 413):
+
+```nginx
+client_max_body_size 512M;
+```
+
+В конфиге `jung-ai.ru` / proxy на backend.
+
+### 23.7 Деплой на прод (этот релиз)
+
+**Миграции:** новых нет (после `20260604120000_ai_transcription_status`). `prisma migrate deploy` безопасен — просто no-op.
+
+```bash
+cd /var/www/jingai
+grep DATABASE_URL backend/.env   # prod.db, не пустой
+pm2 stop jingai-backend
+
+TS=$(date +%Y%m%d_%H%M%S)
+mkdir -p /root/jingai-backups
+sqlite3 backend/prisma/prod.db ".backup /root/jingai-backups/prod_${TS}.db"
+cp -a backend/prisma/prod.db /root/jingai-backups/prod_${TS}.db.copy
+
+git pull --ff-only origin main
+npm ci
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend && npm run build:frontend
+pm2 restart jingai-backend --update-env
+pm2 logs jingai-backend --lines 50
+```
+
+Фронт — статика из `frontend/dist`; nginx должен отдавать актуальную сборку. Отдельный restart nginx обычно не нужен.
+
+### 23.8 Чек-лист приёмки после деплоя
+
+- [ ] `/` — главная, футер, карточки экосистемы
+- [ ] `/terms`, `/privacy`, `/personal-data-consent`, `/contacts` — тексты с реквизитами ИП (не шаблон `m.teplodom@mail.ru`)
+- [ ] `/register` — чекбоксы согласий, submit заблокирован без них
+- [ ] Cookie-баннер при первом визите
+- [ ] Истечение JWT → модалка «Сессия истекла», не ложная верификация
+- [ ] Гостевая ссылка в комнату с `?guest=1`
+- [ ] Админка → список клиентов без ошибки Prisma
+- [ ] ИИ-транскрибация / вложения (если уже настроены env из §22.3)
+
