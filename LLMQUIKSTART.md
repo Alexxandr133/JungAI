@@ -721,7 +721,7 @@ ls -la backend/node_modules/ffmpeg-static/ffmpeg 2>/dev/null || ls backend/node_
 |--------|------------|
 | `30ba767` | Юридический UI: `/terms`, `/privacy`, `/personal-data-consent`, `/contacts`; футер, cookie-баннер, чекбоксы при регистрации; фикс истечения JWT + `SessionExpiredModal`; гостевой звонок `?guest=1`; fix Prisma-фильтра клиентов в админке (`clients.ts`) |
 | `3dd02d8` | Синхронизация `docs/USER_AGREEMENT.md`, `docs/PERSONAL_DATA_CONSENT.md` → `frontend/public/legal/` (сайт читает **public**, не `docs/`) |
-| *(текущий)* | Главная guest: карточки экосистемы (ИИ, транскрибация, видео, CRM, календарь, рабочая область); спокойные кнопки без градиента (`GuestWorkspace.css`); футер «© JungAI - платформа аналитической психологии» |
+| `db04988` | Главная guest: карточки экосистемы (ИИ, транскрибация, видео, CRM, календарь, рабочая область); спокойные кнопки без градиента (`GuestWorkspace.css`); футер «© JungAI - платформа аналитической психологии» |
 
 **Важно:** правки текстов соглашений — в `docs/` **и** копировать в `frontend/public/legal/` (или только в public, если docs — черновик).
 
