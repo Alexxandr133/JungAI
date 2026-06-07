@@ -1,10 +1,13 @@
 import { api } from '../lib/api';
+import { isUnauthorizedError, notifySessionExpired } from './authSession';
 
 export type VerificationStatus = 'none' | 'pending' | 'approved' | 'rejected';
 
 export interface VerificationCheckResult {
   isVerified: boolean | null;
   status: VerificationStatus | null;
+  /** JWT истёк — показывать «войдите снова», не экран верификации */
+  sessionExpired?: boolean;
 }
 
 // Кэш для результатов проверки верификации (TTL: 5 минут)
@@ -115,6 +118,10 @@ export async function checkVerification(token: string | null, forceRefresh = fal
       return result;
     }
   } catch (error: any) {
+    if (isUnauthorizedError(error)) {
+      notifySessionExpired();
+      return { isVerified: null, status: null, sessionExpired: true };
+    }
     // Если ошибка 403 с сообщением о верификации
     if (error.message?.includes('Verification required')) {
       const result = { isVerified: false, status: null };

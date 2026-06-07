@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
 import { api, getApiBaseUrl } from '../../lib/api';
@@ -789,10 +789,15 @@ function LiveKitConferenceRu() {
 
 export default function VoiceRoom() {
   const { roomId } = useParams<{ roomId: string }>();
+  const [searchParams] = useSearchParams();
   const { token, user } = useAuth();
   const { appearance } = useAppearance();
   const navigate = useNavigate();
   const isLight = appearance.colorMode === 'light';
+
+  const guestForced = searchParams.get('guest') === '1';
+  const isGuestMode = guestForced || !token;
+  const roomApiToken = isGuestMode ? undefined : (token ?? undefined);
   
   const [event, setEvent] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -802,7 +807,25 @@ export default function VoiceRoom() {
   const [livekitUrl, setLivekitUrl] = useState<string>('');
   const [guestDisplayName, setGuestDisplayName] = useState('');
   const [reconnectHint, setReconnectHint] = useState<string | null>(null);
-  const isGuestMode = !token;
+
+  const loadEventData = useCallback(async () => {
+    if (!roomId) return;
+    try {
+      setLoading(true);
+      const endpoint = isGuestMode
+        ? `/api/events/public-room/${roomId}`
+        : `/api/events/by-room/${roomId}`;
+      const res = await api<{ event: EventData; voiceRoom: any }>(endpoint, { token: roomApiToken });
+      setEvent(res.event);
+      setError(null);
+    } catch (e: any) {
+      console.error('Failed to load room data:', e);
+      setError(e.message || 'Не удалось загрузить данные комнаты');
+      setEvent(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [roomId, isGuestMode, roomApiToken]);
 
   useEffect(() => {
     if (!roomId) {
@@ -811,36 +834,22 @@ export default function VoiceRoom() {
       return;
     }
 
-    loadEventData();
-  }, [roomId, token]);
-
-  async function loadEventData() {
-    try {
-      const endpoint = token ? `/api/events/by-room/${roomId}` : `/api/events/public-room/${roomId}`;
-      const res = await api<{ event: EventData; voiceRoom: any }>(endpoint, { token: token ?? undefined });
-      setEvent(res.event);
-      setLoading(false);
-      
-    } catch (e: any) {
-      console.error('Failed to load room data:', e);
-      setError(e.message || 'Не удалось загрузить данные комнаты');
-      setLoading(false);
-    }
-  }
+    void loadEventData();
+  }, [roomId, loadEventData]);
 
   async function handleJoin() {
     if (!roomId) return;
-    if (!token && !guestDisplayName.trim()) {
+    if (isGuestMode && !guestDisplayName.trim()) {
       setError('Введите имя для входа в комнату');
       return;
     }
     try {
-      const res = token
-        ? await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/livekit-token`, { token })
-        : await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
+      const res = isGuestMode
+        ? await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
             method: 'POST',
             body: { displayName: guestDisplayName.trim() }
-          });
+          })
+        : await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/livekit-token`, { token: roomApiToken });
       setLivekitToken(res.token);
       setLivekitUrl(res.url);
       setJoined(true);
@@ -884,8 +893,8 @@ export default function VoiceRoom() {
           <div style={{ fontSize: 64, marginBottom: 24 }}>⚠️</div>
           <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Ошибка</div>
           <div style={{ color: '#888', marginBottom: 24 }}>{error || 'Комната не найдена'}</div>
-          <button className="button" onClick={() => navigate(token ? '/events' : '/')} style={{ padding: '12px 24px' }}>
-            Вернуться к событиям
+          <button className="button" onClick={() => navigate(isGuestMode ? '/' : '/events')} style={{ padding: '12px 24px' }}>
+            {isGuestMode ? 'На главную' : 'Вернуться к событиям'}
           </button>
         </div>
       </div>
@@ -945,6 +954,22 @@ export default function VoiceRoom() {
                   }}
                 >
                   {reconnectHint}
+                </div>
+              )}
+              {guestForced && token && user?.email && (
+                <div
+                  className="small"
+                  style={{
+                    marginTop: 14,
+                    padding: 12,
+                    borderRadius: 12,
+                    border: isLight ? '1px solid rgba(59,130,246,0.35)' : '1px solid rgba(59,130,246,0.4)',
+                    background: isLight ? 'rgba(239,246,255,0.95)' : 'rgba(30,58,138,0.35)',
+                    color: isLight ? '#1e3a8a' : '#bfdbfe',
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Вы вошли как <b>{user.email}</b>, но по этой ссылке вход выполняется как гость — аккаунт не используется.
                 </div>
               )}
               {isGuestMode && (

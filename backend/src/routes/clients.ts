@@ -171,13 +171,12 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
       };
       console.log(`[GET /clients] Filtering for psychologist ${req.user.id} with whereClause:`, JSON.stringify(whereClause));
     } else if (req.user.role === 'admin') {
-      // Админы видят всех клиентов (но исключаем временные записи и null)
-      // Упрощенный синтаксис - используем not вместо NOT в AND
+      // Prisma 6: not: { startsWith } недопустим — исключаем temp- через NOT
       whereClause = {
         AND: [
           { psychologistId: { not: null } },
           { psychologistId: { not: '' } },
-          { psychologistId: { not: { startsWith: 'temp-' } } },
+          { NOT: { psychologistId: { startsWith: 'temp-' } } },
           therapyFilter
         ]
       };
@@ -237,6 +236,11 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         console.error(`[GET /clients] SECURITY WARNING: Filtered ${beforeCount} to ${filteredClients.length} clients for psychologist ${req.user.id}`);
         console.error(`[GET /clients] This indicates a database integrity issue or query problem!`);
       }
+    } else if (req.user.role === 'admin') {
+      filteredClients = clients.filter((client) => {
+        const pid = client.psychologistId;
+        return pid != null && pid.trim() !== '' && !pid.startsWith('temp-');
+      });
     }
     
     console.log(`[GET /clients] Returning ${filteredClients.length} clients after security filter`);

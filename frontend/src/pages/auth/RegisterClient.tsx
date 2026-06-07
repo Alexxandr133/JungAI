@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { LegalRegistrationConsent } from '../../components/LegalRegistrationConsent';
 import { api } from '../../lib/api';
 
 export default function RegisterClient() {
@@ -21,6 +22,8 @@ export default function RegisterClient() {
   const [checking, setChecking] = useState(true);
   const [clientInfo, setClientInfo] = useState<{ name?: string; email?: string } | null>(null);
   const [emailTakenHint, setEmailTakenHint] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedSpecial, setAcceptedSpecial] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -279,10 +282,18 @@ export default function RegisterClient() {
             />
           </div>
 
+          <LegalRegistrationConsent
+            acceptedTerms={acceptedTerms}
+            onAcceptedTermsChange={setAcceptedTerms}
+            acceptedSpecial={acceptedSpecial}
+            onAcceptedSpecialChange={setAcceptedSpecial}
+            showSpecialCategory
+          />
+
           <button
             type="submit"
             className="button"
-            disabled={loading}
+            disabled={loading || !acceptedTerms || !acceptedSpecial}
             style={{ padding: '12px 24px', fontSize: 16, fontWeight: 600, marginTop: 8 }}
           >
             {loading ? 'Регистрация...' : 'Завершить регистрацию'}

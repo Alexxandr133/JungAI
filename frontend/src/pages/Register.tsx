@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ThemeMenuButton } from '../components/ThemeMenuButton';
+import { LegalRegistrationConsent } from '../components/LegalRegistrationConsent';
 import { api } from '../lib/api';
 
 export default function Register() {
@@ -16,6 +17,8 @@ export default function Register() {
   const [role, setRole] = useState<'psychologist' | 'researcher' | 'client'>('client');
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedSpecial, setAcceptedSpecial] = useState(false);
 
   function formatCodeInput(v: string): string {
     const digits = v.replace(/\D/g, '').slice(0, 6);
@@ -40,6 +43,16 @@ export default function Register() {
 
     if (password !== confirmPassword) {
       setError('Пароли не совпадают');
+      return;
+    }
+
+    if (!acceptedTerms) {
+      setError('Необходимо принять пользовательское соглашение и согласие на обработку персональных данных');
+      return;
+    }
+
+    if (role === 'client' && !acceptedSpecial) {
+      setError('Необходимо дать согласие на обработку сведений о состоянии здоровья в пользовательских материалах');
       return;
     }
 
@@ -231,10 +244,18 @@ export default function Register() {
             />
           </div>
 
+          <LegalRegistrationConsent
+            acceptedTerms={acceptedTerms}
+            onAcceptedTermsChange={setAcceptedTerms}
+            acceptedSpecial={acceptedSpecial}
+            onAcceptedSpecialChange={setAcceptedSpecial}
+            showSpecialCategory={role === 'client'}
+          />
+
           <button
             type="submit"
             className="button"
-            disabled={loading}
+            disabled={loading || !acceptedTerms || (role === 'client' && !acceptedSpecial)}
             style={{ padding: '14px 24px', fontSize: 16, fontWeight: 600, marginTop: 8 }}
           >
             {loading ? 'Регистрация...' : 'Зарегистрироваться'}

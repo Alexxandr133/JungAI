@@ -8,6 +8,7 @@ import './index.css'
 import { AppearanceProvider } from './context/AppearanceContext'
 import { GlobalAppearance } from './components/GlobalAppearance'
 import { AuthProvider } from './context/AuthContext'
+import { SessionExpiredModal } from './components/SessionExpiredModal'
 import { I18nProvider } from './context/I18nContext'
 import { ErrorBoundary } from './ErrorBoundary'
 import Login from './pages/Login'
@@ -76,6 +77,9 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { ForcedEmailMigrationModal } from './components/EmailChangeFlow'
 import { MobileInstallPrompt } from './components/MobileInstallPrompt'
 import AboutPlatform from './pages/AboutPlatform'
+import LegalDocumentPage from './pages/legal/LegalDocumentPage'
+import ContactsPage from './pages/legal/ContactsPage'
+import { CookieConsentBanner } from './components/CookieConsentBanner'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -84,8 +88,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <GlobalAppearance />
         <I18nProvider>
           <AuthProvider>
+            <SessionExpiredModal />
             <ForcedEmailMigrationModal />
             <MobileInstallPrompt />
+            <CookieConsentBanner />
             <ErrorBoundary>
             <Routes>
               <Route path="/" element={<App />} />
@@ -106,6 +112,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/guest/dreams" element={<GuestDreams />} />
               <Route path="/psychologists" element={<PsychologistsList />} />
               <Route path="/psychologists/:id" element={<PublicPsychologistProfile />} />
+
+              <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
+              <Route path="/privacy" element={<LegalDocumentPage slug="privacy" />} />
+              <Route path="/personal-data-consent" element={<LegalDocumentPage slug="personal-data-consent" />} />
+              <Route path="/contacts" element={<ContactsPage />} />
 
               <Route
                 path="/about"

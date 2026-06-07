@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { GuestNavbar } from '../../components/GuestNavbar';
+import { SiteFooter } from '../../components/SiteFooter';
 import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 import '../../styles/tokens.css';
 
@@ -488,6 +489,7 @@ export default function GuestWorkspace() {
           </div>
         )}
       </main>
+      <SiteFooter />
     </div>
   );
 }

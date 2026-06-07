@@ -28,6 +28,8 @@ export function resolvePublicFileUrl(url: string | null | undefined): string | n
   return `${base}${path}`;
 }
 
+import { notifySessionExpired } from '../utils/authSession';
+
 export async function api<T = unknown>(path: string, options: { method?: HttpMethod; token?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const env = (import.meta as any).env || {};
   let baseOrigin: string = env.VITE_API_ORIGIN || env.VITE_API_URL || '';
@@ -86,6 +88,10 @@ export async function api<T = unknown>(path: string, options: { method?: HttpMet
       // Если не JSON, используем текст как есть
     }
     
+    if (res.status === 401 && options.token) {
+      notifySessionExpired();
+    }
+
     const error = new Error(errorMessage);
     (error as any).status = res.status;
     (error as any).data = errorPayload;

@@ -9,7 +9,7 @@ function formatCodeInput(v: string): string {
 }
 
 export function EmailVerificationLockModal() {
-  const { user, loginWithToken, logout } = useAuth();
+  const { user, authReady, loginWithToken, logout } = useAuth();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function EmailVerificationLockModal() {
     return user.emailVerified === false;
   }, [user]);
 
-  if (!shouldLock || !user?.email) return null;
+  if (!authReady || !shouldLock || !user?.email) return null;
   const email = user.email;
 
   async function verifyEmail(e: React.FormEvent) {
