@@ -872,6 +872,10 @@ export default function VoiceRoom() {
       navigate('/client/sessions');
       return;
     }
+    if (user?.role === 'researcher') {
+      navigate('/researcher/calls');
+      return;
+    }
     navigate('/events');
   }
 
@@ -893,7 +897,7 @@ export default function VoiceRoom() {
           <div style={{ fontSize: 64, marginBottom: 24 }}>⚠️</div>
           <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Ошибка</div>
           <div style={{ color: '#888', marginBottom: 24 }}>{error || 'Комната не найдена'}</div>
-          <button className="button" onClick={() => navigate(isGuestMode ? '/' : '/events')} style={{ padding: '12px 24px' }}>
+          <button className="button" onClick={() => navigate(isGuestMode ? '/' : user?.role === 'researcher' ? '/researcher/calls' : '/events')} style={{ padding: '12px 24px' }}>
             {isGuestMode ? 'На главную' : 'Вернуться к событиям'}
           </button>
         </div>

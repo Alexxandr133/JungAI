@@ -42,6 +42,12 @@ import support from './routes/support';
 import platform from './routes/platform';
 import cron from 'node-cron';
 import { runDailyDreamSymbolValidation } from './jobs/dailyDreamSymbols';
+import {
+  ensureDreamSymbolColumns,
+  processPendingDreamSymbolsBatch,
+  migrateDreamSymbolsToAi,
+  reconcileStaleDreamSymbolJobs,
+} from './jobs/dreamSymbolExtraction';
 
 const app = express();
 const httpServer = createServer(app);
@@ -170,11 +176,31 @@ setChatIo(io);
 setupVoiceRoomSocket(io);
 setupChatSocket(io);
 
-httpServer.listen(config.port, () => {
+httpServer.listen(config.port, async () => {
   // eslint-disable-next-line no-console
   console.log(`Backend listening on :${config.port}`);
   // eslint-disable-next-line no-console
   console.log(`WebSocket server ready for voice rooms`);
+
+  try {
+    await ensureDreamSymbolColumns();
+    const stale = await reconcileStaleDreamSymbolJobs(10);
+    const migrated = await migrateDreamSymbolsToAi();
+    if (stale > 0 || migrated > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[DreamSymbols] Stale reset: ${stale}, queued for AI migration: ${migrated}`);
+    }
+    void (async () => {
+      for (let i = 0; i < 20; i++) {
+        const n = await processPendingDreamSymbolsBatch(10);
+        if (n === 0) break;
+        // eslint-disable-next-line no-console
+        console.log(`[DreamSymbols] Processed batch ${i + 1}: ${n} dreams`);
+      }
+    })();
+  } catch (e) {
+    console.error('[DreamSymbols] startup init failed', e);
+  }
 });
 
 // Ежедневная валидация символов (теги -> AI -> нормализация), 18:00
@@ -187,5 +213,19 @@ cron.schedule('0 18 * * *', async () => {
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[Cron] Daily dream symbols validation failed', e);
+  }
+});
+
+// Очередь извлечения символов через ИИ (каждые 5 минут)
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    await reconcileStaleDreamSymbolJobs(10);
+    const n = await processPendingDreamSymbolsBatch(15);
+    if (n > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`[Cron] Dream AI symbols processed: ${n}`);
+    }
+  } catch (e) {
+    console.error('[Cron] Dream symbol extraction failed', e);
   }
 });

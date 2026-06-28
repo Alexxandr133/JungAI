@@ -5,6 +5,7 @@ import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import { runDailyDreamSymbolValidation } from '../jobs/dailyDreamSymbols';
+import { processPendingDreamSymbolsBatch, migrateDreamSymbolsToAi } from '../jobs/dreamSymbolExtraction';
 
 const router = Router();
 
@@ -350,6 +351,16 @@ router.post('/dreams/validate-symbols', async (_req: AuthedRequest, res) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to validate dream symbols' });
+  }
+});
+
+router.post('/dreams/extract-symbols-ai', async (_req: AuthedRequest, res) => {
+  try {
+    const migrated = await migrateDreamSymbolsToAi();
+    const processed = await processPendingDreamSymbolsBatch(25);
+    res.json({ success: true, message: 'Сны поставлены в очередь на извлечение символов через ИИ', migrated, processedNow: processed });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to queue dream symbol extraction' });
   }
 });
 

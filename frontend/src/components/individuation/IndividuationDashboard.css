@@ -1,0 +1,140 @@
+.ind-dash__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+  .ind-dash__top {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ind-dash__viz {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 12px;
+  min-height: 480px;
+}
+
+.ind-dash__metrics {
+  font-size: 13px;
+}
+
+.ind-dash__viz-hint {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  text-align: center;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.ind-dash__modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.ind-dash__mode {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ind-dash__mode.active {
+  border-color: var(--primary);
+  color: var(--text);
+  background: rgba(124, 92, 255, 0.12);
+}
+
+.ind-dash__metrics h3 {
+  margin-top: 0;
+}
+
+.ind-dash__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.ind-dash__metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.ind-dash__interp {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-muted);
+  margin: 16px 0 0;
+}
+
+.ind-dash__bars {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ind-dash__bars > div {
+  display: grid;
+  grid-template-columns: 100px 1fr 40px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.ind-dash__bars .bar {
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ind-dash__bars .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.ind-dash__accordion {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.ind-dash__accordion-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: none;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ind-dash__accordion-body {
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ind-dash__accordion-body p {
+  margin: 0 0 8px;
+}

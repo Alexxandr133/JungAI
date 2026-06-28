@@ -1,0 +1,302 @@
+.research-projects {
+  flex: 1;
+  padding: 24px clamp(16px, 5vw, 48px);
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.research-projects__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.research-projects__header h1 {
+  margin: 0 0 8px;
+  font-size: clamp(1.75rem, 4vw, 2rem);
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.research-projects__icon {
+  color: var(--primary);
+  display: inline-flex;
+}
+
+.research-projects__header p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.research-projects__error {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  margin-bottom: 20px;
+}
+
+.research-projects__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.research-projects__stat {
+  padding: 20px;
+  text-align: center;
+}
+
+.research-projects__stat-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--primary);
+}
+
+.research-projects__stat-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.research-projects__loading {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
+  margin-top: 24px;
+}
+
+.research-projects__list-section {
+  padding: 24px;
+  margin-bottom: 28px;
+}
+
+.research-projects__list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.research-projects__list-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.research-projects__form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--surface-2);
+  border-radius: 12px;
+}
+
+.research-projects__form input,
+.research-projects__form textarea {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.research-projects__empty {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Square widget cards */
+.research-projects__widget-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 16px;
+}
+
+.research-projects__widget {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 18px;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  overflow: hidden;
+}
+
+.research-projects__widget:hover {
+  transform: translateY(-4px);
+  border-color: rgba(124, 92, 255, 0.35);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+}
+
+.research-projects__widget-icon {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(124, 92, 255, 0.14);
+  color: var(--primary);
+}
+
+.research-projects__widget-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 6px;
+  padding-top: 52px;
+}
+
+.research-projects__widget-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.research-projects__widget-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.research-projects__widget-delete {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  z-index: 2;
+}
+
+.research-projects__widget-delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+/* Matrix — below projects */
+.research-projects__matrix {
+  padding: 24px;
+  margin-bottom: 32px;
+}
+
+.research-projects__matrix h2 {
+  margin: 0 0 6px;
+  font-size: 1.15rem;
+}
+
+.research-projects__matrix-lead {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.research-projects__matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.research-projects__matrix-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.research-projects__matrix-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.research-projects__matrix-card-head strong {
+  font-size: 15px;
+  color: var(--primary);
+}
+
+.research-projects__matrix-card-head span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.research-projects__matrix-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.research-projects__matrix-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.research-projects__matrix-row-label {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.research-projects__matrix-row-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.research-projects__matrix-row-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  min-width: 4px;
+}
+
+.research-projects__matrix-row-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.5em;
+  text-align: right;
+}

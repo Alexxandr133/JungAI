@@ -973,6 +973,24 @@ export const TEST_CATALOG = [
     type: 'spiral-dynamics' as const,
     questions: SPIRAL_QUESTIONS.length,
     duration: 22
+  },
+  {
+    id: 't6',
+    title: 'Гексаграмма индивидуации',
+    description:
+      '42 ситуационные дилеммы по шести стадиям SD: дефицит, фиксация и интеграция. Движение модели — против часовой стрелки.',
+    type: 'individuation-hex' as const,
+    questions: 36,
+    duration: 15
+  },
+  {
+    id: 't7',
+    title: 'Когнитивная гексаграмма',
+    description:
+      'Спектр когнитивных функций (S, F, J, N, T, P) в экстравертной и интровертной полярности — без MBTI-типизации.',
+    type: 'cognitive-hex' as const,
+    questions: 12,
+    duration: 5
   }
 ] as const;
 

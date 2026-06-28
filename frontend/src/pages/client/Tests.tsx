@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ClientNavbar } from '../../components/ClientNavbar';
+import { IndividuationDashboard } from '../../components/individuation/IndividuationDashboard';
+import { IndividuationTestRunner } from '../../components/individuation/IndividuationTestRunner';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import type { CognitiveHexResult, IndividuationHexResult } from '../../data/individuationModel';
 import { buildHexagram, castLine, type IChingHexagram, type IChingLine } from '../../lib/iching';
 import {
   SPIRAL_LEVEL_DEFS,
@@ -19,7 +22,7 @@ type Test = {
   id: string;
   title: string;
   description: string;
-  type: 'archetype' | 'shadow' | 'personality' | 'i-ching' | 'spiral-dynamics';
+  type: 'archetype' | 'shadow' | 'personality' | 'i-ching' | 'spiral-dynamics' | 'individuation-hex' | 'cognitive-hex';
   completed: boolean;
   questions?: number;
   duration?: number;
@@ -40,7 +43,7 @@ export type ClientTestsProps = {
 
 type TestResult = {
   testId: string;
-  kind?: 'spiral-dynamics' | 'i-ching' | 'archetype' | 'shadow' | 'personality';
+  kind?: 'spiral-dynamics' | 'i-ching' | 'archetype' | 'shadow' | 'personality' | 'individuation-hex' | 'cognitive-hex';
   levels?: SpiralLevel[];
   dominantLevel?: SpiralLevel;
   interpretation?: string;
@@ -57,6 +60,8 @@ type TestResult = {
   driverScores?: Record<string, number>;
   driverKey?: string;
   driverLabel?: { name: string; description: string };
+  individuationResult?: IndividuationHexResult;
+  cognitiveResult?: CognitiveHexResult;
 };
 
 function mergeSpiralLevels(stored: {
@@ -131,6 +136,12 @@ function normalizeStoredResult(testType: string, raw: any): TestResult | null {
       driverLabel: raw.driverLabel,
       interpretation: raw.interpretation
     };
+  }
+  if (raw.kind === 'individuation-hex' && raw.stages) {
+    return { testId, kind: 'individuation-hex', individuationResult: raw as IndividuationHexResult };
+  }
+  if (raw.kind === 'cognitive-hex' && raw.poles) {
+    return { testId, kind: 'cognitive-hex', cognitiveResult: raw as CognitiveHexResult };
   }
   return null;
 }
@@ -259,6 +270,10 @@ export default function ClientTests({ persistResults = true }: ClientTestsProps)
         return '☯️';
       case 'spiral-dynamics':
         return '🌀';
+      case 'individuation-hex':
+        return '⬡';
+      case 'cognitive-hex':
+        return '🧩';
       default:
         return '📝';
     }
@@ -759,6 +774,60 @@ export default function ClientTests({ persistResults = true }: ClientTestsProps)
               </div>
             </div>
           </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (testResult?.kind === 'individuation-hex' && testResult.individuationResult && selectedTest) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <ClientNavbar />
+        <main style={{ flex: 1, padding: '24px clamp(16px, 5vw, 48px)' }}>
+          <IndividuationDashboard result={testResult.individuationResult} onRetake={() => { setTestResult(null); startTest(selectedTest); }} />
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <button className="button secondary" onClick={closeResult}>← К списку тестов</button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (testResult?.kind === 'cognitive-hex' && testResult.cognitiveResult && selectedTest) {
+    const r = testResult.cognitiveResult;
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <ClientNavbar />
+        <main style={{ flex: 1, padding: '24px clamp(16px, 5vw, 48px)', maxWidth: 800, margin: '0 auto' }}>
+          <div className="card" style={{ padding: 24 }}>
+            <h2>Когнитивная гексаграмма</h2>
+            <p style={{ lineHeight: 1.7 }}>{r.interpretation}</p>
+            <button className="button secondary" onClick={closeResult} style={{ marginTop: 16 }}>← К списку тестов</button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (selectedTest?.type === 'individuation-hex' || selectedTest?.type === 'cognitive-hex') {
+    if (testResult) return null;
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <ClientNavbar />
+        <main style={{ flex: 1, padding: '24px clamp(16px, 5vw, 48px)' }}>
+          <IndividuationTestRunner
+            kind={selectedTest.type}
+            onCancel={() => setSelectedTest(null)}
+            onComplete={(result) => {
+              const payload = { ...result, schemaVersion: 1, testId: selectedTest.id, completedAt: new Date().toISOString() };
+              void saveToServer(selectedTest.type, payload as Record<string, unknown>);
+              if (result.kind === 'individuation-hex') {
+                setTestResult({ testId: selectedTest.id, kind: 'individuation-hex', individuationResult: result });
+              } else {
+                setTestResult({ testId: selectedTest.id, kind: 'cognitive-hex', cognitiveResult: result });
+              }
+            }}
+          />
         </main>
       </div>
     );

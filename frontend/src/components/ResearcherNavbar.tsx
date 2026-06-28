@@ -25,37 +25,43 @@ export function ResearcherNavbar() {
 
   const menuItems: MenuItem[] = [
     {
-      label: 'Дашборд',
+      label: 'Главная',
       path: '/researcher',
       icon: 'dashboard'
     },
     {
-      label: 'Сны',
-      path: '/researcher/dreams',
-      icon: 'dreams'
+      label: 'Данные',
+      icon: 'microscope',
+      children: [
+        { label: 'База снов', path: '/researcher/dreams', icon: 'dreams' },
+        { label: 'Участники', path: '/researcher/people', icon: 'users' },
+        { label: 'Проекты', path: '/researcher/projects', icon: 'microscope' },
+        { label: 'Амплификации', path: '/research/amplifications', icon: 'orbit' }
+      ]
     },
     {
-      label: 'Люди',
-      path: '/researcher/people',
-      icon: 'users'
-    },
-    {
-      label: 'Амплификации',
-      path: '/research/amplifications',
-      icon: 'orbit'
+      label: 'Инструменты',
+      icon: 'hammer',
+      children: [
+        { label: 'ИИ-ассистент', path: '/researcher/ai', icon: 'bot' },
+        { label: 'Модель индивидуации', path: '/researcher/individuation', icon: 'orbit' },
+        { label: 'Библиотека', path: '/materials', icon: 'library' },
+        { label: 'Сообщения', path: '/chat', icon: 'messages' },
+        { label: 'Звонки', path: '/researcher/calls', icon: 'calendar' }
+      ]
     },
     {
       label: 'Сообщества',
-      icon: 'library',
+      icon: 'book',
       children: [
         { label: 'Публикации', path: '/publications', icon: 'file' },
         { label: 'Лента', path: '/feed', icon: 'messages' }
       ]
     },
     {
-      label: 'AI Ассистент',
-      path: '/researcher/ai',
-      icon: 'bot'
+      label: 'Профиль',
+      path: '/researcher/profile',
+      icon: 'user'
     },
     {
       label: 'Тех.поддержка',

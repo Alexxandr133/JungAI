@@ -55,6 +55,9 @@ model Dream {
   title     String
   content   String
   symbols   Json
+  symbolsStatus String @default("ready") // pending | processing | ready | failed
+  symbolsExtractedAt DateTime?
+  symbolsAiVersion Int @default(0)
   userId    String?
   clientId  String? // Связь с клиентом
   client    Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)

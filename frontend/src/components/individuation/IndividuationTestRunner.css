@@ -1,0 +1,129 @@
+.ind-test {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.ind-test.onboard {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.ind-test__astrolabe {
+  display: grid;
+  place-items: center;
+  margin-bottom: 24px;
+  animation: ind-spin-ccw 48s linear infinite;
+}
+
+@keyframes ind-spin-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+.ind-test.onboard h2 {
+  margin: 0 0 12px;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(1.4rem, 3vw, 1.85rem);
+}
+
+.ind-test.onboard p {
+  color: var(--text-muted);
+  line-height: 1.65;
+  margin-bottom: 24px;
+}
+
+.ind-test__actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ind-test__progress-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ind-test__progress-title {
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.ind-test__progress-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.ind-test__question {
+  padding: 20px;
+  font-size: 17px;
+  line-height: 1.65;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.ind-test__options {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.ind-test__option {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.55;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ind-test__option:hover {
+  border-color: rgba(124, 92, 255, 0.4);
+}
+
+.ind-test__option.selected {
+  border-color: var(--primary);
+  background: rgba(124, 92, 255, 0.12);
+}
+
+.ind-test__option-key {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.ind-test__nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ind-test__mini-hex {
+  position: absolute;
+  right: 0;
+  top: 0;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .ind-test__mini-hex {
+    display: none;
+  }
+}

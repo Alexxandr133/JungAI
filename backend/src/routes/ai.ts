@@ -2,7 +2,8 @@ import { Router } from 'express';
 import multer from 'multer';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
-import { mergeDreamKeywords } from '../utils/dreamKeywords';
+import { anonymizeDreamRecord } from '../utils/anonymizeText';
+import { enqueueDreamSymbolExtraction } from '../jobs/dreamSymbolExtraction';
 import { config } from '../config';
 import { OpenAI } from 'openai';
 import { assertAiQuotaAvailable, consumeAiTokens, getAiQuotaStatus } from '../services/aiTokenQuota';
@@ -504,18 +505,17 @@ router.post('/ai/dream/analyze', requireAuth, async (req: AuthedRequest, res) =>
     // Если есть dreamId, сохраняем символы: эвристики анализа + извлечение из текста сна
     if (dreamId) {
       try {
-        const existing = await (prisma as any).dream.findUnique({
-          where: { id: dreamId },
-          select: { title: true }
-        });
-        const title = existing?.title != null ? String(existing.title) : '';
-        const merged = mergeDreamKeywords(title, String(content), extractedSymbols);
         await (prisma as any).dream.update({
           where: { id: dreamId },
-          data: { symbols: merged }
+          data: { symbols: [] },
         });
-      } catch (e) {
-        // Игнорируем ошибки обновления
+        await prisma.$executeRawUnsafe(
+          `UPDATE "Dream" SET "symbolsStatus" = 'pending', "symbolsExtractedAt" = NULL WHERE "id" = ?`,
+          String(dreamId)
+        ).catch(() => undefined);
+        enqueueDreamSymbolExtraction(String(dreamId));
+      } catch {
+        /* ignore */
       }
     }
 
@@ -1137,6 +1137,86 @@ ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передан
   }
 });
 
+// Чат ИИ внутри space проекта (только материалы проекта, без базы снов)
+router.post('/ai/researcher/project/chat', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    if (!openRouterClient) {
+      return res.status(500).json({ error: 'OpenRouter API не настроен. Установите OPENROUTER_API_KEY в переменных окружения.' });
+    }
+
+    const { message, conversationHistory = [], projectTitle, spaceContext } = req.body ?? {};
+    const safeConversationHistory = trimConversationHistory(conversationHistory);
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Сообщение обязательно' });
+    }
+
+    const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
+    const title = typeof projectTitle === 'string' && projectTitle.trim() ? projectTitle.trim() : 'Проект';
+    const context =
+      typeof spaceContext === 'string' && spaceContext.trim()
+        ? spaceContext.trim().slice(0, 48000)
+        : '(Материалы проекта пусты.)';
+
+    const systemPrompt = `Ты — ИИ-ассистент внутри исследовательского space «${title}» на платформе JungAI.
+
+Тебе доступны ТОЛЬКО материалы текущего проекта (вкладки, заметки, гипотезы), переданные в контексте ниже.
+У тебя НЕТ доступа к базе снов, клиентам, другим проектам и внешним данным.
+Опирайся только на переданный контекст и общие знания аналитической психологии.
+Если в контексте нет данных для ответа — скажи об этом и предложи, что добавить в заметки.
+
+Отвечай на русском, структурированно, профессионально.`;
+
+    const userPrompt = `Контекст space проекта:\n${context}\n\nВопрос исследователя: ${message}`;
+
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+      ...safeConversationHistory.map((msg: any) => ({
+        role: msg.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+        content: msg.content,
+      })),
+      { role: 'user', content: userPrompt },
+    ];
+
+    const model = await getPlatformAiModel();
+    let assistantMessage = 'Извините, не удалось получить ответ.';
+    let quota = quotaBefore;
+
+    try {
+      const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+        model,
+        messages,
+        temperature: 0.7,
+        maxTokens: 900,
+      });
+      assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      quota = await consumeAiTokens(req.user!.id, {
+        usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+        promptText: messages.map((m) => m.content).join('\n'),
+        completionText: assistantMessage,
+      });
+    } catch (error: any) {
+      throw new Error(asUserFacingAiError(error));
+    }
+
+    res.json({
+      message: assistantMessage,
+      quota,
+      conversationHistory: [
+        ...safeConversationHistory,
+        { role: 'user', content: message },
+        { role: 'assistant', content: assistantMessage },
+      ],
+    });
+  } catch (error: any) {
+    console.error('Researcher project chat error:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to process chat message',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+});
+
 // Чат ассистента исследователя
 router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
@@ -1163,6 +1243,7 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
         content: true,
         symbols: true,
         createdAt: true,
+        clientId: true,
         client: {
           select: {
             id: true,
@@ -1172,13 +1253,17 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
       }
     });
 
-    // Формируем контекст снов
+    // Формируем контекст снов (обезличенный)
     let dreamsContext = '';
     if (allDreams.length > 0) {
-      dreamsContext = `\n\nБаза данных снов (последние ${allDreams.length}):\n`;
-      allDreams.slice(0, 20).forEach((dream, idx) => {
-        const symbols = Array.isArray(dream.symbols) ? dream.symbols.join(', ') : (typeof dream.symbols === 'object' && dream.symbols !== null ? Object.keys(dream.symbols).join(', ') : '');
-        dreamsContext += `${idx + 1}. "${dream.title || 'Без названия'}" (${dream.client?.name || 'Неизвестный клиент'}) - ${dream.content?.substring(0, 200)}... Символы: ${symbols || 'нет'}\n`;
+      const anonymized = allDreams.map(anonymizeDreamRecord);
+      dreamsContext = `\n\nБаза данных снов (последние ${anonymized.length}, обезличенные):\n`;
+      anonymized.slice(0, 20).forEach((dream, idx) => {
+        const symbols = Array.isArray(dream.symbols) ? dream.symbols.join(', ') : (typeof dream.symbols === 'object' && dream.symbols !== null ? Object.keys(dream.symbols as object).join(', ') : '');
+        const snippet = dream.content ? dream.content.substring(0, 400) : '';
+        dreamsContext += `${idx + 1}. "${dream.title || 'Без названия'}" (${dream.participantLabel || 'анонимный участник'}, ${new Date(dream.createdAt).toLocaleDateString('ru-RU')})\n`;
+        dreamsContext += `   ${snippet}${dream.content && dream.content.length > 400 ? '…' : ''}\n`;
+        if (symbols) dreamsContext += `   Символы: ${symbols}\n`;
       });
     } else {
       dreamsContext = '\n\nВ базе данных пока нет снов.';
@@ -1187,12 +1272,10 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
     // Формируем system prompt
     const systemPrompt = `Ты — ассистент исследователя, специализирующийся на аналитической психологии, юнгианском анализе и исследовании сновидений. Твоя задача — помогать исследователю с анализом данных, выявлением паттернов, интерпретацией снов, исследованием архетипов и символики.
 
-Ты имеешь доступ к:
-1. Базе данных снов (все сны в системе)
-2. Данным исследований
-3. Публикациям и материалам
+Ты имеешь доступ к обезличенной базе снов (без имён, адресов и географии — только символика и содержание).
+Можешь отвечать на вопросы о снах, анализировать паттерны, предлагать интерпретации, помогать с исследованиями.
 
-Можешь отвечать на вопросы о снах, анализировать паттерны, предлагать интерпретации, помогать с исследованиями и анализом данных.
+Не запрашивай и не предполагай личные данные участников. Маркеры [имя], [место], [телефон] — следствие обезличивания.
 
 Отвечай на русском языке, профессионально, но доступно. Используй знания юнгианской психологии, архетипов, символики и работы со сновидениями.`;
 
@@ -1975,6 +2058,148 @@ router.delete(
   '/ai/psychologist/transcriptions/:id',
   requireAuth,
   requireRole(['psychologist', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const row = await findAiTranscriptionForPsychologist(id, req.user!.id);
+      if (!row) {
+        return res.status(404).json({ error: 'Транскрибация не найдена' });
+      }
+      await deleteAiTranscription(id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось удалить' });
+    }
+  }
+);
+
+// ——— Транскрибация для исследователя (тот же AITranscription, owner = userId) ———
+
+router.get(
+  '/ai/researcher/transcriptions',
+  requireAuth,
+  requireRole(['researcher', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const items = await listAiTranscriptions(req.user!.id);
+      res.json({ items: items.map(serializeTranscription) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось загрузить транскрибации' });
+    }
+  }
+);
+
+router.post(
+  '/ai/researcher/transcriptions',
+  requireAuth,
+  requireRole(['researcher', 'admin']),
+  requireVerification,
+  (req, res, next) => {
+    uploadTranscriptionAudio.single('audio')(req, res, (err: any) => {
+      if (err) {
+        const msg =
+          err.code === 'LIMIT_FILE_SIZE'
+            ? `Файл слишком большой (макс. ${Math.round(AI_TRANSCRIPTION_MAX_BYTES / 1024 / 1024)} МБ)`
+            : err.message || 'Ошибка загрузки аудио';
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    try {
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({ error: 'Выберите аудиофайл' });
+      }
+
+      await assertAiQuotaAvailable(req.user!.id);
+      const format = openRouterAudioFormat(file.mimetype, file.originalname);
+      const language =
+        typeof req.body?.language === 'string' ? req.body.language.trim() : undefined;
+
+      const baseName = (file.originalname || 'Запись').replace(/\.[^.]+$/, '') || 'Запись';
+      const title =
+        typeof req.body?.title === 'string' && req.body.title.trim()
+          ? req.body.title.trim().slice(0, 200)
+          : baseName.slice(0, 200);
+
+      const row = await createAiTranscription({
+        psychologistId: req.user!.id,
+        title,
+        sourceFileName: file.originalname || 'audio',
+        text: '',
+        language: language || null,
+        status: 'processing',
+        progressPercent: 5,
+        progressStage: 'Загрузка',
+      });
+
+      const buffer = Buffer.from(file.buffer);
+      runTranscriptionJob({
+        id: row.id,
+        psychologistId: req.user!.id,
+        buffer,
+        format,
+        language,
+      });
+
+      res.status(202).json({ item: serializeTranscription(row) });
+    } catch (error: any) {
+      console.error('Researcher transcription error:', error);
+      res.status(400).json({ error: error?.message || 'Не удалось начать транскрибацию' });
+    }
+  }
+);
+
+router.get(
+  '/ai/researcher/transcriptions/:id',
+  requireAuth,
+  requireRole(['researcher', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const row = await findAiTranscriptionForPsychologist(id, req.user!.id);
+      if (!row) {
+        return res.status(404).json({ error: 'Транскрибация не найдена' });
+      }
+      res.json({ item: serializeTranscription(row) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось загрузить' });
+    }
+  }
+);
+
+router.patch(
+  '/ai/researcher/transcriptions/:id',
+  requireAuth,
+  requireRole(['researcher', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    try {
+      const { id } = req.params;
+      const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) : '';
+      if (!title) {
+        return res.status(400).json({ error: 'Укажите название' });
+      }
+      const row = await updateAiTranscriptionTitle(id, req.user!.id, title);
+      if (!row) {
+        return res.status(404).json({ error: 'Транскрибация не найдена' });
+      }
+      res.json({ item: serializeTranscription(row) });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Не удалось обновить' });
+    }
+  }
+);
+
+router.delete(
+  '/ai/researcher/transcriptions/:id',
+  requireAuth,
+  requireRole(['researcher', 'admin']),
   requireVerification,
   async (req: AuthedRequest, res) => {
     try {

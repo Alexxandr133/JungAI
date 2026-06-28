@@ -463,6 +463,36 @@ router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
   res.json({ items });
 });
 
+router.post('/events/instant-call', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const { title } = req.body ?? {};
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + 2 * 3600000);
+    const roomId = generateRoomId();
+    const roomUrl = generateRoomUrl(roomId);
+
+    const event = await prisma.event.create({
+      data: {
+        title: typeof title === 'string' && title.trim() ? title.trim() : 'Быстрый звонок',
+        type: 'call',
+        description: 'Мгновенный звонок без привязки к сессии',
+        startsAt: now,
+        endsAt,
+        createdBy: req.user!.id,
+        clientId: null,
+        voiceRoom: {
+          create: { roomId, roomUrl }
+        }
+      } as any,
+      include: { voiceRoom: true }
+    });
+
+    res.status(201).json(event);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to create instant call' });
+  }
+});
+
 router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   const { title, type, description, startsAt, endsAt, clientId } = req.body ?? {};
   const parsedStartsAt = parseEventDateInput(startsAt);

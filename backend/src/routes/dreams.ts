@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
-import { mergeDreamKeywords } from '../utils/dreamKeywords';
+import { enqueueDreamSymbolExtraction } from '../jobs/dreamSymbolExtraction';
 
 const router = Router();
 
@@ -94,11 +94,7 @@ router.post('/dreams', requireAuth, requireRole(['client', 'psychologist', 'admi
       }
     }
     
-    const mergedSymbols = mergeDreamKeywords(
-      String(title ?? ''),
-      String(content ?? ''),
-      symbols ?? []
-    );
+    const mergedSymbols: string[] = [];
 
     const dream = await (prisma as any).dream.create({
       data: {
@@ -134,6 +130,17 @@ router.post('/dreams', requireAuth, requireRole(['client', 'psychologist', 'admi
         });
       }
     }
+    
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "Dream" SET "symbolsStatus" = 'pending' WHERE "id" = ?`,
+        dream.id
+      );
+    } catch {
+      /* column added on startup via ensureDreamSymbolColumns */
+    }
+
+    enqueueDreamSymbolExtraction(dream.id);
     
     res.status(201).json(dream);
   } catch (error: any) {
@@ -184,24 +191,29 @@ router.put('/dreams/:id', requireAuth, requireRole(['client', 'psychologist', 'a
     
     const nextTitle = title !== undefined ? String(title) : dream.title;
     const nextContent = content !== undefined ? String(content) : dream.content;
-    const refreshKeywords =
-      title !== undefined || content !== undefined || symbols !== undefined;
+    const contentChanged = title !== undefined || content !== undefined;
 
     const updated = await (prisma as any).dream.update({
       where: { id: req.params.id },
       data: {
         ...(title !== undefined && { title }),
         ...(content !== undefined && { content }),
-        ...(refreshKeywords && {
-          symbols: mergeDreamKeywords(
-            nextTitle,
-            nextContent,
-            symbols !== undefined ? symbols : dream.symbols
-          )
-        }),
+        ...(contentChanged && { symbols: [] }),
         ...(clientId !== undefined && { clientId: clientId || null })
       }
     });
+
+    if (contentChanged) {
+      try {
+        await prisma.$executeRawUnsafe(
+          `UPDATE "Dream" SET "symbolsStatus" = 'pending', "symbolsExtractedAt" = NULL WHERE "id" = ?`,
+          updated.id
+        );
+      } catch {
+        /* ignore */
+      }
+      enqueueDreamSymbolExtraction(updated.id);
+    }
     
     res.json(updated);
   } catch (error: any) {

@@ -27,9 +27,13 @@ function anonymizeName(_originalName: string, index: number): string {
   return `${firstName} ${lastName}`;
 }
 
-function anonymizeAge(age: number | null | undefined): number | null {
+function anonymizeAge(age: number | null | undefined, id: string): number | null {
   if (!age) return null;
-  const variance = Math.floor(Math.random() * 11) - 5; // -5 to +5
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash + id.charCodeAt(i) * (i + 1)) % 11;
+  }
+  const variance = hash - 5;
   return Math.max(18, Math.min(100, age + variance));
 }
 
@@ -142,7 +146,7 @@ export default function ResearcherPeople() {
               ).catch(() => null);
               
               if (profileRes?.profile?.age) {
-                age = anonymizeAge(profileRes.profile.age);
+                age = anonymizeAge(profileRes.profile.age, client.id);
               }
             } catch {}
           } catch (e) {
@@ -180,9 +184,9 @@ export default function ResearcherPeople() {
         }}
       >
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>👥 Люди</h1>
+          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Участники</h1>
           <div className="small" style={{ color: 'var(--text-muted)' }}>
-            Обезличенные данные всех зарегистрированных клиентов
+            Обезличенные профили клиентов платформы — для сегментации и исследовательского анализа
           </div>
         </div>
 

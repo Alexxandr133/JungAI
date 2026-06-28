@@ -50,6 +50,10 @@ import ResearcherPeople from './pages/researcher/People'
 import ResearcherDreams from './pages/researcher/Dreams'
 import ResearcherSupport from './pages/researcher/Support'
 import ResearcherAIChat from './pages/researcher/AIChat'
+import ResearcherIndividuationModel from './pages/researcher/IndividuationModel'
+import ResearcherProjects from './pages/researcher/ResearchProjects'
+import ResearchProjectSpace from './pages/researcher/ResearchProjectSpace'
+import ResearcherCalls from './pages/researcher/ResearcherCalls'
 import PublicationsPage from './pages/publications/Publications'
 import FeedPage from './pages/publications/Feed'
 import CommunityView from './pages/publications/CommunityView'
@@ -551,6 +555,38 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['researcher', 'admin']}>
                     <ResearcherAIChat />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/researcher/individuation"
+                element={
+                  <ProtectedRoute roles={['researcher', 'admin']}>
+                    <ResearcherIndividuationModel />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/researcher/projects"
+                element={
+                  <ProtectedRoute roles={['researcher', 'admin']}>
+                    <ResearcherProjects />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/researcher/projects/:projectId"
+                element={
+                  <ProtectedRoute roles={['researcher', 'admin']}>
+                    <ResearchProjectSpace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/researcher/calls"
+                element={
+                  <ProtectedRoute roles={['researcher', 'admin']}>
+                    <ResearcherCalls />
                   </ProtectedRoute>
                 }
               />

@@ -26,7 +26,11 @@ type Props = {
   token: string;
   isMobileView: boolean;
   onJobsChange?: (hasActive: boolean) => void;
+  apiBasePath?: string;
+  sttStorageKey?: string;
 };
+
+const DEFAULT_API_BASE = '/api/ai/psychologist/transcriptions';
 
 const AUDIO_ACCEPT = '.mp3,.wav,.m4a,.webm,.ogg,.flac,.aac,.mp4,audio/*';
 /** 0 = без проверки размера на клиенте (лимит задаётся на сервере) */
@@ -127,7 +131,13 @@ function uploadWithProgress(
   });
 }
 
-export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Props) {
+export function AITranscriptionPanel({
+  token,
+  isMobileView,
+  onJobsChange,
+  apiBasePath = DEFAULT_API_BASE,
+  sttStorageKey,
+}: Props) {
   const [items, setItems] = useState<TranscriptionItem[]>([]);
   const [activeJob, setActiveJob] = useState<TranscriptionItem | null>(null);
   const [loadingList, setLoadingList] = useState(true);
@@ -153,7 +163,7 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
   const loadList = useCallback(async () => {
     setLoadingList(true);
     try {
-      const res = await api<{ items: TranscriptionItem[] }>('/api/ai/psychologist/transcriptions', {
+      const res = await api<{ items: TranscriptionItem[] }>(apiBasePath, {
         token,
       });
       setItems(res.items || []);
@@ -162,10 +172,10 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
     } finally {
       setLoadingList(false);
     }
-  }, [token]);
+  }, [token, apiBasePath]);
 
   const hydrateActiveJob = useCallback(async () => {
-    const ids = getActiveSttJobIds();
+    const ids = getActiveSttJobIds(sttStorageKey);
     if (!ids.length) {
       setActiveJob(null);
       syncBusy(null);
@@ -173,7 +183,7 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
     }
     try {
       const res = await api<{ item: TranscriptionItem }>(
-        `/api/ai/psychologist/transcriptions/${ids[0]}`,
+        `${apiBasePath}/${ids[0]}`,
         { token }
       );
       const item = res.item;
@@ -182,7 +192,7 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
         syncBusy(item);
         return;
       }
-      removeActiveSttJob(ids[0]);
+      removeActiveSttJob(ids[0], sttStorageKey);
       if (item.status === 'completed') {
         setItems((prev) => (prev.some((t) => t.id === item.id) ? prev : [item, ...prev]));
         setActiveJob(null);
@@ -199,11 +209,11 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
 
   const pollActiveJob = useCallback(async () => {
     if (pollInFlightRef.current) return;
-    const id = activeJob?.id || getActiveSttJobIds()[0];
+    const id = activeJob?.id || getActiveSttJobIds(sttStorageKey)[0];
     if (!id) return;
     pollInFlightRef.current = true;
     try {
-      const res = await api<{ item: TranscriptionItem }>(`/api/ai/psychologist/transcriptions/${id}`, {
+      const res = await api<{ item: TranscriptionItem }>(`${apiBasePath}/${id}`, {
         token,
       });
       const item = res.item;
@@ -212,7 +222,7 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
         syncBusy(item);
         return;
       }
-      removeActiveSttJob(id);
+      removeActiveSttJob(id, sttStorageKey);
       setActiveJob(null);
       syncBusy(null);
       if (item.status === 'completed') {
@@ -250,7 +260,7 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
 
   useEffect(() => {
     const hasWork =
-      uploading || activeJob?.status === 'processing' || getActiveSttJobIds().length > 0;
+      uploading || activeJob?.status === 'processing' || getActiveSttJobIds(sttStorageKey).length > 0;
     if (!hasWork) return;
     const interval = setInterval(() => void pollActiveJob(), 6000);
     return () => clearInterval(interval);
@@ -272,12 +282,12 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
     fd.append('audio', file);
     try {
       const res = await uploadWithProgress(
-        '/api/ai/psychologist/transcriptions',
+        apiBasePath,
         token,
         fd,
         setUploadPercent
       );
-      addActiveSttJob(res.item.id);
+      addActiveSttJob(res.item.id, sttStorageKey);
       setActiveJob(res.item);
       setUploadPercent(res.item.progressPercent || 15);
       syncBusy(res.item);
@@ -298,8 +308,8 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
   async function handleDelete(id: string, opts?: { skipConfirm?: boolean }) {
     if (!opts?.skipConfirm && !window.confirm('Удалить эту транскрибацию?')) return;
     try {
-      await api(`/api/ai/psychologist/transcriptions/${id}`, { method: 'DELETE', token });
-      removeActiveSttJob(id);
+      await api(`${apiBasePath}/${id}`, { method: 'DELETE', token });
+      removeActiveSttJob(id, sttStorageKey);
       setItems((prev) => prev.filter((t) => t.id !== id));
       if (activeJob?.id === id) {
         setActiveJob(null);
@@ -348,7 +358,7 @@ export function AITranscriptionPanel({ token, isMobileView, onJobsChange }: Prop
     setSavingRename(true);
     setError(null);
     try {
-      const res = await api<{ item: TranscriptionItem }>(`/api/ai/psychologist/transcriptions/${id}`, {
+      const res = await api<{ item: TranscriptionItem }>(`${apiBasePath}/${id}`, {
         method: 'PATCH',
         token,
         body: { title },

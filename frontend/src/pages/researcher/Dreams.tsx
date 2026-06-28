@@ -3,20 +3,20 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
 import { PlatformIcon } from '../../components/icons';
+import { anonymizeText } from '../../utils/anonymizeText';
 import '../../styles/tokens.css';
+import './Dreams.css';
 
 type Dream = {
   id: string;
   title: string;
   content?: string;
   symbols?: string[] | any;
+  symbolsStatus?: string;
   createdAt: string;
   clientId?: string;
+  participantLabel?: string;
   userId?: string;
-  client?: {
-    id: string;
-    name?: string;
-  };
   source?: 'client' | 'guest' | 'psychologist' | 'other';
 };
 
@@ -31,6 +31,7 @@ export default function ResearcherDreams() {
   const [query, setQuery] = useState('');
   const [filterSource, setFilterSource] = useState<'all' | 'client' | 'guest' | 'psychologist'>('all');
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [selectedDream, setSelectedDream] = useState<Dream | null>(null);
 
   // Load favorites from localStorage
   useEffect(() => {
@@ -62,6 +63,15 @@ export default function ResearcherDreams() {
     }
   }, [token]);
 
+  useEffect(() => {
+    const hasPending = dreams.some(
+      d => d.source !== 'guest' && (d.symbolsStatus === 'pending' || d.symbolsStatus === 'processing')
+    );
+    if (!hasPending || !token) return;
+    const t = window.setInterval(() => loadDreams(), 15000);
+    return () => window.clearInterval(t);
+  }, [dreams, token]);
+
   async function loadDreams() {
     if (!token) return;
     setLoading(true);
@@ -89,8 +99,10 @@ export default function ResearcherDreams() {
           const parsed = JSON.parse(guestDreamsStr);
           if (Array.isArray(parsed)) {
             guestDreams = parsed.map((dream: any) => ({
-              ...dream,
               id: `guest-${dream.id || Date.now()}-${Math.random()}`,
+              title: anonymizeText(dream.title || 'Без названия'),
+              content: anonymizeText(dream.content),
+              createdAt: dream.createdAt || new Date().toISOString(),
               source: 'guest' as const,
               symbols: Array.isArray(dream.symbols) ? dream.symbols : []
             }));
@@ -176,7 +188,9 @@ export default function ResearcherDreams() {
                 База снов
               </h1>
               <div className="small" style={{ color: 'var(--text-muted)' }}>
-                Все сны в системе · {dreams.length} {dreams.length === 1 ? 'сон' : dreams.length < 5 ? 'сна' : 'снов'} · {filtered.length} {filtered.length === 1 ? 'отображается' : filtered.length < 5 ? 'отображается' : 'отображается'}
+                Агрегированный каталог снов платформы · {dreams.length}{' '}
+                {dreams.length === 1 ? 'запись' : dreams.length < 5 ? 'записи' : 'записей'}
+                {filtered.length !== dreams.length && ` · показано ${filtered.length}`}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -227,6 +241,10 @@ export default function ResearcherDreams() {
           </div>
         )}
 
+        <div className="researcher-dreams-pii-note">
+          Тексты обезличены: имена, города и контакты заменены на маркеры [имя], [место] и т.п. Нажмите на карточку, чтобы прочитать полный текст.
+        </div>
+
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48 }}>
             <div className="small" style={{ opacity: 0.7 }}>Загрузка снов...</div>
@@ -242,13 +260,15 @@ export default function ResearcherDreams() {
             {filtered.map(dream => {
               const isFavorite = favorites.has(dream.id);
               const symbols = Array.isArray(dream.symbols) ? dream.symbols : [];
+              const symbolsPending = dream.symbolsStatus === 'pending' || dream.symbolsStatus === 'processing';
+              const symbolsFailed = dream.symbolsStatus === 'failed';
               const sourceLabel = dream.source === 'client' ? 'Клиент' : dream.source === 'guest' ? 'Гость' : dream.source === 'psychologist' ? 'Психолог' : 'Другое';
               const sourceColor = dream.source === 'client' ? '#3b82f6' : dream.source === 'guest' ? '#8b5cf6' : dream.source === 'psychologist' ? '#10b981' : '#6b7280';
               
               return (
                 <div
                   key={dream.id}
-                  className="card card-hover-shimmer"
+                  className="card card-hover-shimmer researcher-dreams-card"
                   style={{
                     padding: 28,
                     display: 'flex',
@@ -256,22 +276,15 @@ export default function ResearcherDreams() {
                     gap: 18,
                     position: 'relative',
                     transition: 'all 0.3s ease',
-                    cursor: 'pointer',
                     background: 'var(--surface)',
                     border: '2px solid rgba(255,255,255,0.08)',
                     borderRadius: 20,
                     boxShadow: '0 4px 16px rgba(0,0,0,0.1)'
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-4px)';
-                    e.currentTarget.style.boxShadow = '0 12px 32px rgba(0,0,0,0.25)';
-                    e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
-                  }}
+                  onClick={() => setSelectedDream(dream)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedDream(dream); } }}
+                  role="button"
+                  tabIndex={0}
                 >
                   {/* Favorite button */}
                   <button
@@ -330,15 +343,25 @@ export default function ResearcherDreams() {
                     <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 10, paddingRight: 100, lineHeight: 1.4, color: 'var(--text)' }}>
                       {dream.title || 'Без названия'}
                     </div>
-                    {dream.client?.name && (
+                    {(dream.participantLabel || dream.clientId) && (
                       <div className="small" style={{ color: 'var(--text-muted)', opacity: 0.9, fontSize: 13 }}>
-                        👤 {dream.client.name}
+                        {dream.participantLabel || `Участник #${dream.clientId!.slice(-6).toUpperCase()}`}
                       </div>
                     )}
                   </div>
 
                   {/* Symbols */}
-                  {symbols.length > 0 && (
+                  {symbolsPending && (
+                    <div className="small" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      Символы извлекаются через ИИ…
+                    </div>
+                  )}
+                  {symbolsFailed && (
+                    <div className="small" style={{ color: '#f59e0b' }}>
+                      Не удалось извлечь символы — повторная попытка автоматически
+                    </div>
+                  )}
+                  {!symbolsPending && !symbolsFailed && symbols.length > 0 && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {symbols.slice(0, 8).map((symbol: string, idx: number) => (
                         <span
@@ -366,22 +389,14 @@ export default function ResearcherDreams() {
 
                   {/* Content */}
                   {dream.content && (
-                    <div
-                      style={{
-                        color: 'rgba(255,255,255,0.85)',
-                        lineHeight: 1.8,
-                        fontSize: 15,
-                        maxHeight: 160,
-                        overflow: 'hidden',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 6,
-                        WebkitBoxOrient: 'vertical',
-                        opacity: 0.9,
-                        marginTop: 4
-                      }}
-                    >
-                      {dream.content}
-                    </div>
+                    <>
+                      <div className="researcher-dreams-card__content">
+                        {dream.content}
+                      </div>
+                      {dream.content.length > 180 && (
+                        <div className="researcher-dreams-card__more">Читать полностью →</div>
+                      )}
+                    </>
                   )}
 
                   {/* Date and favorite */}
@@ -396,6 +411,46 @@ export default function ResearcherDreams() {
           </div>
         )}
       </main>
+
+      {selectedDream && (
+        <div
+          className="researcher-dreams-modal-overlay"
+          onClick={() => setSelectedDream(null)}
+          role="presentation"
+        >
+          <div
+            className="researcher-dreams-modal"
+            style={{ position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dream-modal-title"
+          >
+            <button
+              type="button"
+              className="researcher-dreams-modal__close"
+              onClick={() => setSelectedDream(null)}
+              aria-label="Закрыть"
+            >
+              ×
+            </button>
+            <h2 id="dream-modal-title" className="researcher-dreams-modal__title">
+              {selectedDream.title || 'Без названия'}
+            </h2>
+            {selectedDream.participantLabel && (
+              <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+                {selectedDream.participantLabel}
+              </div>
+            )}
+            <div className="researcher-dreams-modal__body">
+              {selectedDream.content || 'Нет текста'}
+            </div>
+            <div className="small" style={{ color: 'var(--text-muted)', marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              {formatDateTime(selectedDream.createdAt)}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

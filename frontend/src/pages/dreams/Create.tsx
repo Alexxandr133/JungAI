@@ -3,37 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 
-const MAX_DREAM_SYMBOLS = 10;
-
 export default function DreamCreate() {
   const { token } = useAuth();
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [symbols, setSymbols] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      const symArr = symbols.trim()
-        ? symbols
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .slice(0, MAX_DREAM_SYMBOLS)
-        : [];
       if (token) {
-        await api('/api/dreams', { method: 'POST', token, body: { title, content, symbols: symArr } });
+        await api('/api/dreams', { method: 'POST', token, body: { title, content } });
       } else {
-        // Для гостей сохраняем в localStorage
         const guestDreams = JSON.parse(localStorage.getItem('guest_dreams') || '[]');
         const newDream = {
           id: `guest-${Date.now()}`,
           title,
           content,
-          symbols: symArr,
+          symbols: [],
           createdAt: new Date().toISOString(),
           isGuest: true
         };
@@ -49,14 +38,12 @@ export default function DreamCreate() {
   return (
     <div style={{ padding: 16 }}>
       <h3>Новая запись сна</h3>
+      <p className="small" style={{ color: 'var(--text-muted)', marginBottom: 12, maxWidth: 520 }}>
+        Символы будут извлечены автоматически через ИИ после сохранения.
+      </p>
       <form onSubmit={submit} style={{ display: 'grid', gap: 8, maxWidth: 520 }}>
         <input placeholder="Заголовок" value={title} onChange={e => setTitle(e.target.value)} required />
-        <textarea placeholder="Описание" value={content} onChange={e => setContent(e.target.value)} required />
-        <input
-          placeholder={`Символы через запятую, не более ${MAX_DREAM_SYMBOLS}`}
-          value={symbols}
-          onChange={(e) => setSymbols(e.target.value)}
-        />
+        <textarea placeholder="Описание" value={content} onChange={e => setContent(e.target.value)} required rows={8} />
         <button type="submit">Создать</button>
         {error && <div style={{ color: 'red' }}>{error}</div>}
       </form>

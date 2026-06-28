@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { anonymizeDreamRecord, anonymizeText } from '../utils/anonymizeText';
 
 const router = Router();
 
@@ -140,6 +141,8 @@ router.get('/research/export', requireAuth, requireRole(['researcher', 'admin'])
         content: true,
         symbols: true,
         createdAt: true,
+        clientId: true,
+        client: { select: { name: true } },
         amplifications: {
           include: {
             amplification: {
@@ -185,17 +188,21 @@ router.get('/research/export', requireAuth, requireRole(['researcher', 'admin'])
 
     // Анонимизация данных (удаление персональных идентификаторов)
     const anonymized = {
-      dreams: dreams.map((d: any) => ({
-        title: d.title,
-        content: d.content,
-        symbols: d.symbols,
-        createdAt: d.createdAt,
-        amplifications: d.amplifications.map((a: any) => ({
-          symbol: a.amplification.symbol,
-          title: a.amplification.title,
-          category: a.amplification.category
-        }))
-      })),
+      dreams: dreams.map((d: any) => {
+        const knownNames = d.client?.name ? [d.client.name] : [];
+        return {
+          title: anonymizeText(d.title, { knownNames }),
+          content: anonymizeText(d.content, { knownNames }),
+          symbols: d.symbols,
+          createdAt: d.createdAt,
+          participantLabel: d.clientId ? `Участник #${String(d.clientId).slice(-6).toUpperCase()}` : undefined,
+          amplifications: d.amplifications.map((a: any) => ({
+            symbol: a.amplification.symbol,
+            title: a.amplification.title,
+            category: a.amplification.category
+          }))
+        };
+      }),
       sessions: sessions.map((s: any) => ({
         date: s.date,
         topics: s.topics,
@@ -210,7 +217,7 @@ router.get('/research/export', requireAuth, requireRole(['researcher', 'admin'])
         createdAt: tr.createdAt
       })),
       journalEntries: journalEntries.map((je: any) => ({
-        content: je.content,
+        content: anonymizeText(je.content),
         createdAt: je.createdAt
       }))
     };
@@ -235,7 +242,7 @@ router.get('/research/dreams', requireAuth, requireRole(['researcher', 'admin'])
       }
     });
     
-    res.json({ items: dreams });
+    res.json({ items: dreams.map(anonymizeDreamRecord) });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch dreams' });
   }
@@ -281,6 +288,41 @@ router.get('/research/clients/:id/documents', requireAuth, requireRole(['researc
     res.json({ items });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to fetch documents' });
+  }
+});
+
+router.get('/research/individuation/participants', requireAuth, requireRole(['researcher', 'admin']), async (_req, res) => {
+  try {
+    const types = ['individuation-hex', 'cognitive-hex'];
+    const results = await (prisma as any).testResult.findMany({
+      where: { testType: { in: types } },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        client: { select: { id: true, name: true } },
+      },
+    });
+
+    const items = results.map((tr: any) => {
+      const label = tr.clientId ? `Участник #${String(tr.clientId).slice(-6).toUpperCase()}` : 'Участник';
+      let summary: string | undefined;
+      const r = tr.result;
+      if (tr.testType === 'individuation-hex' && r?.dominantFixation) {
+        summary = `Фиксация: ${r.dominantFixation}, дефицит: ${r.dominantDeficit ?? '—'}`;
+      } else if (tr.testType === 'cognitive-hex') {
+        summary = r?.interpretation?.slice(0, 80);
+      }
+      return {
+        participantLabel: label,
+        clientId: tr.clientId,
+        testType: tr.testType,
+        completedAt: tr.createdAt,
+        summary,
+      };
+    });
+
+    res.json({ items });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to fetch individuation participants' });
   }
 });
 

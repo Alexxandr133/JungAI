@@ -1,8 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import { Mic } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
 import { PlatformIcon } from '../../components/icons';
+import { AITranscriptionPanel } from '../psychologist/AITranscriptionPanel';
+import { RESEARCHER_STT_JOBS_KEY } from '../psychologist/transcriptionStorage';
+import '../psychologist/AIChatMarkdown.css';
 import '../../styles/tokens.css';
 
 type Message = {
@@ -28,6 +35,50 @@ type Folder = {
 const STORAGE_KEY = 'researcher_ai_chats';
 const FOLDERS_STORAGE_KEY = 'researcher_ai_folders';
 
+function renderAssistantMarkdown(content: string) {
+  return (
+    <div className="ai-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={{
+          table: ({ children, ...props }) => (
+            <div style={{ overflowX: 'auto', margin: '10px 0' }}>
+              <table {...props} style={{ width: '100%', borderCollapse: 'collapse' }}>{children}</table>
+            </div>
+          ),
+          th: ({ children, ...props }) => (
+            <th {...props} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.35)', fontWeight: 700 }}>
+              {children}
+            </th>
+          ),
+          td: ({ children, ...props }) => (
+            <td {...props} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.22)', verticalAlign: 'top' }}>
+              {children}
+            </td>
+          ),
+          pre: ({ children, ...props }) => (
+            <pre {...props} style={{ padding: 12, borderRadius: 10, background: 'rgba(15,23,42,0.55)', overflowX: 'auto', margin: '10px 0' }}>
+              {children}
+            </pre>
+          ),
+          code: ({ children, ...props }) => (
+            <code {...props} style={{ padding: '2px 6px', borderRadius: 6, background: 'rgba(148,163,184,0.18)', fontSize: 13 }}>
+              {children}
+            </code>
+          ),
+          a: ({ children, ...props }) => (
+            <a {...props} style={{ color: 'var(--primary)', textDecoration: 'underline' }} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          )
+        }}
+      >
+        {content || ''}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 export default function ResearcherAIChat() {
   const { token } = useAuth();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -43,6 +94,8 @@ export default function ResearcherAIChat() {
   const [editingChatTitle, setEditingChatTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
+  const [aiScreen, setAiScreen] = useState<'chat' | 'transcription'>('chat');
+  const [sttBusy, setSttBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -728,8 +781,59 @@ export default function ResearcherAIChat() {
         </button>
 
         {/* Main chat area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)' }}>
-          {!currentChatId && messages.length === 0 ? (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', position: 'relative' }}>
+          <div
+            style={{
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '10px 16px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              background: 'var(--surface)',
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 15 }}>
+              {aiScreen === 'transcription' ? 'Транскрибация' : 'AI Ассистент'}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {aiScreen === 'chat' ? (
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setAiScreen('transcription')}
+                  title="Транскрибация аудио"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13 }}
+                >
+                  <Mic size={16} />
+                  Транскрибация
+                  {sttBusy && (
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)' }} aria-hidden />
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => setAiScreen('chat')}
+                  style={{ padding: '8px 12px', fontSize: 13 }}
+                >
+                  ← К чату
+                </button>
+              )}
+            </div>
+          </div>
+
+          {aiScreen === 'transcription' && token ? (
+            <AITranscriptionPanel
+              token={token}
+              isMobileView={false}
+              onJobsChange={setSttBusy}
+              apiBasePath="/api/ai/researcher/transcriptions"
+              sttStorageKey={RESEARCHER_STT_JOBS_KEY}
+            />
+          ) : !currentChatId && messages.length === 0 ? (
             <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 48 }}>
               <div style={{ textAlign: 'center', maxWidth: 600 }}>
                 <div
@@ -749,8 +853,7 @@ export default function ResearcherAIChat() {
                 </div>
                 <h2 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент исследователя</h2>
                 <p style={{ color: 'var(--text-muted)', fontSize: 16, lineHeight: 1.6, marginBottom: 32 }}>
-                  Задавайте вопросы о снах, анализируйте паттерны, исследуйте архетипы и символику.
-                  Я помогу вам с анализом данных и интерпретацией сновидений.
+                  Анализ обезличенной базы снов, паттернов и архетипов. Без доступа к данным клиентов — только символика и содержание.
                 </p>
                 <button
                   className="button"
@@ -784,12 +887,11 @@ export default function ResearcherAIChat() {
                           : 'var(--surface-2)',
                         color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
                         lineHeight: 1.7,
-                        whiteSpace: 'pre-wrap',
                         wordBreak: 'break-word',
                         fontSize: 15
                       }}
                     >
-                      {msg.content}
+                      {msg.role === 'assistant' ? renderAssistantMarkdown(msg.content) : msg.content}
                     </div>
                   </div>
                 ))}

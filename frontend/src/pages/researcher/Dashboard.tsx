@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
@@ -7,7 +8,8 @@ import { RESEARCHER_WIDGET_STORAGE_KEY } from '../../components/widgets/Research
 import ResearcherWidgetRenderer from '../../components/widgets/researcher/ResearcherWidgetRenderer';
 import AddWidgetButton from '../../components/widgets/AddWidgetButton';
 import ResearcherWidgetSelectorModal from '../../components/widgets/ResearcherWidgetSelectorModal';
-import { PlatformIcon } from '../../components/icons';
+import { PlatformIcon, type PlatformIconName } from '../../components/icons';
+import './ResearcherDashboard.css';
 
 type DashboardData = {
   counts: {
@@ -25,8 +27,96 @@ type DashboardData = {
   };
 };
 
+const DEFAULT_WIDGETS: ResearcherWidgetInstance[] = [
+  { id: 'totalDreams-default', type: 'totalDreams', position: 0, size: 'small' },
+  { id: 'totalClients-default', type: 'totalClients', position: 1, size: 'small' },
+  { id: 'totalSessions-default', type: 'totalSessions', position: 2, size: 'small' },
+  { id: 'symbolFrequency-default', type: 'symbolFrequency', position: 3, size: 'medium' }
+];
+
+const QUICK_LINKS: Array<{
+  icon: PlatformIconName;
+  title: string;
+  description: string;
+  path: string;
+}> = [
+  {
+    icon: 'dreams',
+    title: 'База снов',
+    description: 'Поиск и фильтрация сновидений для анализа символов и паттернов.',
+    path: '/researcher/dreams'
+  },
+  {
+    icon: 'users',
+    title: 'Участники',
+    description: 'Обезличенные профили клиентов с ценностями и раздражителями.',
+    path: '/researcher/people'
+  },
+  {
+    icon: 'bot',
+    title: 'ИИ-ассистент',
+    description: 'Гипотезы, интерпретации и структурирование исследовательских выводов.',
+    path: '/researcher/ai'
+  },
+  {
+    icon: 'orbit',
+    title: 'Амплификации',
+    description: 'Словарь символов, архетипов и интерпретационных связей.',
+    path: '/research/amplifications'
+  },
+  {
+    icon: 'file',
+    title: 'Публикации',
+    description: 'Статьи, черновики и материалы для сообществ.',
+    path: '/publications'
+  },
+  {
+    icon: 'messages',
+    title: 'Лента',
+    description: 'Общая лента постов психологов и исследователей.',
+    path: '/feed'
+  },
+  {
+    icon: 'orbit',
+    title: 'Модель индивидуации',
+    description: 'Гексаграмма шести ступеней: явление × шаблон, I Ching, MBTI.',
+    path: '/researcher/individuation'
+  },
+  {
+    icon: 'microscope',
+    title: 'Проекты',
+    description: 'Экспорт данных, матрица символов и заметки по исследованиям.',
+    path: '/researcher/projects'
+  },
+  {
+    icon: 'library',
+    title: 'Библиотека',
+    description: 'Материалы и справочные документы платформы.',
+    path: '/materials'
+  },
+  {
+    icon: 'user',
+    title: 'Профиль',
+    description: 'Реквизиты, специализация и верификация исследователя.',
+    path: '/researcher/profile'
+  }
+];
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 6) return 'Доброй ночи';
+  if (hour < 12) return 'Доброе утро';
+  if (hour < 18) return 'Добрый день';
+  return 'Добрый вечер';
+}
+
+function setDefaultWidgets(setter: (w: ResearcherWidgetInstance[]) => void) {
+  setter(DEFAULT_WIDGETS.map((w, i) => ({ ...w, position: i })));
+}
+
 export function ResearcherDashboard() {
-  const { token } = useAuth();
+  const { token, user, profile } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +125,9 @@ export function ResearcherDashboard() {
   const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<number | null>(null);
 
-  // Load saved widgets from localStorage
+  const displayName = profile?.name || user?.name || 'коллега';
+  const greeting = useMemo(() => `${getGreeting()}, ${displayName}`, [displayName]);
+
   useEffect(() => {
     try {
       const saved = localStorage.getItem(RESEARCHER_WIDGET_STORAGE_KEY);
@@ -43,11 +135,13 @@ export function ResearcherDashboard() {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setWidgets(parsed);
+          return;
         }
       }
-      // Пустой дашборд по умолчанию - не устанавливаем виджеты
+      setDefaultWidgets(setWidgets);
     } catch (e) {
       console.error('Failed to load widgets:', e);
+      setDefaultWidgets(setWidgets);
     }
   }, []);
 
@@ -75,8 +169,9 @@ export function ResearcherDashboard() {
     try {
       const res = await api<DashboardData>('/api/research/stats', { token });
       setDashboardData(res);
-    } catch (e: any) {
-      setError(e.message || 'Не удалось загрузить данные дашборда');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Не удалось загрузить данные дашборда';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -136,11 +231,11 @@ export function ResearcherDashboard() {
     const otherWidgets = widgets.filter(w => w.id !== draggedWidget);
     const newWidgets = [...otherWidgets];
     newWidgets.splice(targetPosition, 0, { ...dragged, position: targetPosition });
-    
+
     const updated = newWidgets.map((w, idx) => ({ ...w, position: idx }));
     setWidgets(updated);
     saveWidgets(updated);
-    
+
     setDraggedWidget(null);
     setDragOverPosition(null);
   }
@@ -150,8 +245,10 @@ export function ResearcherDashboard() {
     setDragOverPosition(null);
   }
 
+  const topSymbols = dashboardData?.distributions.symbols.slice(0, 3) ?? [];
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="researcher-home" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <ResearcherNavbar />
       <main
         style={{
@@ -163,68 +260,121 @@ export function ResearcherDashboard() {
           minHeight: 0
         }}
       >
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ color: 'var(--primary)', display: 'inline-flex' }}>
-              <PlatformIcon name="dashboard" size={34} strokeWidth={1.5} />
-            </span>
-            Дашборд
-          </h1>
-          <div className="small" style={{ color: 'var(--text-muted)' }}>Обзор данных для исследований</div>
+        <div style={{ maxWidth: 'var(--rh-max)', margin: '0 auto' }}>
+          <header className="researcher-home__hero">
+            <h1 className="researcher-home__title">{greeting}</h1>
+            <p className="researcher-home__lead">
+              Исследовательский контур JungAI: данные платформы, символы снов, амплификации,
+              публикации и ИИ — в одном пространстве для аналитической работы.
+            </p>
+          </header>
+
+          {error && (
+            <div style={{ marginBottom: 16, padding: 12, background: 'var(--surface-2)', borderRadius: 10, color: '#ff7b7b' }}>
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 48 }}>
+              <div className="small" style={{ opacity: 0.7 }}>Загрузка данных…</div>
+            </div>
+          ) : dashboardData ? (
+            <>
+              <div className="researcher-home__stats">
+                {[
+                  { label: 'Снов в базе', value: dashboardData.counts.dreams },
+                  { label: 'Участников', value: dashboardData.counts.clients },
+                  { label: 'Сессий', value: dashboardData.counts.sessions },
+                  { label: 'Амплификаций', value: dashboardData.counts.amplifications },
+                  { label: 'Результатов тестов', value: dashboardData.counts.testResults }
+                ].map((stat) => (
+                  <div key={stat.label} className="researcher-home__stat">
+                    <div className="researcher-home__stat-value">{stat.value}</div>
+                    <div className="researcher-home__stat-label">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {topSymbols.length > 0 && (
+                <div
+                  className="small"
+                  style={{
+                    marginBottom: 28,
+                    padding: '12px 16px',
+                    borderRadius: 12,
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'var(--surface)',
+                    color: 'var(--text-muted)'
+                  }}
+                >
+                  <strong style={{ color: 'var(--text)' }}>Топ символов сегодня: </strong>
+                  {topSymbols.map((s) => `${s.symbol} (${s.count})`).join(' · ')}
+                </div>
+              )}
+
+              <section style={{ marginBottom: 36 }}>
+                <h2 className="researcher-home__section-title">Быстрый доступ</h2>
+                <div className="researcher-home__quick">
+                  {QUICK_LINKS.map((link) => (
+                    <button
+                      key={link.path}
+                      type="button"
+                      className="researcher-home__quick-card"
+                      onClick={() => navigate(link.path)}
+                    >
+                      <span className="researcher-home__quick-icon">
+                        <PlatformIcon name={link.icon} size={22} strokeWidth={1.7} />
+                      </span>
+                      <span>
+                        <div className="researcher-home__quick-title">{link.title}</div>
+                        <p className="researcher-home__quick-text">{link.description}</p>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <div className="researcher-home__widgets-head">
+                  <h2 className="researcher-home__section-title" style={{ margin: 0 }}>
+                    Аналитические виджеты
+                  </h2>
+                  <span className="small" style={{ color: 'var(--text-muted)' }}>
+                    Перетаскивайте карточки · настройте под свои задачи
+                  </span>
+                </div>
+                <div className="researcher-home__widgets-grid">
+                  {widgets
+                    .sort((a, b) => a.position - b.position)
+                    .map((widget, index) => (
+                      <ResearcherWidgetRenderer
+                        key={widget.id}
+                        widget={widget}
+                        data={dashboardData}
+                        onRemove={handleRemoveWidget}
+                        onResize={handleResizeWidget}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onDragEnd={handleDragEnd}
+                        isDragged={draggedWidget === widget.id}
+                        isDragOver={dragOverPosition === index}
+                        position={index}
+                      />
+                    ))}
+                  <AddWidgetButton onClick={() => setShowWidgetSelector(true)} />
+                </div>
+              </section>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 48 }}>
+              <div className="small" style={{ opacity: 0.7 }}>Нет данных для отображения</div>
+            </div>
+          )}
         </div>
 
-        {error && (
-          <div style={{ marginBottom: 16, padding: 12, background: 'var(--surface-2)', borderRadius: 10, color: '#ff7b7b' }}>
-            {error}
-          </div>
-        )}
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <div className="small" style={{ opacity: 0.7 }}>Загрузка данных...</div>
-          </div>
-        ) : dashboardData ? (
-          <div>
-            {/* Widgets grid */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 16,
-                marginBottom: 0,
-                paddingBottom: 16
-              }}
-            >
-              {widgets
-                .sort((a, b) => a.position - b.position)
-                .map((widget, index) => (
-                  <ResearcherWidgetRenderer
-                    key={widget.id}
-                    widget={widget}
-                    data={dashboardData}
-                    onRemove={handleRemoveWidget}
-                    onResize={handleResizeWidget}
-                    onDragStart={handleDragStart}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onDragEnd={handleDragEnd}
-                    isDragged={draggedWidget === widget.id}
-                    isDragOver={dragOverPosition === index}
-                    position={index}
-                  />
-                ))}
-              {/* Add widget button */}
-              <AddWidgetButton onClick={() => setShowWidgetSelector(true)} />
-            </div>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <div className="small" style={{ opacity: 0.7 }}>Нет данных для отображения</div>
-          </div>
-        )}
-
-        {/* Widget selector modal */}
         {showWidgetSelector && (
           <ResearcherWidgetSelectorModal
             onClose={() => setShowWidgetSelector(false)}

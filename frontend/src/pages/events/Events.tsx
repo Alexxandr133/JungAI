@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { ResearcherNavbar } from '../../components/ResearcherNavbar';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
@@ -23,8 +25,12 @@ import {
   type DayCalSummary
 } from '../../lib/eventsCalendarUtils';
 
-export default function EventsPage() {
+type EventsPageProps = { mode?: 'psychologist' | 'researcher' };
+
+export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
+  const isResearcherMode = mode === 'researcher';
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const { appearance } = useAppearance();
   const isLight = appearance.colorMode === 'light';
   const [items, setItems] = useState<any[]>([]);
@@ -35,6 +41,7 @@ export default function EventsPage() {
   const [endsAt, setEndsAt] = useState('');
   const [durationMin, setDurationMin] = useState<number>(60);
   const [submitting, setSubmitting] = useState(false);
+  const [startingCall, setStartingCall] = useState(false);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -86,12 +93,17 @@ export default function EventsPage() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const TYPE_OPTIONS = [
-    { value: 'video', label: 'Видеовстреча' },
-    { value: 'supervision', label: 'Супервизия' },
-    { value: 'webinar', label: 'Вебинар' },
-    { value: 'session', label: 'Сессия' },
-  ];
+  const TYPE_OPTIONS = useMemo(() => {
+    const all = [
+      { value: 'video', label: 'Видеовстреча' },
+      { value: 'call', label: 'Звонок' },
+      { value: 'supervision', label: 'Супервизия' },
+      { value: 'webinar', label: 'Вебинар' },
+      { value: 'session', label: 'Сессия' },
+    ];
+    if (isResearcherMode) return all.filter((o) => o.value !== 'session');
+    return all;
+  }, [isResearcherMode]);
   const typeLabel = (v: string) => {
     if (v === 'call') return 'Видеовстреча';
     return TYPE_OPTIONS.find(o => o.value === v)?.label || v;
@@ -111,7 +123,7 @@ export default function EventsPage() {
   }
 
   async function loadCalendarBookingRequests() {
-    if (!token || (user?.role !== 'psychologist' && user?.role !== 'researcher' && user?.role !== 'admin')) {
+    if (isResearcherMode || !token || (user?.role !== 'psychologist' && user?.role !== 'researcher' && user?.role !== 'admin')) {
       setCalendarBookingRequests([]);
       return;
     }
@@ -172,6 +184,30 @@ export default function EventsPage() {
     enabled: Boolean(token && user?.role === 'psychologist' && isVerified === true),
     steps: PSYCHOLOGIST_SESSIONS_TOUR_STEPS
   });
+
+  async function startInstantCall() {
+    if (!token || startingCall) return;
+    setError(null);
+    setStartingCall(true);
+    try {
+      const ev = await api<any>('/api/events/instant-call', { method: 'POST', token });
+      const roomUrl = ev?.voiceRoom?.roomUrl as string | undefined;
+      if (roomUrl) {
+        const match = roomUrl.match(/\/room\/([^/?#]+)/);
+        if (match?.[1]) {
+          navigate(`/room/${match[1]}`);
+          return;
+        }
+        window.location.href = roomUrl;
+        return;
+      }
+      await load();
+    } catch (e: any) {
+      setError(e.message || 'Не удалось начать звонок');
+    } finally {
+      setStartingCall(false);
+    }
+  }
 
   async function createEvent(e: React.FormEvent) {
     e.preventDefault(); setError(null);
@@ -292,20 +328,26 @@ export default function EventsPage() {
   }, [showCalendarModal]);
 
 
+  const visibleItems = useMemo(() => {
+    const list = items || [];
+    if (!isResearcherMode) return list;
+    return list.filter((ev: any) => String(ev.type) !== 'session');
+  }, [items, isResearcherMode]);
+
   const activeItems = useMemo(() => {
     const now = Date.now();
-    return (items || []).filter((ev: any) => {
+    return visibleItems.filter((ev: any) => {
       const endTs = new Date(ev.endsAt || ev.startsAt).getTime();
       return endTs >= now;
     });
-  }, [items]);
+  }, [visibleItems]);
   const historyItems = useMemo(() => {
     const now = Date.now();
-    return (items || []).filter((ev: any) => {
+    return visibleItems.filter((ev: any) => {
       const endTs = new Date(ev.endsAt || ev.startsAt).getTime();
       return endTs < now;
     });
-  }, [items]);
+  }, [visibleItems]);
   const grouped = useMemo(() => {
     const map: Record<string, any[]> = {};
     let filtered = activeItems;
@@ -705,7 +747,7 @@ export default function EventsPage() {
   if (token && isVerified === false) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <PsychologistNavbar />
+        {isResearcherMode ? <ResearcherNavbar /> : <PsychologistNavbar />}
         <VerificationRequired verificationStatus={verificationStatus} />
       </div>
     );
@@ -713,7 +755,7 @@ export default function EventsPage() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <PsychologistNavbar />
+      {isResearcherMode ? <ResearcherNavbar /> : <PsychologistNavbar />}
       <main
         style={{
           flex: 1,
@@ -735,10 +777,14 @@ export default function EventsPage() {
           }}
         >
           <div>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Сессии и встречи</h1>
+            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>
+              {isResearcherMode ? 'Звонки и встречи' : 'Сессии и встречи'}
+            </h1>
             <span className="small" style={{ color: 'var(--text-muted)' }}>Часовой пояс: {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
           </div>
-          <PsychologistTourHelpButton tourId="sessions" steps={PSYCHOLOGIST_SESSIONS_TOUR_STEPS} userId={user?.id} role={user?.role} />
+          {!isResearcherMode && (
+            <PsychologistTourHelpButton tourId="sessions" steps={PSYCHOLOGIST_SESSIONS_TOUR_STEPS} userId={user?.id} role={user?.role} />
+          )}
         </div>
 
         {toast && (
@@ -812,7 +858,7 @@ export default function EventsPage() {
           }}
         >
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', flex: narrowLayout ? undefined : 1, minWidth: 0 }}>
-            {['video','supervision','webinar','session'].map(t => {
+            {(isResearcherMode ? ['video','call','supervision','webinar'] : ['video','call','supervision','webinar','session']).map(t => {
               const active = typeFilters.includes(t);
               return (
                 <button key={t} className={active ? 'button' : 'button secondary'} style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => setTypeFilters(prev => active ? prev.filter(x => x !== t) : [...prev, t])}>
@@ -826,13 +872,38 @@ export default function EventsPage() {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: narrowLayout ? '1fr 1fr 1fr' : 'auto auto auto',
+                gridTemplateColumns: narrowLayout ? '1fr 1fr 1fr 1fr' : 'auto auto auto auto',
                 gap: 8,
                 width: narrowLayout ? '100%' : 'auto',
                 flexShrink: 0,
                 marginLeft: narrowLayout ? undefined : 'auto'
               }}
             >
+              {(user?.role === 'psychologist' || user?.role === 'admin' || isResearcherMode) && (
+                <button
+                  type="button"
+                  className="button"
+                  onClick={startInstantCall}
+                  disabled={startingCall}
+                  title="Начать звонок без сессии"
+                  style={{
+                    padding: '10px 14px',
+                    fontSize: 13,
+                    borderRadius: 12,
+                    width: narrowLayout ? '100%' : 'auto',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #10b981, #059669)',
+                    boxShadow: isLight ? '0 8px 20px rgba(16,185,129,0.2)' : '0 10px 24px rgba(16,185,129,0.25)'
+                  }}
+                >
+                  <Video size={18} />
+                  {!narrowLayout && (startingCall ? 'Подключение…' : 'Позвонить')}
+                </button>
+              )}
               <button
                 type="button"
                 className="button secondary"
@@ -897,6 +968,7 @@ export default function EventsPage() {
         )}
 
         {!showHistory &&
+          !isResearcherMode &&
           token &&
           (user?.role === 'psychologist' || user?.role === 'researcher' || user?.role === 'admin') &&
           isVerified === true &&
@@ -970,7 +1042,7 @@ export default function EventsPage() {
           )}
 
         {/* Требуют внимания */}
-        {!showHistory && requiresAttention && requiresAttention.clientsWithoutSessions.length > 0 && (
+        {!showHistory && !isResearcherMode && requiresAttention && requiresAttention.clientsWithoutSessions.length > 0 && (
           <div
             className="card"
             style={{
