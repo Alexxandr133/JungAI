@@ -24,6 +24,7 @@ import {
 import '../psychologist/WorkAreaEditor.css';
 import '../psychologist/AIChatMarkdown.css';
 import { ProjectSpaceEditorToolbar } from './ProjectSpaceEditorToolbar';
+import { ProjectSpaceIntro } from './ProjectSpaceIntro';
 import './ResearchProjectSpace.css';
 
 function renderAssistantMarkdown(content: string) {
@@ -63,7 +64,12 @@ export default function ResearchProjectSpace() {
   );
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [introDone, setIntroDone] = useState(false);
   const aiWidthRef = useRef(aiPanelWidth);
+
+  useEffect(() => {
+    setIntroDone(false);
+  }, [projectId]);
 
   const syncEditorEmpty = useCallback(() => {
     const el = editorRef.current;
@@ -226,7 +232,9 @@ export default function ResearchProjectSpace() {
   if (!project) return null;
 
   return (
-    <div className="project-space-page">
+    <>
+      {!introDone && <ProjectSpaceIntro onComplete={() => setIntroDone(true)} />}
+      <div className={`project-space-page${introDone ? '' : ' project-space-page--intro-pending'}`}>
       <ResearcherNavbar />
       <header className="project-space-header">
         <button type="button" className="project-space-back" onClick={() => navigate('/researcher/projects')}>
@@ -392,5 +400,6 @@ export default function ResearchProjectSpace() {
         </aside>
       </div>
     </div>
+    </>
   );
 }

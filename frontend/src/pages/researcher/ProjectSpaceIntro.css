@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap');
+
+.project-space-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.55s ease;
+}
+
+.project-space-intro--out {
+  opacity: 0;
+}
+
+.project-space-intro__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.project-space-intro__glow {
+  position: absolute;
+  width: min(520px, 80vw);
+  height: min(520px, 80vw);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(124, 92, 255, 0.22) 0%, transparent 68%);
+  filter: blur(8px);
+  opacity: 0;
+  transform: scale(0.88);
+  transition: opacity 1s ease, transform 1.4s ease;
+}
+
+.project-space-intro__glow--on {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.project-space-intro__content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 0 24px;
+}
+
+.project-space-intro__title {
+  margin: 0;
+  font-family: 'Orbitron', 'Segoe UI', sans-serif;
+  font-size: clamp(3rem, 12vw, 6.5rem);
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  display: flex;
+  gap: 0.12em;
+  filter: drop-shadow(0 0 28px rgba(124, 92, 255, 0.45));
+}
+
+.project-space-intro__letter {
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(135deg, #f8fafc 0%, #c4b5fd 45%, #7c5cff 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  opacity: 0;
+  transform: translateY(18px) scale(0.88);
+  transition:
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.project-space-intro__letter--on {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.project-space-intro__steps {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.project-space-intro__step {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: clamp(0.85rem, 2.2vw, 1rem);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: rgba(203, 213, 225, 0.35);
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.5s ease,
+    transform 0.5s ease,
+    color 0.4s ease;
+}
+
+.project-space-intro__step--on {
+  opacity: 1;
+  transform: translateY(0);
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.project-space-intro__step--on:not(:last-child) {
+  color: rgba(148, 163, 184, 0.65);
+  font-size: 0.92em;
+}
+
+.project-space-intro__subtitle {
+  margin: 20px 0 0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: clamp(0.75rem, 2vw, 0.9rem);
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(196, 181, 253, 0.85);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.65s ease, transform 0.65s ease;
+}
+
+.project-space-intro__subtitle--on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-space-intro,
+  .project-space-intro__letter,
+  .project-space-intro__step,
+  .project-space-intro__subtitle,
+  .project-space-intro__glow {
+    transition: none;
+  }
+
+  .project-space-intro__letter:not(.project-space-intro__letter--on),
+  .project-space-intro__step:not(.project-space-intro__step--on),
+  .project-space-intro__subtitle:not(.project-space-intro__subtitle--on) {
+    opacity: 1;
+    transform: none;
+  }
+}

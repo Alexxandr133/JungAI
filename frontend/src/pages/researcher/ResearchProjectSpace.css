@@ -11,6 +11,14 @@
   --ps-ai-accent: rgba(34, 211, 238, 0.55);
 }
 
+.project-space-page--intro-pending {
+  visibility: hidden;
+  pointer-events: none;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .project-space-header {
   display: flex;
   align-items: center;

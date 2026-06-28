@@ -23,6 +23,19 @@ type Dream = {
 const FAVORITES_STORAGE_KEY = 'researcher_favorites_dreams';
 const GUEST_DREAMS_STORAGE_KEY = 'guest_dreams';
 
+function participantCodeFromQuery(q: string): string | null {
+  const trimmed = q.trim();
+  const hashMatch = trimmed.match(/^#([A-Za-z0-9]{4,})$/);
+  if (hashMatch) return hashMatch[1].toUpperCase();
+  if (/^[A-Za-z0-9]{6}$/.test(trimmed)) return trimmed.toUpperCase();
+  return null;
+}
+
+function dreamParticipantCode(d: Dream): string | null {
+  if (!d.clientId) return null;
+  return String(d.clientId).slice(-6).toUpperCase();
+}
+
 export default function ResearcherDreams() {
   const { token } = useAuth();
   const [dreams, setDreams] = useState<Dream[]>([]);
@@ -112,12 +125,8 @@ export default function ResearcherDreams() {
         }
       }
       
-      // Объединяем все сны
-      const allDreams = [...processedDreams, ...guestDreams].sort((a, b) => {
-        const dateA = new Date(a.createdAt).getTime();
-        const dateB = new Date(b.createdAt).getTime();
-        return dateB - dateA; // Сначала новые
-      });
+      // Объединяем все сны (сортировка — в filtered: избранное, затем дата)
+      const allDreams = [...processedDreams, ...guestDreams];
       
       setDreams(allDreams);
     } catch (e: any) {
@@ -146,18 +155,28 @@ export default function ResearcherDreams() {
       result = result.filter(d => d.source === filterSource);
     }
     
-    // Поиск
-    const q = query.trim().toLowerCase();
-    if (q) {
+    const q = query.trim();
+    const participantCode = participantCodeFromQuery(q);
+
+    if (participantCode) {
+      result = result.filter((d) => dreamParticipantCode(d) === participantCode);
+    } else if (q) {
+      const qLower = q.toLowerCase();
       result = result.filter(d => 
-        (d.title || '').toLowerCase().includes(q) || 
-        (d.content || '').toLowerCase().includes(q) ||
-        (Array.isArray(d.symbols) && d.symbols.some((s: string) => s.toLowerCase().includes(q)))
+        (d.title || '').toLowerCase().includes(qLower) || 
+        (d.content || '').toLowerCase().includes(qLower) ||
+        (d.participantLabel || '').toLowerCase().includes(qLower) ||
+        (Array.isArray(d.symbols) && d.symbols.some((s: string) => String(s).toLowerCase().includes(qLower)))
       );
     }
-    
-    return result;
-  }, [dreams, query, filterSource]);
+
+    return [...result].sort((a, b) => {
+      const favA = favorites.has(a.id) ? 1 : 0;
+      const favB = favorites.has(b.id) ? 1 : 0;
+      if (favB !== favA) return favB - favA;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [dreams, query, filterSource, favorites]);
 
   function formatDateTime(iso: string) {
     const d = new Date(iso);
@@ -218,7 +237,7 @@ export default function ResearcherDreams() {
                 ))}
               </div>
               <input
-                placeholder="Поиск по названию, тексту или символам..."
+                placeholder="Поиск… или #VKA8VD (номер участника)"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 style={{

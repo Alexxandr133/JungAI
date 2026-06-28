@@ -808,3 +808,194 @@ pm2 logs jingai-backend --lines 50
 - [ ] Админка → список клиентов без ошибки Prisma
 - [ ] ИИ-транскрибация / вложения (если уже настроены env из §22.3)
 
+---
+
+## 24) Релиз 2026-06-02 — исследователь: индивидуация, проекты, AI-символы снов
+
+Кратко для ассистента: релиз на `main` — **одна миграция Prisma** (`dream_symbols_ai_status`); на проде после `git pull` обязательны `prisma migrate deploy`, сборка **backend + frontend**, перезапуск PM2. Деплой подтверждён успешной сборкой на сервере (2026-06-02).
+
+### 24.1 Git / коммит
+
+| Коммит | Содержание |
+|--------|------------|
+| `7572212` | Гексаграмма индивидуации (36 вопросов, D/F/I, дашборд), пространство исследовательских проектов, дашборд исследователя, AI-извлечение символов снов, API участников теста, интеграция в клиентские тесты |
+
+### 24.2 Миграция Prisma (обязательна на проде)
+
+**`20260602200000_dream_symbols_ai_status`** — модель `Dream`:
+- `symbolsStatus` — `pending` \| `processing` \| `ready` \| `failed` (default `ready`)
+- `symbolsExtractedAt` — DateTime?
+- `symbolsAiVersion` — Int (default 0)
+
+Проверка после migrate:
+
+```bash
+sqlite3 backend/prisma/prod.db "PRAGMA table_info(Dream);" | grep -E 'symbolsStatus|symbolsExtractedAt|symbolsAiVersion'
+sqlite3 backend/prisma/prod.db "SELECT migration_name FROM _prisma_migrations WHERE migration_name LIKE '%dream_symbols%';"
+```
+
+**Дублирующая защита:** `ensureDreamSymbolColumns()` в `backend/src/jobs/dreamSymbolExtraction.ts` делает `ALTER TABLE` с try/catch — на случай, если миграция не успела, но сервер уже стартует.
+
+### 24.3 Модуль «Гексаграмма индивидуации»
+
+**Маршруты:**
+| Путь | Файл |
+|------|------|
+| `/researcher/individuation` | `frontend/src/pages/researcher/IndividuationModel.tsx` |
+
+**Вкладки:** Модель · Диагностика · Участники.
+
+**Ключевые файлы:**
+- `frontend/src/data/individuationModel.ts` — стадии S1–S6, оси компенсаций, scoring, localStorage исследователя
+- `frontend/src/data/individuationQuestionsBank.ts` — **36 вопросов** (6 на стадию)
+- `frontend/src/components/individuation/IndividuationHexagram.tsx` — SVG-гексаграмма
+- `frontend/src/components/individuation/IndividuationTestRunner.tsx` — прохождение теста
+- `frontend/src/components/individuation/IndividuationDashboard.tsx` — результаты, метрики, «Пройти снова»
+
+**Клиентский каталог:** `frontend/src/data/psychologicalTests.ts` — тип `individuation-hex`, 36 вопросов; UI в `frontend/src/pages/client/Tests.tsx`.
+
+**Backend (участники):** `GET /api/research/individuation/participants` — `backend/src/routes/research.ts`; читает `TestResult` с `testType` `individuation-hex` \| `cognitive-hex`.
+
+#### Алгоритм подсчёта (individuation-hex)
+
+За каждый ответ на вопрос стадии:
+| Ответ | Тип | Баллы |
+|-------|-----|-------|
+| A | Дефицит (D) | +2 |
+| B | Фиксация (F) | +2 |
+| C | Интеграция (I) | +2 |
+| D (Г, Тень) | Дефицит | +1 |
+
+По каждой стадии S1–S6: суммируются D/F/I → нормализация до 100% (`normalizeStage` в `individuationModel.ts`).
+
+Производные метрики:
+- **dominantFixation** — стадия с max F
+- **dominantDeficit** — стадия с max D
+- **growthPoint** — стадия с min I
+- **axisTension** — напряжение осей компенсаций
+
+**Визуализация гексаграммы:**
+- Длина луча = `integrationRayLength(prof)` = `0.18 + (I/100) * 0.82`
+- Толщина лучей одинаковая (`strokeWidth: 6`)
+- Процент **I** показывается **только у выбранной (active) стадии** — иначе при низкой интеграции все точки слипаются в центре
+- Подписи стадий — у **внешних вершин**, не у точек на лучах
+- Без результата (`hexResult === null`) — базовое состояние (лучи 50%)
+
+**«Пройти снова»:** `clearResearcherIndividuationResult('individuation-hex')` + `setHexResult(null)` в `IndividuationModel.tsx` → вкладка «Модель» показывает пустую гексаграмму.
+
+**Хранение результата исследователя:** `localStorage` ключ `researcher_individuation_results` (не в БД). Результаты **клиентов** — в `TestResult` через существующий API тестов.
+
+### 24.4 Исследовательские проекты (Research Project Space)
+
+**Маршруты:**
+| Путь | Файл |
+|------|------|
+| `/researcher/projects` | `ResearchProjects.tsx` |
+| `/researcher/projects/:projectId` | `ResearchProjectSpace.tsx` |
+
+**Хранение:** только `localStorage` (`frontend/src/lib/researchProjectStorage.ts`):
+- `researcher_projects` — список проектов
+- `researcher_project_space.{id}.tabs` — вкладки
+- `researcher_project_space.{id}.tab.{name}` — HTML контент вкладки
+- `researcher_project_space.{id}.ai_chat` — история ИИ в проекте
+
+**UI space:** contentEditable-редактор с toolbar (`ProjectSpaceEditorToolbar.tsx`), resizable AI-панель, независимый скролл.
+
+**ИИ в проекте:** `POST /api/ai/researcher/project/chat` — контекст **только материалов текущего проекта** (вкладки), без базы снов (`backend/src/routes/ai.ts`).
+
+#### Критичный баг (исправлен): текст вводился задом наперёд
+
+**Симптом:** в редакторе `123` → `321`, курсор «застревал» в начале.
+
+**Причина:** `useEffect` зависел от `project = getProjectById()` — новый объект каждый рендер → `loadEditorContent()` сбрасывал `innerHTML` после каждого keystroke.
+
+**Фикс:** проект в `useState`, загрузка редактора только при смене `projectId` + `activeTab`; убран `:empty::before` placeholder на contentEditable.
+
+### 24.5 AI-извлечение символов снов
+
+**Файлы:**
+- `backend/src/services/dreamSymbolExtraction.ts` — вызов OpenRouter
+- `backend/src/jobs/dreamSymbolExtraction.ts` — очередь, batch, migrate, reconcile stale
+- `backend/scripts/run-dream-symbols-migrate.js` — ручной backfill после деплоя
+- `backend/scripts/check-dream-symbols.js` — диагностика
+
+**Поток:**
+1. Создание/редактирование сна → `symbolsStatus = 'pending'` → `enqueueDreamSymbolExtraction(id)`
+2. Worker: `processing` → AI → `symbols` (JSON tags) → `ready`, `symbolsAiVersion = 1`
+3. Зависшие `processing` > 10 мин → `reconcileStaleDreamSymbolJobs` → `pending`
+
+**Cron (`backend/src/server.ts`):**
+- При старте: `ensureDreamSymbolColumns`, migrate, до 20 batch по 10
+- Каждые 5 мин: reconcile + `processPendingDreamSymbolsBatch(15)`
+- 18:00 ежедневно: `runDailyDreamSymbolValidation()` (график на главной guest)
+
+**Env (опционально):**
+```env
+DREAM_SYMBOL_MODEL=deepseek/deepseek-chat-v3-0324   # fallback: AI_MODEL_DEFAULT
+```
+Требуется `OPENROUTER_API_KEY` (как для остального AI).
+
+**Ручной backfill на проде (после первого деплоя):**
+```bash
+cd /var/www/jingai
+node backend/scripts/run-dream-symbols-migrate.js
+```
+
+### 24.6 Прочие изменения исследователя
+
+- `frontend/src/pages/researcher/Dashboard.tsx` + `ResearcherDashboard.css` — обновлённый дашборд
+- `frontend/src/pages/researcher/Dreams.tsx` + `Dreams.css` — UI снов исследователя
+- `frontend/src/pages/researcher/ResearcherCalls.tsx` — звонки исследователя
+- `frontend/src/pages/researcher/AIChat.tsx` — доработки чата
+- `frontend/src/components/ResearcherNavbar.tsx` — пункты «Индивидуация», «Проекты»
+- `backend/src/utils/anonymizeText.ts` + `frontend/src/utils/anonymizeText.ts` — анонимизация текста
+
+### 24.7 Деплой на прод (подтверждённый сценарий)
+
+```bash
+cd /var/www/jingai
+grep DATABASE_URL backend/.env   # prod.db, не пустой
+pm2 stop jingai-backend
+
+TS=$(date +%Y%m%d_%H%M%S)
+mkdir -p /root/jingai-backups
+sqlite3 backend/prisma/prod.db ".backup /root/jingai-backups/prod_${TS}.db"
+cp -a backend/prisma/prod.db /root/jingai-backups/prod_${TS}.db.copy
+tar -czf /root/jingai-backups/uploads_${TS}.tar.gz -C backend uploads
+
+git pull --ff-only origin main
+npm ci
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend && npm run build:frontend
+pm2 restart jingai-backend --update-env
+pm2 logs jingai-backend --lines 80
+```
+
+**Ожидаемая новая миграция:** `20260602200000_dream_symbols_ai_status`.
+
+Фронт — статика из `frontend/dist`; отдельный restart nginx не нужен.
+
+### 24.8 Чек-лист приёмки после деплоя
+
+- [ ] `/researcher/individuation` — вкладки Модель / Диагностика / Участники
+- [ ] Тест 36 вопросов → дашборд с гексаграммой; клик по стадии → D/F/I
+- [ ] «Пройти снова» → вкладка «Модель» — базовая гексаграмма (без старых лучей)
+- [ ] `/client/tests` — «Гексаграмма индивидуации» доступна клиенту
+- [ ] `/researcher/projects` — создание проекта, редактор, ИИ-панель, нет reverse-text бага
+- [ ] `/researcher/dreams` — новые сны получают символы (статус pending → ready)
+- [ ] Логи: `[DreamSymbols]` / `[Cron] Dream AI symbols processed` без постоянных ошибок
+- [ ] `sqlite3 prod.db "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC LIMIT 3;"` — `20260602200000_dream_symbols_ai_status`
+
+### 24.9 Критичные файлы (добавить к §3 при работе с этим блоком)
+
+- `frontend/src/data/individuationModel.ts`
+- `frontend/src/data/individuationQuestionsBank.ts`
+- `frontend/src/components/individuation/*`
+- `frontend/src/pages/researcher/IndividuationModel.tsx`
+- `frontend/src/pages/researcher/ResearchProjectSpace.tsx`
+- `frontend/src/lib/researchProjectStorage.ts`
+- `backend/src/jobs/dreamSymbolExtraction.ts`
+- `backend/src/services/dreamSymbolExtraction.ts`
+- `backend/src/routes/research.ts` (participants API)
+
