@@ -22,6 +22,32 @@ function getModelName(): string {
 export function parseDreamSymbolsResponse(raw: string): string[] {
   const t = (raw || '').trim();
   if (!t) return [];
+
+  const fromJson = tryParseSymbolsJson(t);
+  if (fromJson.length) return fromJson;
+
+  // Обрезанный JSON от модели: { "symbols": [ "a", "b",  без закрывающих скобок
+  return extractSymbolsFromPartialJson(t);
+}
+
+function normalizeSymbolList(symbols: unknown): string[] {
+  if (!Array.isArray(symbols)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of symbols) {
+    if (typeof item !== 'string') continue;
+    const s = item.normalize('NFKC').trim();
+    if (!s || s.length > 48) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+    if (out.length >= MAX_SYMBOLS_PER_DREAM) break;
+  }
+  return out;
+}
+
+function tryParseSymbolsJson(t: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(t);
@@ -35,13 +61,20 @@ export function parseDreamSymbolsResponse(raw: string): string[] {
     }
   }
   if (!parsed || typeof parsed !== 'object') return [];
-  const symbols = (parsed as { symbols?: unknown }).symbols;
-  if (!Array.isArray(symbols)) return [];
+  return normalizeSymbolList((parsed as { symbols?: unknown }).symbols);
+}
+
+/** Достаёт строки из массива symbols даже при обрезанном ответе модели */
+function extractSymbolsFromPartialJson(t: string): string[] {
+  const block = t.match(/"symbols"\s*:\s*\[([\s\S]*)/i);
+  if (!block) return [];
+
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const item of symbols) {
-    if (typeof item !== 'string') continue;
-    const s = item.normalize('NFKC').trim();
+  const re = /"((?:\\.|[^"\\])*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(block[1])) !== null) {
+    const s = m[1].replace(/\\"/g, '"').normalize('NFKC').trim();
     if (!s || s.length > 48) continue;
     const key = s.toLowerCase();
     if (seen.has(key)) continue;
@@ -86,7 +119,7 @@ export async function extractDreamSymbolsViaAI(title: string, content: string): 
     {
       model: getModelName(),
       temperature: 0.2,
-      max_tokens: 600,
+      max_tokens: 800,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
