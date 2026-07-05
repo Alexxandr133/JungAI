@@ -994,6 +994,13 @@ export const TEST_CATALOG = [
   }
 ] as const;
 
+/** Пока только для исследователя (/researcher/individuation), не для клиентов и гостей */
+export const RESEARCHER_ONLY_TEST_TYPES = ['individuation-hex', 'cognitive-hex'] as const;
+
+export const CLIENT_TEST_CATALOG = TEST_CATALOG.filter(
+  (t) => !(RESEARCHER_ONLY_TEST_TYPES as readonly string[]).includes(t.type)
+);
+
 export type CatalogTest = (typeof TEST_CATALOG)[number];
 
 export function questionsForType(

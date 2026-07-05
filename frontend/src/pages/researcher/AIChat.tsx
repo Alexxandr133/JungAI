@@ -1,16 +1,33 @@
-import { useEffect, useState, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import { Mic } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FolderPlus, Mic, Settings } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
 import { PlatformIcon } from '../../components/icons';
+import { AiAssistantMarkdown } from '../../components/AiAssistantMarkdown';
 import { AITranscriptionPanel } from '../psychologist/AITranscriptionPanel';
+import { PsychologistAiPersonalityModal } from '../psychologist/PsychologistAiPersonalityModal';
 import { RESEARCHER_STT_JOBS_KEY } from '../psychologist/transcriptionStorage';
+import {
+  loadResearcherAiSettings,
+  saveResearcherAiSettings,
+  settingsToApiBody,
+  DREAM_SAMPLING_OPTIONS,
+  RESEARCH_PROMPT_OPTIONS,
+  type ResearcherAiSettings,
+} from '../../lib/researcherAiSettings';
+import {
+  loadResearcherPersonalityText,
+  saveResearcherPersonalityText,
+  RESEARCHER_PERSONALITY_EXAMPLE,
+} from '../../lib/researcherAiPersonality';
+import { ResearcherAiSettingsPanel } from './ResearcherAiSettingsPanel';
 import '../psychologist/AIChatMarkdown.css';
 import '../../styles/tokens.css';
+import './ResearcherAIChat.css';
+import { AiContextRing } from '../../components/AiContextRing';
+import { deriveDisplayContextUsage, type ContextUsage } from '../../lib/aiContextTypes';
+import { AddToProjectMaterialModal } from './AddToProjectMaterialModal';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -24,6 +41,7 @@ type Chat = {
   folderId: string | null;
   createdAt: string;
   updatedAt: string;
+  analysisMemory?: string;
 };
 
 type Folder = {
@@ -34,50 +52,6 @@ type Folder = {
 
 const STORAGE_KEY = 'researcher_ai_chats';
 const FOLDERS_STORAGE_KEY = 'researcher_ai_folders';
-
-function renderAssistantMarkdown(content: string) {
-  return (
-    <div className="ai-md">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        components={{
-          table: ({ children, ...props }) => (
-            <div style={{ overflowX: 'auto', margin: '10px 0' }}>
-              <table {...props} style={{ width: '100%', borderCollapse: 'collapse' }}>{children}</table>
-            </div>
-          ),
-          th: ({ children, ...props }) => (
-            <th {...props} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.35)', fontWeight: 700 }}>
-              {children}
-            </th>
-          ),
-          td: ({ children, ...props }) => (
-            <td {...props} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.22)', verticalAlign: 'top' }}>
-              {children}
-            </td>
-          ),
-          pre: ({ children, ...props }) => (
-            <pre {...props} style={{ padding: 12, borderRadius: 10, background: 'rgba(15,23,42,0.55)', overflowX: 'auto', margin: '10px 0' }}>
-              {children}
-            </pre>
-          ),
-          code: ({ children, ...props }) => (
-            <code {...props} style={{ padding: '2px 6px', borderRadius: 6, background: 'rgba(148,163,184,0.18)', fontSize: 13 }}>
-              {children}
-            </code>
-          ),
-          a: ({ children, ...props }) => (
-            <a {...props} style={{ color: 'var(--primary)', textDecoration: 'underline' }} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          )
-        }}
-      >
-        {content || ''}
-      </ReactMarkdown>
-    </div>
-  );
-}
 
 export default function ResearcherAIChat() {
   const { token } = useAuth();
@@ -96,7 +70,25 @@ export default function ResearcherAIChat() {
   const [editingFolderName, setEditingFolderName] = useState('');
   const [aiScreen, setAiScreen] = useState<'chat' | 'transcription'>('chat');
   const [sttBusy, setSttBusy] = useState(false);
+  const [aiSettings, setAiSettings] = useState<ResearcherAiSettings>(() => loadResearcherAiSettings());
+  const [aiDraft, setAiDraft] = useState<ResearcherAiSettings>(() => loadResearcherAiSettings());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+  const [personalityText, setPersonalityText] = useState(() => loadResearcherPersonalityText());
+  const [participants, setParticipants] = useState<Array<{ clientId: string; label: string; count: number }>>([]);
+  const [aiQuota, setAiQuota] = useState<{
+    plan: string;
+    limit: number;
+    used: number;
+    remaining: number;
+    percentageUsed: number;
+    resetAt: string;
+  } | null>(null);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
+  const [materialModalContent, setMaterialModalContent] = useState<string | null>(null);
+  const [materialSavedHint, setMaterialSavedHint] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -118,8 +110,39 @@ export default function ResearcherAIChat() {
   }, [currentChatId, chats]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    setContextUsage(null);
+  }, [currentChatId]);
+
+  useEffect(() => {
+    if (token) {
+      refreshDreamPreview(aiSettings);
+    }
+  }, [token]);
+
+  const refreshDreamPreview = useCallback(
+    async (settings: ResearcherAiSettings) => {
+      if (!token) return;
+      try {
+        const res = await api<{
+          participants: Array<{ clientId: string; label: string; count: number }>;
+        }>('/api/ai/researcher/dream-scope-preview', {
+          method: 'POST',
+          token,
+          body: settingsToApiBody(settings),
+        });
+        setParticipants(res.participants || []);
+      } catch (e) {
+        console.error('Dream preview failed:', e);
+      }
+    },
+    [token]
+  );
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages, loading]);
 
   function loadChats() {
     try {
@@ -235,6 +258,28 @@ export default function ResearcherAIChat() {
     saveChats(newChats);
   }
 
+  function scopeBadgeLabel(settings: ResearcherAiSettings): string {
+    if (!settings.includeDreamsInContext) return 'Сны выкл.';
+    const period =
+      settings.dreamsContextRange === '30d'
+        ? '30д'
+        : settings.dreamsContextRange === '90d'
+          ? '90д'
+          : settings.dreamsContextRange === '365d'
+            ? '1г'
+            : 'все';
+    const mode = DREAM_SAMPLING_OPTIONS.find((m) => m.id === settings.dreamSamplingMode)?.label || '';
+    const prompt = RESEARCH_PROMPT_OPTIONS.find((p) => p.id === settings.researchPromptId)?.label || '';
+    return `${period} · ${settings.dreamSampleSize} сн. · ${mode}${prompt !== 'Свободный режим' ? ` · ${prompt}` : ''}`;
+  }
+
+  function applyAiSettings() {
+    saveResearcherAiSettings(aiDraft);
+    setAiSettings(aiDraft);
+    setSettingsOpen(false);
+    refreshDreamPreview(aiDraft);
+  }
+
   async function sendMessage() {
     if (!input.trim() || loading || !token) return;
 
@@ -244,77 +289,94 @@ export default function ResearcherAIChat() {
     setMessages(newMessages);
     setLoading(true);
 
-    // Обновляем чат
-    if (currentChatId) {
-      const chat = chats.find(c => c.id === currentChatId);
-      if (chat) {
-        const updatedChat = {
-          ...chat,
-          messages: newMessages,
-          title: chat.title === 'Новый чат' && newMessages.length === 1 
+    let chatId = currentChatId;
+    const activeChat = chatId ? chats.find((c) => c.id === chatId) : null;
+    const analysisMemory = activeChat?.analysisMemory || '';
+
+    if (chatId && activeChat) {
+      const updatedChat = {
+        ...activeChat,
+        messages: newMessages,
+        title:
+          activeChat.title === 'Новый чат' && newMessages.length === 1
             ? userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : '')
-            : chat.title,
-          updatedAt: new Date().toISOString()
-        };
-        const newChats = chats.map(c => c.id === currentChatId ? updatedChat : c);
-        saveChats(newChats);
-      }
+            : activeChat.title,
+        updatedAt: new Date().toISOString(),
+      };
+      saveChats(chats.map((c) => (c.id === chatId ? updatedChat : c)));
     } else {
-      // Создаем новый чат
       const newChat: Chat = {
         id: `chat-${Date.now()}-${Math.random()}`,
         title: userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : ''),
         messages: newMessages,
         folderId: null,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        analysisMemory: '',
       };
-      const newChats = [newChat, ...chats];
-      saveChats(newChats);
+      chatId = newChat.id;
+      saveChats([newChat, ...chats]);
       setCurrentChatId(newChat.id);
     }
 
     try {
-      const response = await api<{ message: string; conversationHistory: Message[] }>(
-        '/api/ai/researcher/chat',
-        {
-          method: 'POST',
-          token,
-          body: {
-            message: userMessage,
-            conversationHistory: messages
-          }
-        }
-      );
+      const response = await api<{
+        message: string;
+        conversationHistory: Message[];
+        quota?: typeof aiQuota;
+        contextUsage?: ContextUsage;
+        analysisMemory?: string;
+        analysisMemoryUpdated?: boolean;
+        dreamMeta?: { poolCount: number; selectedCount: number };
+      }>('/api/ai/researcher/chat', {
+        method: 'POST',
+        token,
+        body: {
+          message: userMessage,
+          conversationHistory: messages,
+          personalization: personalityText.trim(),
+          analysisMemory,
+          ...settingsToApiBody(aiSettings),
+        },
+      });
 
       const finalMessages = response.conversationHistory;
       setMessages(finalMessages);
+      if (response.quota) setAiQuota(response.quota);
+      if (response.contextUsage) setContextUsage(response.contextUsage);
 
-      // Обновляем чат с финальными сообщениями
-      if (currentChatId) {
-        const newChats = chats.map(c => 
-          c.id === currentChatId 
-            ? { ...c, messages: finalMessages, updatedAt: new Date().toISOString() }
-            : c
+      if (chatId) {
+        saveChats(
+          chats.map((c) =>
+            c.id === chatId
+              ? {
+                  ...c,
+                  messages: finalMessages,
+                  updatedAt: new Date().toISOString(),
+                  analysisMemory:
+                    response.analysisMemoryUpdated && response.analysisMemory
+                      ? response.analysisMemory
+                      : c.analysisMemory,
+                }
+              : c
+          )
         );
-        saveChats(newChats);
       }
     } catch (error: any) {
       console.error('Chat error:', error);
       const errorMessage: Message = {
         role: 'assistant',
-        content: `Ошибка: ${error.message || 'Не удалось отправить сообщение'}`
+        content: `Ошибка: ${error.message || 'Не удалось отправить сообщение'}`,
       };
       const errorMessages = [...newMessages, errorMessage];
       setMessages(errorMessages);
 
-      if (currentChatId) {
-        const newChats = chats.map(c => 
-          c.id === currentChatId 
-            ? { ...c, messages: errorMessages, updatedAt: new Date().toISOString() }
-            : c
+      if (chatId) {
+        saveChats(
+          chats.map((c) =>
+            c.id === chatId ? { ...c, messages: errorMessages, updatedAt: new Date().toISOString() } : c
+          )
         );
-        saveChats(newChats);
       }
     } finally {
       setLoading(false);
@@ -329,26 +391,19 @@ export default function ResearcherAIChat() {
 
   const rootChats = chats.filter(c => !c.folderId);
 
+  const displayContextUsage = useMemo(
+    () => deriveDisplayContextUsage(contextUsage, messages, input),
+    [contextUsage, messages, input]
+  );
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="researcher-ai-root">
       <ResearcherNavbar />
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Sidebar */}
-        <div
-          style={{
-            width: sidebarOpen ? 280 : 0,
-            background: 'var(--surface)',
-            borderRight: '1px solid rgba(255,255,255,0.08)',
-            display: 'flex',
-            flexDirection: 'column',
-            transition: 'width 0.3s',
-            overflow: 'hidden'
-          }}
-        >
+      <div className="researcher-ai-shell">
+        <div className="researcher-ai-sidebar" style={{ width: sidebarOpen ? 280 : 0 }}>
           {sidebarOpen && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              {/* Header */}
-              <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="researcher-ai-sidebar__inner">
+              <div className="researcher-ai-sidebar__header">
                 <button
                   className="button"
                   onClick={() => createNewChat()}
@@ -365,8 +420,7 @@ export default function ResearcherAIChat() {
                 </button>
               </div>
 
-              {/* Chats list */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
+              <div className="researcher-ai-sidebar__list">
                 {/* Root chats */}
                 {rootChats.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
@@ -756,48 +810,46 @@ export default function ResearcherAIChat() {
           )}
         </div>
 
-        {/* Toggle sidebar button */}
         <button
+          type="button"
+          className="researcher-ai-sidebar-toggle"
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          style={{
-            position: 'absolute',
-            left: sidebarOpen ? 280 : 0,
-            top: 80,
-            width: 24,
-            height: 40,
-            background: 'var(--surface-2)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderLeft: 'none',
-            borderRadius: '0 8px 8px 0',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-            transition: 'left 0.3s'
-          }}
+          style={{ left: sidebarOpen ? 280 : 0 }}
+          aria-label={sidebarOpen ? 'Скрыть список чатов' : 'Показать список чатов'}
         >
           {sidebarOpen ? '‹' : '›'}
         </button>
 
-        {/* Main chat area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', position: 'relative' }}>
-          <div
-            style={{
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              padding: '10px 16px',
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
-              background: 'var(--surface)',
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 15 }}>
-              {aiScreen === 'transcription' ? 'Транскрибация' : 'AI Ассистент'}
+        <div className="researcher-ai-main">
+          <div className="researcher-ai-main__header">
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>
+                {aiScreen === 'transcription' ? 'Транскрибация' : 'AI Ассистент исследователя'}
+              </div>
+              {aiScreen === 'chat' && (
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4, fontSize: 12 }}>
+                  <span className="researcher-ai-scope-badge" title={scopeBadgeLabel(aiSettings)}>
+                    {scopeBadgeLabel(aiSettings)}
+                  </span>
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="researcher-ai-header-actions">
+              {aiScreen === 'chat' && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => {
+                    setAiDraft(aiSettings);
+                    setSettingsOpen(true);
+                  }}
+                  title="Настройки"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', fontSize: 13 }}
+                >
+                  <Settings size={16} />
+                  Настройки
+                </button>
+              )}
               {aiScreen === 'chat' ? (
                 <button
                   type="button"
@@ -825,7 +877,9 @@ export default function ResearcherAIChat() {
             </div>
           </div>
 
+          <div className="researcher-ai-main__body">
           {aiScreen === 'transcription' && token ? (
+            <div className="researcher-ai-transcription-wrap">
             <AITranscriptionPanel
               token={token}
               isMobileView={false}
@@ -833,8 +887,9 @@ export default function ResearcherAIChat() {
               apiBasePath="/api/ai/researcher/transcriptions"
               sttStorageKey={RESEARCHER_STT_JOBS_KEY}
             />
+            </div>
           ) : !currentChatId && messages.length === 0 ? (
-            <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 48 }}>
+            <div className="researcher-ai-empty">
               <div style={{ textAlign: 'center', maxWidth: 600 }}>
                 <div
                   style={{
@@ -866,14 +921,15 @@ export default function ResearcherAIChat() {
             </div>
           ) : (
             <>
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '24px 48px', maxWidth: 900, margin: '0 auto', width: '100%' }}>
+              <div className="researcher-ai-messages" ref={messagesContainerRef}>
+                <div className="researcher-ai-messages__inner">
                 {messages.map((msg, idx) => (
                   <div
                     key={idx}
                     style={{
                       display: 'flex',
-                      justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                      flexDirection: 'column',
+                      alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
                       marginBottom: 24
                     }}
                   >
@@ -891,8 +947,18 @@ export default function ResearcherAIChat() {
                         fontSize: 15
                       }}
                     >
-                      {msg.role === 'assistant' ? renderAssistantMarkdown(msg.content) : msg.content}
+                      {msg.role === 'assistant' ? <AiAssistantMarkdown content={msg.content} /> : msg.content}
                     </div>
+                    {msg.role === 'assistant' && msg.content.trim() && (
+                      <button
+                        type="button"
+                        className="researcher-ai-save-material-btn"
+                        onClick={() => setMaterialModalContent(msg.content)}
+                      >
+                        <FolderPlus size={14} />
+                        Добавить к материалам проекта
+                      </button>
+                    )}
                   </div>
                 ))}
                 {loading && (
@@ -911,11 +977,11 @@ export default function ResearcherAIChat() {
                   </div>
                 )}
                 <div ref={messagesEndRef} />
+                </div>
               </div>
 
-              {/* Input */}
-              <div style={{ padding: '24px 48px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface)' }}>
-                <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+              <div className="researcher-ai-input-bar">
+                <div className="researcher-ai-input-bar__inner">
                   <textarea
                     ref={inputRef}
                     value={input}
@@ -949,6 +1015,7 @@ export default function ResearcherAIChat() {
                       target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
                     }}
                   />
+                  <AiContextRing usage={displayContextUsage} loading={loading} size={52} />
                   <button
                     className="button"
                     onClick={sendMessage}
@@ -968,8 +1035,34 @@ export default function ResearcherAIChat() {
               </div>
             </>
           )}
+          </div>
         </div>
       </div>
+
+      <ResearcherAiSettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        draft={aiDraft}
+        setDraft={setAiDraft}
+        onApply={applyAiSettings}
+        onOpenMemory={() => setShowMemoryModal(true)}
+        isMobileView={false}
+        participants={participants}
+        quota={aiQuota}
+      />
+
+      <PsychologistAiPersonalityModal
+        open={showMemoryModal}
+        variant="memory"
+        initialText={personalityText}
+        exampleText={RESEARCHER_PERSONALITY_EXAMPLE}
+        onClose={() => setShowMemoryModal(false)}
+        onSave={(text) => {
+          saveResearcherPersonalityText(text);
+          setPersonalityText(text);
+          setShowMemoryModal(false);
+        }}
+      />
 
       {/* New folder modal */}
       {showNewFolderModal && (
@@ -1040,6 +1133,24 @@ export default function ResearcherAIChat() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      <AddToProjectMaterialModal
+        open={!!materialModalContent}
+        content={materialModalContent || ''}
+        onClose={() => setMaterialModalContent(null)}
+        onSaved={(pid) => {
+          setMaterialSavedHint('Материал сохранён в проект');
+          setTimeout(() => setMaterialSavedHint(null), 4000);
+          void pid;
+        }}
+      />
+
+      {materialSavedHint && (
+        <div className="researcher-ai-toast">
+          {materialSavedHint}
+          <button type="button" onClick={() => setMaterialSavedHint(null)}>×</button>
         </div>
       )}
     </div>

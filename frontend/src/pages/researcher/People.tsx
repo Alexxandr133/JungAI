@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { FolderPlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
+import { AddToProjectMaterialModal } from './AddToProjectMaterialModal';
+import './ResearchProjectSpace.css';
 
 const FAVORITES_STORAGE_KEY = 'researcher_favorites_people';
 
@@ -45,12 +48,34 @@ interface AnonymizedClient {
   irritants: string | null;
 }
 
+function buildParticipantMaterialContent(client: AnonymizedClient): string {
+  const lines: string[] = [];
+  lines.push(`# Участник: ${client.anonymizedName}`);
+  lines.push(`Код: #${client.id.slice(-6).toUpperCase()}`);
+  if (client.age !== null) {
+    lines.push(`Возраст (обезличенный): ${client.age} лет (±5)`);
+  }
+  if (client.values) {
+    lines.push('', '## Ценности / Кредо', client.values);
+  }
+  if (client.irritants) {
+    lines.push('', '## Раздражители', client.irritants);
+  }
+  if (!client.values && !client.irritants && client.age === null) {
+    lines.push('', '*(данные из рабочей области отсутствуют)*');
+  }
+  return lines.join('\n');
+}
+
 export default function ResearcherPeople() {
   const { token } = useAuth();
   const [clients, setClients] = useState<AnonymizedClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [materialModalContent, setMaterialModalContent] = useState<string | null>(null);
+  const [materialDefaultTitle, setMaterialDefaultTitle] = useState('');
+  const [materialSavedHint, setMaterialSavedHint] = useState<string | null>(null);
 
   // Load favorites from localStorage
   useEffect(() => {
@@ -86,6 +111,11 @@ export default function ResearcherPeople() {
     setFavorites(newFavorites);
     saveFavorites(newFavorites);
   };
+
+  function openSaveToMaterials(client: AnonymizedClient) {
+    setMaterialDefaultTitle(`Участник: ${client.anonymizedName}`);
+    setMaterialModalContent(buildParticipantMaterialContent(client));
+  }
 
   useEffect(() => {
     if (token) {
@@ -310,6 +340,16 @@ export default function ResearcherPeople() {
                       Данные из рабочей области отсутствуют
                     </div>
                   )}
+
+                  <button
+                    type="button"
+                    className="save-to-project-btn"
+                    style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                    onClick={() => openSaveToMaterials(client)}
+                  >
+                    <FolderPlus size={14} />
+                    В материалы проекта
+                  </button>
                 </div>
               );
               })
@@ -317,6 +357,28 @@ export default function ResearcherPeople() {
           </div>
         )}
       </main>
+
+      <AddToProjectMaterialModal
+        open={!!materialModalContent}
+        content={materialModalContent || ''}
+        defaultTitle={materialDefaultTitle}
+        sourceLabel="Участники"
+        previewHint="Профиль участника будет сохранён как материал проекта — его увидит ИИ-агент внутри проекта."
+        onClose={() => setMaterialModalContent(null)}
+        onSaved={() => {
+          setMaterialSavedHint('Участник сохранён в материалы проекта');
+          setTimeout(() => setMaterialSavedHint(null), 4000);
+        }}
+      />
+
+      {materialSavedHint && (
+        <div className="save-to-project-toast">
+          {materialSavedHint}
+          <button type="button" onClick={() => setMaterialSavedHint(null)} aria-label="Закрыть">
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }

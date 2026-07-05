@@ -13,6 +13,11 @@ router.post('/tests/results', requireAuth, async (req: AuthedRequest, res) => {
       return res.status(400).json({ error: 'testType and result are required' });
     }
 
+    const researcherOnly = new Set(['individuation-hex', 'cognitive-hex']);
+    if (researcherOnly.has(String(testType)) && req.user!.role === 'client') {
+      return res.status(403).json({ error: 'This test is not available for clients yet' });
+    }
+
     let finalClientId = clientId;
     
     // Если клиент сохраняет свой тест

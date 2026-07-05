@@ -1,14 +1,6 @@
 import mammoth from 'mammoth';
 import { config } from '../config';
-
-// pdf-parse v2: класс PDFParse, не функция
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { PDFParse } = require('pdf-parse') as {
-  PDFParse: new (opts: { data: Buffer }) => {
-    getText(): Promise<{ text: string }>;
-    destroy(): Promise<void>;
-  };
-};
+import { extractPdfText as extractPdfTextFromBuffer } from './extractPdfText';
 
 export const AI_CHAT_MAX_FILES = 5;
 export const AI_CHAT_MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -66,6 +58,23 @@ function extOf(name: string): string {
   return i >= 0 ? name.slice(i).toLowerCase() : '';
 }
 
+/** Multer/busboy часто отдают UTF-8 имена файлов как latin1 (ÐÐ½ÑÑÑÑÐºÑÐ¸Ñ…) */
+export function decodeUploadFilename(name: string): string {
+  if (!name) return 'document';
+  if (!/[\u0080-\u00FF]/.test(name)) return name;
+  try {
+    const decoded = Buffer.from(name, 'latin1').toString('utf8');
+    const cyrDecoded = (decoded.match(/[а-яА-ЯёЁ]/g) || []).length;
+    const cyrOrig = (name.match(/[а-яА-ЯёЁ]/g) || []).length;
+    if (cyrDecoded > cyrOrig || (decoded !== name && !/Ð|Ñ|Ã/.test(decoded))) {
+      return decoded;
+    }
+  } catch {
+    /* keep original */
+  }
+  return name;
+}
+
 function mimeFromName(name: string): string {
   const ext = extOf(name);
   if (ext === '.pdf') return 'application/pdf';
@@ -90,16 +99,6 @@ export function isAllowedAiChatFile(mime: string, originalname: string): boolean
   return DOC_EXTENSIONS.has(ext) || ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
 }
 
-async function extractPdfText(buffer: Buffer): Promise<string> {
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const result = await parser.getText();
-    return result?.text || '';
-  } finally {
-    await parser.destroy().catch(() => undefined);
-  }
-}
-
 async function extractDocumentText(buffer: Buffer, mime: string, name: string): Promise<string> {
   const m = mime.toLowerCase();
   const ext = extOf(name);
@@ -109,7 +108,8 @@ async function extractDocumentText(buffer: Buffer, mime: string, name: string): 
   }
 
   if (m === 'application/pdf' || ext === '.pdf') {
-    return extractPdfText(buffer);
+    const result = await extractPdfTextFromBuffer(buffer, name);
+    return result.text;
   }
 
   if (
@@ -127,6 +127,28 @@ async function extractDocumentText(buffer: Buffer, mime: string, name: string): 
   }
 
   throw new Error(`Неподдерживаемый тип файла: ${name}`);
+}
+
+export const PROJECT_MATERIAL_MAX_EXTRACTED_CHARS = 80_000;
+
+export function isAllowedProjectMaterialFile(mime: string, originalname: string): boolean {
+  const m = (mime || mimeFromName(originalname)).toLowerCase();
+  if (m === 'application/pdf') return true;
+  if (m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return true;
+  const ext = extOf(originalname);
+  return ext === '.pdf' || ext === '.docx';
+}
+
+export async function extractDocumentTextForStorage(
+  buffer: Buffer,
+  mime: string,
+  name: string,
+  maxChars = PROJECT_MATERIAL_MAX_EXTRACTED_CHARS
+): Promise<string> {
+  const raw = await extractDocumentText(buffer, mime, name);
+  const t = raw.replace(/\r\n/g, '\n').trim();
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars)}\n...[текст обрезан]`;
 }
 
 function truncateText(text: string): string {
@@ -202,7 +224,7 @@ export async function storeAiChatFileUpload(
   }
 
   const mime = (file.mimetype || mimeFromName(file.originalname)).toLowerCase();
-  const name = file.originalname || 'file';
+  const name = decodeUploadFilename(file.originalname || 'file');
 
   if (!isAllowedAiChatFile(mime, name)) {
     throw new Error(

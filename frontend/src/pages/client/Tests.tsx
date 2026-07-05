@@ -9,6 +9,7 @@ import { buildHexagram, castLine, type IChingHexagram, type IChingLine } from '.
 import {
   SPIRAL_LEVEL_DEFS,
   TEST_CATALOG,
+  CLIENT_TEST_CATALOG,
   orderedScoreEntries,
   questionsForType,
   scoreArchetype,
@@ -165,7 +166,7 @@ export default function ClientTests({ persistResults = true }: ClientTestsProps)
 
   useEffect(() => {
     setTests(
-      TEST_CATALOG.map((t) => ({
+      CLIENT_TEST_CATALOG.map((t) => ({
         id: t.id,
         title: t.title,
         description: t.description,

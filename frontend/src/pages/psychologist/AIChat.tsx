@@ -1,12 +1,10 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { PlatformIcon } from '../../components/icons';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
+import { AiAssistantMarkdown } from '../../components/AiAssistantMarkdown';
 import '../../styles/tokens.css';
 import './AIChatMarkdown.css';
 import {
@@ -32,6 +30,8 @@ import { checkVerification } from '../../utils/verification';
 import { Paperclip, Mic, ChevronLeft } from 'lucide-react';
 import { AITranscriptionPanel } from './AITranscriptionPanel';
 import { getActiveSttJobIds, removeActiveSttJob } from './transcriptionStorage';
+import { AiContextRing } from '../../components/AiContextRing';
+import { deriveDisplayContextUsage, type ContextUsage } from '../../lib/aiContextTypes';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -192,6 +192,7 @@ export default function PsychologistAIChat() {
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [aiQuota, setAiQuota] = useState<AiQuota | null>(null);
+  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [showDreamScopeModal, setShowDreamScopeModal] = useState(false);
   const [pendingDreamMessage, setPendingDreamMessage] = useState('');
   const [dreamScopePreview, setDreamScopePreview] = useState<DreamScopePreview | null>(null);
@@ -365,6 +366,10 @@ export default function PsychologistAIChat() {
   }, [currentChatId, chats]);
 
   useEffect(() => {
+    setContextUsage(null);
+  }, [currentChatId]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -396,64 +401,7 @@ export default function PsychologistAIChat() {
   }
 
   function renderAssistantMarkdown(content: string) {
-    return (
-      <div className="ai-md">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkBreaks]}
-          components={{
-            table: ({ children, ...props }) => (
-              <div style={{ overflowX: 'auto', margin: '10px 0' }}>
-                <table {...props} style={{ width: '100%', borderCollapse: 'collapse' }}>{children}</table>
-              </div>
-            ),
-            th: ({ children, ...props }) => (
-              <th {...props} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.35)', fontWeight: 700 }}>
-                {children}
-              </th>
-            ),
-            td: ({ children, ...props }) => (
-              <td {...props} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(148,163,184,0.22)', verticalAlign: 'top' }}>
-                {children}
-              </td>
-            ),
-            pre: ({ children, ...props }) => (
-              <pre
-                {...props}
-                style={{
-                  padding: 12,
-                  borderRadius: 10,
-                  background: 'rgba(15,23,42,0.55)',
-                  overflowX: 'auto',
-                  margin: '10px 0'
-                }}
-              >
-                {children}
-              </pre>
-            ),
-            code: ({ children, ...props }) => (
-              <code
-                {...props}
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: 6,
-                  background: 'rgba(148,163,184,0.18)',
-                  fontSize: 13
-                }}
-              >
-                {children}
-              </code>
-            ),
-            a: ({ children, ...props }) => (
-              <a {...props} style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
-                {children}
-              </a>
-            )
-          }}
-        >
-          {content || ''}
-        </ReactMarkdown>
-      </div>
-    );
+    return <AiAssistantMarkdown content={content} />;
   }
 
   // Закрываем селектор эмодзи при клике вне его
@@ -1023,6 +971,7 @@ export default function PsychologistAIChat() {
         message: string;
         conversationHistory: Message[];
         quota?: AiQuota;
+        contextUsage?: ContextUsage;
         analysisMemory?: string;
         analysisMemoryUpdated?: boolean;
       }>(
@@ -1058,6 +1007,7 @@ export default function PsychologistAIChat() {
       }
       setMessages(finalMessages);
       if (response.quota) setAiQuota(response.quota);
+      if (response.contextUsage) setContextUsage(response.contextUsage);
 
       // Обновляем чат с финальными сообщениями и убираем флаг загрузки
       if (activeChatId) {
@@ -1120,6 +1070,11 @@ export default function PsychologistAIChat() {
   }));
 
   const rootChats = chats.filter(c => !c.folderId);
+
+  const displayContextUsage = useMemo(
+    () => deriveDisplayContextUsage(contextUsage, messages, input),
+    [contextUsage, messages, input]
+  );
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -2664,6 +2619,11 @@ export default function PsychologistAIChat() {
                         }}
                       />
                     </div>
+                    <AiContextRing
+                      usage={displayContextUsage}
+                      loading={loading || isSending}
+                      size={48}
+                    />
                     <button
                       className="button"
                       onClick={() => {

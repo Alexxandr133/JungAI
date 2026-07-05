@@ -7,11 +7,11 @@ type Props = {
   initialText: string;
   onClose: () => void;
   onSave: (text: string) => void;
-  /** Только для onboarding: пропустить без сохранения */
   onSkip?: () => void;
+  exampleText?: string;
 };
 
-export function PsychologistAiPersonalityModal({ open, variant, initialText, onClose, onSave, onSkip }: Props) {
+export function PsychologistAiPersonalityModal({ open, variant, initialText, onClose, onSave, onSkip, exampleText }: Props) {
   const [text, setText] = useState(initialText);
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export function PsychologistAiPersonalityModal({ open, variant, initialText, onC
             overflow: 'auto'
           }}
         >
-          {PERSONALITY_EXAMPLE}
+          {exampleText ?? PERSONALITY_EXAMPLE}
         </pre>
 
         <label className="small" style={{ display: 'block', marginBottom: 8, fontWeight: 600, color: 'var(--text)' }}>

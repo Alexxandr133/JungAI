@@ -1,11 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
+import { FolderPlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ResearcherNavbar } from '../../components/ResearcherNavbar';
 import { PlatformIcon } from '../../components/icons';
 import { anonymizeText } from '../../utils/anonymizeText';
+import { AddToProjectMaterialModal } from './AddToProjectMaterialModal';
 import '../../styles/tokens.css';
 import './Dreams.css';
+import './ResearchProjectSpace.css';
 
 type Dream = {
   id: string;
@@ -36,6 +39,24 @@ function dreamParticipantCode(d: Dream): string | null {
   return String(d.clientId).slice(-6).toUpperCase();
 }
 
+function buildDreamMaterialContent(dream: Dream): string {
+  const lines: string[] = [];
+  lines.push(`# ${dream.title || 'Сон без названия'}`);
+  if (dream.participantLabel) {
+    lines.push(`Участник: ${dream.participantLabel}`);
+  } else if (dream.clientId) {
+    lines.push(`Участник: #${dreamParticipantCode(dream)}`);
+  }
+  lines.push(`Дата: ${new Date(dream.createdAt).toLocaleString('ru-RU')}`);
+  const symbols = Array.isArray(dream.symbols) ? dream.symbols : [];
+  if (symbols.length) {
+    lines.push(`Символы: ${symbols.join(', ')}`);
+  }
+  lines.push('');
+  lines.push(dream.content || '*(нет текста)*');
+  return lines.join('\n');
+}
+
 export default function ResearcherDreams() {
   const { token } = useAuth();
   const [dreams, setDreams] = useState<Dream[]>([]);
@@ -45,6 +66,9 @@ export default function ResearcherDreams() {
   const [filterSource, setFilterSource] = useState<'all' | 'client' | 'guest' | 'psychologist'>('all');
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [selectedDream, setSelectedDream] = useState<Dream | null>(null);
+  const [materialModalContent, setMaterialModalContent] = useState<string | null>(null);
+  const [materialDefaultTitle, setMaterialDefaultTitle] = useState('');
+  const [materialSavedHint, setMaterialSavedHint] = useState<string | null>(null);
 
   // Load favorites from localStorage
   useEffect(() => {
@@ -177,6 +201,11 @@ export default function ResearcherDreams() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [dreams, query, filterSource, favorites]);
+
+  function openSaveToMaterials(dream: Dream) {
+    setMaterialDefaultTitle(dream.title || 'Сон');
+    setMaterialModalContent(buildDreamMaterialContent(dream));
+  }
 
   function formatDateTime(iso: string) {
     const d = new Date(iso);
@@ -418,11 +447,22 @@ export default function ResearcherDreams() {
                     </>
                   )}
 
-                  {/* Date and favorite */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  {/* Date and actions */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)', gap: 12, flexWrap: 'wrap' }}>
                     <div className="small" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                       📅 {formatDateTime(dream.createdAt)}
                     </div>
+                    <button
+                      type="button"
+                      className="save-to-project-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openSaveToMaterials(dream);
+                      }}
+                    >
+                      <FolderPlus size={14} />
+                      В материалы проекта
+                    </button>
                   </div>
                 </div>
               );
@@ -464,10 +504,42 @@ export default function ResearcherDreams() {
             <div className="researcher-dreams-modal__body">
               {selectedDream.content || 'Нет текста'}
             </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button
+                type="button"
+                className="save-to-project-btn"
+                onClick={() => openSaveToMaterials(selectedDream)}
+              >
+                <FolderPlus size={14} />
+                В материалы проекта
+              </button>
+            </div>
             <div className="small" style={{ color: 'var(--text-muted)', marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               {formatDateTime(selectedDream.createdAt)}
             </div>
           </div>
+        </div>
+      )}
+
+      <AddToProjectMaterialModal
+        open={!!materialModalContent}
+        content={materialModalContent || ''}
+        defaultTitle={materialDefaultTitle}
+        sourceLabel="База снов"
+        previewHint="Сон будет сохранён как материал проекта — его увидит ИИ-агент внутри проекта."
+        onClose={() => setMaterialModalContent(null)}
+        onSaved={() => {
+          setMaterialSavedHint('Сон сохранён в материалы проекта');
+          setTimeout(() => setMaterialSavedHint(null), 4000);
+        }}
+      />
+
+      {materialSavedHint && (
+        <div className="save-to-project-toast">
+          {materialSavedHint}
+          <button type="button" onClick={() => setMaterialSavedHint(null)} aria-label="Закрыть">
+            ×
+          </button>
         </div>
       )}
     </div>

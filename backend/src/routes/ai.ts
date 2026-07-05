@@ -2,7 +2,6 @@ import { Router } from 'express';
 import multer from 'multer';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
-import { anonymizeDreamRecord } from '../utils/anonymizeText';
 import { enqueueDreamSymbolExtraction } from '../jobs/dreamSymbolExtraction';
 import { config } from '../config';
 import { OpenAI } from 'openai';
@@ -36,6 +35,40 @@ import {
   type ResponseStyle
 } from '../utils/psychologistAiModality';
 import {
+  buildResearcherDreamsContext,
+  estimateDreamContextChars,
+  listParticipantStats,
+  MAX_RESEARCHER_POOL_BY_RANGE,
+  minDateForDreamRange as researcherMinDateForRange,
+  parseDreamSampleSize,
+  parseDreamSamplingMode,
+  parseDreamsContextRange as parseResearcherDreamsContextRange,
+  sampleResearcherDreams,
+  type DreamSamplingMode,
+  type DreamsContextRange as ResearcherDreamsContextRange,
+} from '../utils/researcherAiDreams';
+import {
+  buildContextUsage,
+  dataContextSkippedHint,
+  MAX_PROJECT_SPACE_CONTEXT_CHARS,
+  messageLooksLikeDreamAnalysis,
+  shouldAttachDataContext,
+} from '../utils/aiContextEstimate';
+import {
+  appendAnalysisMemory,
+  appendResearchPromptInstruction,
+  normalizeResearchPromptId,
+} from '../utils/researcherAiPrompts';
+import { fetchUrlText } from '../utils/fetchUrlText';
+import {
+  assistantClaimsAction,
+  buildActionRepairUserPrompt,
+  buildProjectAgentSystemPrompt,
+  messageExpectsAgentActions,
+  parseAgentResponse,
+  type ProjectAgentAction,
+} from '../utils/projectSpaceAgent';
+import {
   AI_CHAT_MAX_FILES,
   AI_CHAT_MAX_FILE_BYTES,
   appendVisionSystemHint,
@@ -47,10 +80,25 @@ import {
   resolveAiChatAttachments,
   resolveChatModelForAttachments,
   storeAiChatFileUpload,
+  extractDocumentTextForStorage,
+  decodeUploadFilename,
+  isAllowedProjectMaterialFile,
   type OpenRouterContentPart,
 } from '../utils/aiChatAttachments';
 
 type DreamsContextRange = '30d' | '90d' | '365d' | 'all';
+
+const uploadProjectMaterialFile = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: AI_CHAT_MAX_FILE_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (isAllowedProjectMaterialFile(file.mimetype, file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Разрешены только PDF и DOCX (.docx). Формат .doc не поддерживается.'));
+    }
+  },
+});
 
 const uploadAiChatFiles = multer({
   storage: multer.memoryStorage(),
@@ -193,15 +241,6 @@ function trimConversationHistory(historyRaw: any[]): Array<{ role: 'user' | 'ass
   }
   out.reverse();
   return out;
-}
-
-function messageLooksLikeDreamAnalysis(textRaw: unknown): boolean {
-  const s = String(textRaw || '').toLowerCase();
-  const hasDreamKeyword =
-    /(сны|снов|снам|снами|снах|сон|сна|сну|сном|dream)/i.test(s) || /\bснф\b/i.test(s);
-  const hasAnalyzeIntent =
-    /(анализ|проанализ|провалид|валид|разбер|разбор|посмотр|просмотр|просмотри|глянь|оцени|исслед|сводк|паттерн|ревью|проверь)/i.test(s);
-  return hasDreamKeyword && hasAnalyzeIntent;
 }
 
 function isRetryableOpenRouterNetworkError(error: any): boolean {
@@ -719,9 +758,18 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
           promptText: messages.map((m) => openRouterContentToString(m.content)).join('\n'),
           completionText: assistantMessage
         });
+        const contextUsage = buildContextUsage(model, messages, {
+          historyMessageCount: safeConversationHistory.length,
+          dataContextIncluded: false,
+          systemText: systemPrompt,
+          historyText: safeConversationHistory.map((m) => m.content).join('\n'),
+          dataText: '',
+          messageText: messageText,
+        });
         return res.json({
           message: assistantMessage,
           quota,
+          contextUsage,
           conversationHistory: [
             ...safeConversationHistory,
             { role: 'user', content: userHistoryContent },
@@ -748,6 +796,11 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     /** Сны в запрос: и модальность разрешает, и тумблер психолога включён */
     const passDreamData = includeDreamsInContext && modalityPolicy.allowDreams;
+    const attachDataContext = shouldAttachDataContext(
+      safeConversationHistory.length,
+      messageText,
+      true
+    );
     const isDreamAnalysisRequest = messageLooksLikeDreamAnalysis(messageText) && passDreamData;
     maxTokens = isDreamAnalysisRequest
       ? Math.max(baseMaxTokens, DREAM_ANALYSIS_MAX_OUTPUT_TOKENS)
@@ -1020,11 +1073,16 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     systemPrompt = appendPersonalization(systemPrompt, personalization);
     systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
     systemPrompt = appendVisionSystemHint(systemPrompt, chatAttachments);
+    if (!attachDataContext) {
+      systemPrompt += dataContextSkippedHint();
+    }
 
-    const dreamCountForAnalysis = allDreams.length;
-    const userPrompt = `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}
-${previousAnalysisMemory ? `\n\nСохраненный анализ по этому чату (используй как рабочую память):\n${previousAnalysisMemory}\n` : ''}
-${isDreamAnalysisRequest ? `\n\nВажно: в контексте передано ${dreamCountForAnalysis} снов(а). Дай структурированный разбор ПО КАЖДОМУ сну без пропусков в формате "Сон 1 ... Сон ${dreamCountForAnalysis}". Нельзя объединять сны. После разборов добавь общий итог по паттернам.\n` : ''}
+    const dataContextBlock = attachDataContext
+      ? `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}`
+      : '';
+
+    const dreamCountForAnalysis = attachDataContext ? allDreams.length : 0;
+    const userPrompt = `${dataContextBlock}${previousAnalysisMemory ? `\n\nСохраненный анализ по этому чату (используй как рабочую память):\n${previousAnalysisMemory}\n` : ''}${isDreamAnalysisRequest && dreamCountForAnalysis > 0 ? `\n\nВажно: в контексте передано ${dreamCountForAnalysis} снов(а). Дай структурированный разбор ПО КАЖДОМУ сну без пропусков в формате "Сон 1 ... Сон ${dreamCountForAnalysis}". Нельзя объединять сны. После разборов добавь общий итог по паттернам.\n` : ''}
 
 Вопрос психолога: ${messageText}`;
 
@@ -1101,6 +1159,14 @@ ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передан
     res.json({
       message: assistantMessage,
       quota,
+      contextUsage: buildContextUsage(model, messages, {
+        historyMessageCount: safeConversationHistory.length,
+        dataContextIncluded: attachDataContext,
+        systemText: systemPrompt,
+        historyText: safeConversationHistory.map((m) => m.content).join('\n'),
+        dataText: dataContextBlock,
+        messageText: messageText,
+      }),
       analysisMemory: analysisMemoryUpdated ? assistantMessage : previousAnalysisMemory,
       analysisMemoryUpdated,
       conversationHistory: [
@@ -1137,14 +1203,135 @@ ${isDreamAnalysisRequest ? `\n\nВажно: в контексте передан
   }
 });
 
-// Чат ИИ внутри space проекта (только материалы проекта, без базы снов)
+// Анализ веб-страницы для источника исследования
+router.post('/ai/researcher/analyze-url', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    if (!openRouterClient) {
+      return res.status(500).json({ error: 'OpenRouter API не настроен.' });
+    }
+
+    const { url, researchQuestion } = req.body ?? {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL обязателен' });
+    }
+
+    await assertAiQuotaAvailable(req.user!.id);
+    const fetched = await fetchUrlText(url);
+    if (!fetched.text) {
+      return res.status(422).json({ error: 'Не удалось извлечь текст со страницы' });
+    }
+
+    const question =
+      typeof researchQuestion === 'string' && researchQuestion.trim()
+        ? researchQuestion.trim().slice(0, 500)
+        : 'Кратко опиши содержание и релевантность для исследования в области аналитической психологии и сновидений.';
+
+    const model = await getPlatformAiModel();
+    const prompt = `Проанализируй текст веб-страницы для исследователя.
+
+URL: ${fetched.url}
+${fetched.title ? `Заголовок страницы: ${fetched.title}\n` : ''}
+Задача: ${question}
+
+Текст страницы:
+${fetched.text.slice(0, 14000)}
+
+Ответ на русском: 1) суть материала; 2) ключевые тезисы; 3) как может быть полезно исследователю; 4) ограничения/риски интерпретации.`;
+
+    const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+      model,
+      messages: [
+        { role: 'system', content: 'Ты помощник исследователя. Анализируй только предоставленный текст страницы, не выдумывай содержание.' },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.4,
+      maxTokens: 1200,
+    });
+
+    const summary = chatCompletion.choices[0]?.message?.content || '';
+    const quota = await consumeAiTokens(req.user!.id, {
+      usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+      promptText: prompt,
+      completionText: summary,
+    });
+
+    res.json({
+      url: fetched.url,
+      pageTitle: fetched.title,
+      excerpt: fetched.text.slice(0, 800),
+      summary,
+      truncated: fetched.truncated,
+      quota,
+    });
+  } catch (error: any) {
+    console.error('analyze-url error:', error);
+    res.status(500).json({ error: error.message || 'Не удалось проанализировать страницу' });
+  }
+});
+
+// Извлечение текста из PDF/DOCX для материалов проекта
+router.post(
+  '/ai/researcher/project/extract-document',
+  requireAuth,
+  requireRole(['researcher', 'admin']),
+  requireVerification,
+  (req, res, next) => {
+    uploadProjectMaterialFile.single('file')(req, res, (err: any) => {
+      if (err) {
+        const msg =
+          err.code === 'LIMIT_FILE_SIZE'
+            ? `Файл слишком большой (макс. ${AI_CHAT_MAX_FILE_BYTES / 1024 / 1024} МБ)`
+            : err.message || 'Ошибка загрузки файла';
+        return res.status(400).json({ error: msg });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    try {
+      const file = req.file;
+      if (!file?.buffer?.length) {
+        return res.status(400).json({ error: 'Выберите файл PDF или DOCX' });
+      }
+      const name = decodeUploadFilename(file.originalname || 'document');
+      const mime = (file.mimetype || '').toLowerCase();
+      const content = await extractDocumentTextForStorage(file.buffer, mime, name);
+      if (!content.trim()) {
+        return res.status(400).json({ error: `В файле «${name}» не найден текст` });
+      }
+      const title = name.replace(/\.[^.]+$/, '').trim() || name;
+      res.json({
+        title,
+        content,
+        fileName: name,
+        mimeType: mime || 'application/octet-stream',
+      });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message || 'Не удалось прочитать файл' });
+    }
+  }
+);
+
+// ИИ-агент space проекта (полный контекст + действия над проектом)
 router.post('/ai/researcher/project/chat', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
     if (!openRouterClient) {
       return res.status(500).json({ error: 'OpenRouter API не настроен. Установите OPENROUTER_API_KEY в переменных окружения.' });
     }
 
-    const { message, conversationHistory = [], projectTitle, spaceContext } = req.body ?? {};
+    const {
+      message,
+      conversationHistory = [],
+      projectTitle,
+      spaceContext,
+      documentTabs = [],
+      agentMode = true,
+      includeDreamsInContext: includeDreamsRaw,
+      dreamsContextRange: dreamsContextRangeRaw,
+      dreamSamplingMode: dreamSamplingModeRaw,
+      dreamSampleSize: dreamSampleSizeRaw,
+      participantClientId: participantClientIdRaw,
+    } = req.body ?? {};
     const safeConversationHistory = trimConversationHistory(conversationHistory);
 
     if (!message || typeof message !== 'string') {
@@ -1153,59 +1340,168 @@ router.post('/ai/researcher/project/chat', requireAuth, requireRole(['researcher
 
     const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
     const title = typeof projectTitle === 'string' && projectTitle.trim() ? projectTitle.trim() : 'Проект';
-    const context =
+    const projectContext =
       typeof spaceContext === 'string' && spaceContext.trim()
-        ? spaceContext.trim().slice(0, 48000)
+        ? spaceContext.trim().slice(0, MAX_PROJECT_SPACE_CONTEXT_CHARS)
         : '(Материалы проекта пусты.)';
 
-    const systemPrompt = `Ты — ИИ-ассистент внутри исследовательского space «${title}» на платформе JungAI.
+    const tabs: string[] = Array.isArray(documentTabs)
+      ? documentTabs.filter((t: unknown) => typeof t === 'string').slice(0, 30)
+      : [];
 
-Тебе доступны ТОЛЬКО материалы текущего проекта (вкладки, заметки, гипотезы), переданные в контексте ниже.
-У тебя НЕТ доступа к базе снов, клиентам, другим проектам и внешним данным.
-Опирайся только на переданный контекст и общие знания аналитической психологии.
-Если в контексте нет данных для ответа — скажи об этом и предложи, что добавить в заметки.
+    const includeDreamsInContext =
+      includeDreamsRaw === undefined || includeDreamsRaw === null ? false : Boolean(includeDreamsRaw);
+    const dreamsContextRange = parseResearcherDreamsContextRange(dreamsContextRangeRaw);
+    const dreamSamplingMode = parseDreamSamplingMode(dreamSamplingModeRaw);
+    const dreamSampleSize = parseDreamSampleSize(dreamSampleSizeRaw);
+    let participantClientId = String(participantClientIdRaw || '').trim() || undefined;
 
-Отвечай на русском, структурированно, профессионально.`;
+    const attachDreamData = includeDreamsInContext;
 
-    const userPrompt = `Контекст space проекта:\n${context}\n\nВопрос исследователя: ${message}`;
+    let dreamsContext = '';
+    let dreamMeta = { poolCount: 0, selectedCount: 0 };
+
+    if (includeDreamsInContext) {
+      const effectiveRange = participantClientId ? 'all' : dreamsContextRange;
+      const poolSamplingMode = participantClientId ? 'by_participant' : dreamSamplingMode;
+      const pool = await fetchResearcherDreamPool(effectiveRange, poolSamplingMode, participantClientId);
+      if (participantClientId && participantClientId.length === 6 && /^[A-Fa-f0-9]+$/.test(participantClientId)) {
+        const code = participantClientId.toUpperCase();
+        const match = pool.find((d) => d.clientId?.slice(-6).toUpperCase() === code);
+        if (match?.clientId) participantClientId = match.clientId;
+      }
+      const effectiveMode = participantClientId ? 'all_in_range' : dreamSamplingMode;
+      const effectiveSampleSize = participantClientId ? 200 : dreamSampleSize;
+      const selected = sampleResearcherDreams(pool, effectiveMode, effectiveSampleSize, {
+        participantClientId,
+      });
+      dreamMeta = { poolCount: pool.length, selectedCount: selected.length };
+      dreamsContext = buildResearcherDreamsContext(selected, {
+        range: effectiveRange,
+        samplingMode: effectiveMode,
+        sampleSize: effectiveSampleSize,
+        poolCount: pool.length,
+        selectedCount: selected.length,
+        participantClientId,
+      });
+    }
+
+    const selectedParticipant =
+      participantClientId && includeDreamsInContext
+        ? {
+            label: `Участник #${participantClientId.slice(-6).toUpperCase()}`,
+            code: participantClientId.slice(-6).toUpperCase(),
+            dreamCount: dreamMeta.selectedCount,
+          }
+        : undefined;
+
+    let systemPrompt = agentMode
+      ? buildProjectAgentSystemPrompt(title, tabs, {
+          includeDreams: includeDreamsInContext,
+          selectedParticipant,
+        })
+      : `Ты — ИИ-ассистент проекта «${title}». Контекст ниже. Отвечай на русском.`;
+
+    const dataBlock = includeDreamsInContext && dreamsContext ? `${dreamsContext}\n\n---\n\n` : '';
+    const context = `${dataBlock}${projectContext}`.slice(0, MAX_PROJECT_SPACE_CONTEXT_CHARS);
+
+    const participantHint = selectedParticipant
+      ? `\n\n[В контексте выбран ${selectedParticipant.label}. Слово «участник» в запросе = этот человек.]`
+      : '';
+    const userPrompt = `Контекст проекта:\n${context}${participantHint}\n\n---\n\nЗапрос исследователя: ${message}`;
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
       ...safeConversationHistory.map((msg: any) => ({
         role: msg.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-        content: msg.content,
+        content: typeof msg.content === 'string' ? msg.content : String(msg.content ?? ''),
       })),
       { role: 'user', content: userPrompt },
     ];
 
     const model = await getPlatformAiModel();
-    let assistantMessage = 'Извините, не удалось получить ответ.';
+    let rawAssistant = 'Извините, не удалось получить ответ.';
     let quota = quotaBefore;
+
+    const isDreamAnalysisRequest =
+      messageLooksLikeDreamAnalysis(message) && includeDreamsInContext && attachDreamData;
+    const maxTokens = isDreamAnalysisRequest ? Math.max(4500, DREAM_ANALYSIS_MAX_OUTPUT_TOKENS) : 4500;
 
     try {
       const chatCompletion = await createOpenRouterChatCompletionWithRetry({
         model,
         messages,
-        temperature: 0.7,
-        maxTokens: 900,
+        temperature: 0.55,
+        maxTokens,
       });
-      assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
+      rawAssistant = chatCompletion.choices[0]?.message?.content || rawAssistant;
       quota = await consumeAiTokens(req.user!.id, {
         usageTotal: (chatCompletion as any)?.usage?.total_tokens,
         promptText: messages.map((m) => m.content).join('\n'),
-        completionText: assistantMessage,
+        completionText: rawAssistant,
       });
     } catch (error: any) {
       throw new Error(asUserFacingAiError(error));
     }
 
+    let { message: assistantMessage, actions } = agentMode
+      ? parseAgentResponse(rawAssistant)
+      : { message: rawAssistant, actions: [] as ProjectAgentAction[] };
+
+    let actionsRepaired = false;
+    if (
+      agentMode &&
+      actions.length === 0 &&
+      (messageExpectsAgentActions(message) || assistantClaimsAction(rawAssistant))
+    ) {
+      try {
+        const repairCompletion = await createOpenRouterChatCompletionWithRetry({
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Ты генерируешь JSON-действия для агента проекта. Выводи ТОЛЬКО одну строку: AGENT_ACTIONS_JSON={"actions":[...]}. Без markdown, без пояснений.',
+            },
+            { role: 'user', content: buildActionRepairUserPrompt(message, rawAssistant, tabs) },
+          ],
+          temperature: 0.15,
+          maxTokens: 4000,
+        });
+        const repairRaw = repairCompletion.choices[0]?.message?.content || '';
+        const repaired = parseAgentResponse(repairRaw);
+        if (repaired.actions.length) {
+          actions = repaired.actions;
+          actionsRepaired = true;
+        }
+        quota = await consumeAiTokens(req.user!.id, {
+          usageTotal: (repairCompletion as any)?.usage?.total_tokens,
+          promptText: repairRaw,
+          completionText: repairRaw,
+        });
+      } catch (repairErr) {
+        console.warn('Project agent action repair failed:', repairErr);
+      }
+    }
+
     res.json({
       message: assistantMessage,
+      actions,
+      actionsRepaired,
       quota,
+      dreamMeta: includeDreamsInContext ? dreamMeta : undefined,
+      contextUsage: buildContextUsage(model, messages, {
+        historyMessageCount: safeConversationHistory.length,
+        dataContextIncluded: includeDreamsInContext && dreamMeta.selectedCount > 0,
+        systemText: systemPrompt,
+        historyText: safeConversationHistory.map((m) => m.content).join('\n'),
+        dataText: includeDreamsInContext ? `${dreamsContext}\n${projectContext}` : projectContext,
+        messageText: message,
+      }),
       conversationHistory: [
         ...safeConversationHistory,
         { role: 'user', content: message },
-        { role: 'assistant', content: assistantMessage },
+        { role: 'assistant', content: assistantMessage, actions: actions.length ? actions : undefined },
       ],
     });
   } catch (error: any) {
@@ -1217,6 +1513,106 @@ router.post('/ai/researcher/project/chat', requireAuth, requireRole(['researcher
   }
 });
 
+async function fetchResearcherDreamPool(
+  range: ResearcherDreamsContextRange,
+  samplingMode: DreamSamplingMode,
+  participantClientId?: string
+) {
+  const minDate = researcherMinDateForRange(range);
+  const where: Record<string, unknown> = minDate ? { createdAt: { gte: minDate } } : {};
+  if (participantClientId) {
+    where.clientId = participantClientId;
+  }
+  const take = MAX_RESEARCHER_POOL_BY_RANGE[range];
+  return prisma.dream.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take,
+    select: {
+      id: true,
+      title: true,
+      content: true,
+      symbols: true,
+      symbolsStatus: true,
+      createdAt: true,
+      clientId: true,
+      client: { select: { id: true, name: true } },
+    },
+  });
+}
+
+router.post('/ai/researcher/dream-scope-preview', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const includeDreamsInContext =
+      req.body?.includeDreamsInContext === undefined || req.body?.includeDreamsInContext === null
+        ? true
+        : Boolean(req.body?.includeDreamsInContext);
+    const samplingMode = parseDreamSamplingMode(req.body?.dreamSamplingMode);
+    const sampleSize = parseDreamSampleSize(req.body?.dreamSampleSize);
+    const participantClientId = String(req.body?.participantClientId || '').trim() || undefined;
+    const symbolFilter = String(req.body?.symbolFilter || '').trim() || undefined;
+    const ranges: ResearcherDreamsContextRange[] = ['30d', '90d', '365d', 'all'];
+
+    if (!includeDreamsInContext) {
+      return res.json({
+        includeDreamsInContext: false,
+        stats: Object.fromEntries(
+          ranges.map((r) => [r, { poolCount: 0, selectedCount: 0, estimatedPromptTokens: 0 }])
+        ),
+        participants: [],
+        suggestedRange: '30d' as ResearcherDreamsContextRange,
+      });
+    }
+
+    const model = await getPlatformAiModel();
+    const entries = await Promise.all(
+      ranges.map(async (range) => {
+        const pool = await fetchResearcherDreamPool(range, samplingMode, participantClientId);
+        const filtered =
+          samplingMode === 'by_symbol' && symbolFilter
+            ? pool.filter((d) => {
+                const syms = d.symbols;
+                if (!Array.isArray(syms)) return false;
+                return syms.some((s) => String(s).toLowerCase().includes(symbolFilter.toLowerCase()));
+              })
+            : pool;
+        const selected = sampleResearcherDreams(filtered, samplingMode, sampleSize, {
+          participantClientId,
+          symbolFilter,
+        });
+        const chars = estimateDreamContextChars(selected);
+        return [
+          range,
+          {
+            poolCount: filtered.length,
+            selectedCount: selected.length,
+            estimatedPromptTokens: Math.max(0, Math.ceil(chars / 4)),
+          },
+        ] as const;
+      })
+    );
+
+    const stats = Object.fromEntries(entries);
+    const allPool = await fetchResearcherDreamPool('all', samplingMode, participantClientId);
+    const participants = listParticipantStats(allPool);
+    const allCount = stats.all?.poolCount || 0;
+    const suggestedRange: ResearcherDreamsContextRange =
+      allCount <= 150 ? 'all' : allCount <= 400 ? '365d' : allCount <= 800 ? '90d' : '30d';
+
+    res.json({
+      includeDreamsInContext: true,
+      model,
+      stats,
+      participants,
+      suggestedRange,
+      samplingMode,
+      sampleSize,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || 'Не удалось получить объём выборки снов' });
+  }
+});
+
 // Чат ассистента исследователя
 router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
@@ -1224,7 +1620,23 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
       return res.status(500).json({ error: 'OpenRouter API не настроен. Установите OPENROUTER_API_KEY в переменных окружения.' });
     }
 
-    const { message, conversationHistory = [] } = req.body ?? {};
+    const {
+      message,
+      conversationHistory = [],
+      modality: modalityRaw,
+      temperature: temperatureRaw,
+      responseStyle: responseStyleRaw,
+      personalization: personalizationRaw,
+      dreamsContextRange: dreamsContextRangeRaw,
+      includeDreamsInContext: includeDreamsRaw,
+      dreamSamplingMode: dreamSamplingModeRaw,
+      dreamSampleSize: dreamSampleSizeRaw,
+      participantClientId: participantClientIdRaw,
+      symbolFilter: symbolFilterRaw,
+      researchPromptId: researchPromptIdRaw,
+      customResearchPrompt: customResearchPromptRaw,
+      analysisMemory: analysisMemoryRaw,
+    } = req.body ?? {};
     const safeConversationHistory = trimConversationHistory(conversationHistory);
 
     if (!message || typeof message !== 'string') {
@@ -1232,107 +1644,128 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
     }
     const quotaBefore = await assertAiQuotaAvailable(req.user!.id);
 
-    // Получаем все сны для исследователя
-    const allDreams = await prisma.dream.findMany({
-      where: {},
-      orderBy: { createdAt: 'desc' },
-      take: 100, // Последние 100 снов
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        symbols: true,
-        createdAt: true,
-        clientId: true,
-        client: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
-    });
+    const modality = normalizePsychologistModality(modalityRaw);
+    const temperature = clampAiTemperature(temperatureRaw);
+    const responseStyle = (['concise', 'balanced', 'detailed'].includes(String(responseStyleRaw))
+      ? responseStyleRaw
+      : 'balanced') as ResponseStyle;
+    const includeDreamsInContext =
+      includeDreamsRaw === undefined || includeDreamsRaw === null ? true : Boolean(includeDreamsRaw);
+    const dreamsContextRange = parseResearcherDreamsContextRange(dreamsContextRangeRaw);
+    const dreamSamplingMode = parseDreamSamplingMode(dreamSamplingModeRaw);
+    const dreamSampleSize = parseDreamSampleSize(dreamSampleSizeRaw);
+    const participantClientId = String(participantClientIdRaw || '').trim() || undefined;
+    const symbolFilter = String(symbolFilterRaw || '').trim() || undefined;
+    const researchPromptId = normalizeResearchPromptId(researchPromptIdRaw);
+    const customResearchPrompt =
+      typeof customResearchPromptRaw === 'string' ? customResearchPromptRaw.trim() : '';
+    const previousAnalysisMemory =
+      typeof analysisMemoryRaw === 'string' && analysisMemoryRaw.trim()
+        ? analysisMemoryRaw.trim().slice(0, 5000)
+        : '';
 
-    // Формируем контекст снов (обезличенный)
+    const attachDataContext = shouldAttachDataContext(
+      safeConversationHistory.length,
+      message,
+      includeDreamsInContext
+    );
+
     let dreamsContext = '';
-    if (allDreams.length > 0) {
-      const anonymized = allDreams.map(anonymizeDreamRecord);
-      dreamsContext = `\n\nБаза данных снов (последние ${anonymized.length}, обезличенные):\n`;
-      anonymized.slice(0, 20).forEach((dream, idx) => {
-        const symbols = Array.isArray(dream.symbols) ? dream.symbols.join(', ') : (typeof dream.symbols === 'object' && dream.symbols !== null ? Object.keys(dream.symbols as object).join(', ') : '');
-        const snippet = dream.content ? dream.content.substring(0, 400) : '';
-        dreamsContext += `${idx + 1}. "${dream.title || 'Без названия'}" (${dream.participantLabel || 'анонимный участник'}, ${new Date(dream.createdAt).toLocaleDateString('ru-RU')})\n`;
-        dreamsContext += `   ${snippet}${dream.content && dream.content.length > 400 ? '…' : ''}\n`;
-        if (symbols) dreamsContext += `   Символы: ${symbols}\n`;
+    let dreamMeta = { poolCount: 0, selectedCount: 0 };
+
+    if (includeDreamsInContext && attachDataContext) {
+      const pool = await fetchResearcherDreamPool(dreamsContextRange, dreamSamplingMode, participantClientId);
+      let filtered = pool;
+      if (dreamSamplingMode === 'by_symbol' && symbolFilter) {
+        filtered = pool.filter((d) => {
+          if (!Array.isArray(d.symbols)) return false;
+          return d.symbols.some((s) => String(s).toLowerCase().includes(symbolFilter.toLowerCase()));
+        });
+      }
+      const selected = sampleResearcherDreams(filtered, dreamSamplingMode, dreamSampleSize, {
+        participantClientId,
+        symbolFilter,
       });
-    } else {
-      dreamsContext = '\n\nВ базе данных пока нет снов.';
+      dreamMeta = { poolCount: filtered.length, selectedCount: selected.length };
+      dreamsContext = buildResearcherDreamsContext(selected, {
+        range: dreamsContextRange,
+        samplingMode: dreamSamplingMode,
+        sampleSize: dreamSampleSize,
+        poolCount: filtered.length,
+        selectedCount: selected.length,
+        participantClientId,
+        symbolFilter,
+      });
+    } else if (!includeDreamsInContext) {
+      dreamsContext =
+        '\n\nНастройка исследователя: сны в этот запрос не включены. Не обсуждай конкретные сны из базы; если спросят — поясни, что выборка отключена в настройках.';
     }
 
-    // Формируем system prompt
-    const systemPrompt = `Ты — ассистент исследователя, специализирующийся на аналитической психологии, юнгианском анализе и исследовании сновидений. Твоя задача — помогать исследователю с анализом данных, выявлением паттернов, интерпретацией снов, исследованием архетипов и символики.
+    let systemPrompt = appendResponseStyle(buildGeneralModalityPrompt(modality), responseStyle);
+    systemPrompt = `${systemPrompt}
 
-Ты имеешь доступ к обезличенной базе снов (без имён, адресов и географии — только символика и содержание).
-Можешь отвечать на вопросы о снах, анализировать паттерны, предлагать интерпретации, помогать с исследованиями.
+Ты — ассистент исследователя платформы JungAI. Помогаешь с научным и клиническим анализом обезличенных снов, выявлением паттернов, гипотезами и интерпретациями в рамках выбранной модальности.
+Не запрашивай и не предполагай личные данные. Маркеры [имя], [место], [email] — обезличивание.
+Отвечай на русском языке, профессионально и структурировано.`;
 
-Не запрашивай и не предполагай личные данные участников. Маркеры [имя], [место], [телефон] — следствие обезличивания.
+    if (!includeDreamsInContext) {
+      systemPrompt += `\n\nСны в контекст не переданы — не выдумывай содержание сновидений.`;
+    } else if (!attachDataContext) {
+      systemPrompt += dataContextSkippedHint();
+    }
 
-Отвечай на русском языке, профессионально, но доступно. Используй знания юнгианской психологии, архетипов, символики и работы со сновидениями.`;
+    systemPrompt = appendPersonalization(systemPrompt, personalizationRaw);
+    systemPrompt = appendResearchPromptInstruction(systemPrompt, researchPromptId, customResearchPrompt);
+    systemPrompt = appendAnalysisMemory(systemPrompt, previousAnalysisMemory);
+    systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
 
-    const userPrompt = `${dreamsContext}
+    const dataBlock =
+      includeDreamsInContext && attachDataContext ? `${dreamsContext}\n\n---\n\n` : '';
+    const userPrompt = `${dataBlock}Вопрос исследователя: ${message}`;
 
-Вопрос исследователя: ${message}`;
-
-    // Формируем историю сообщений для DeepSeek-R1
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
       ...safeConversationHistory.map((msg: any) => ({
         role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
-        content: msg.content
+        content: msg.content,
       })),
-      { role: 'user', content: userPrompt }
+      { role: 'user', content: userPrompt },
     ];
 
+    const isDreamAnalysisRequest = messageLooksLikeDreamAnalysis(message) && includeDreamsInContext;
+    const baseMaxTokens = Math.min(MAX_AI_OUTPUT_TOKENS, inferMaxTokensFromResponseStyle(responseStyle));
+    const maxTokens = isDreamAnalysisRequest
+      ? Math.max(baseMaxTokens, DREAM_ANALYSIS_MAX_OUTPUT_TOKENS)
+      : baseMaxTokens;
+
     const model = await getPlatformAiModel();
-    console.log('Sending request to OpenRouter API for researcher...', { 
+    console.log('Sending request to OpenRouter API for researcher...', {
       model,
       messagesCount: messages.length,
-      hasOpenRouterKey: !!apiKey
+      dreamMeta,
+      samplingMode: dreamSamplingMode,
+      hasOpenRouterKey: !!apiKey,
     });
 
     let assistantMessage = 'Извините, не удалось получить ответ.';
     let quota = quotaBefore;
 
     try {
-      console.log('Using OpenRouter API...');
       const chatCompletion = await createOpenRouterChatCompletionWithRetry({
         model,
         messages,
-        temperature: 0.7,
-        maxTokens: 900,
+        temperature,
+        maxTokens,
       });
 
       assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
       quota = await consumeAiTokens(req.user!.id, {
         usageTotal: (chatCompletion as any)?.usage?.total_tokens,
         promptText: messages.map((m: any) => m.content).join('\n'),
-        completionText: assistantMessage
+        completionText: assistantMessage,
       });
-      
-      // Убираем возможные "think" блоки, если модель их генерирует
-      // DeepSeek-V3 может генерировать reasoning, но обычно это не проблема
-      // Если нужно, можно добавить фильтрацию здесь
-      
-      console.log('OpenRouter API response received successfully');
     } catch (error: any) {
-      console.error('OpenRouter API error:', error);
-      console.error('Error details:', {
-        message: error.message,
-        status: error.status,
-        code: error.code,
-        response: error.response?.data || error.response
-      });
-      
+      console.error('OpenRouter API error (researcher):', error);
       let errorMessage = 'Ошибка при обращении к ИИ';
       if (error.message?.includes('timeout')) {
         errorMessage = 'Превышено время ожидания ответа от ИИ. Попробуйте еще раз.';
@@ -1345,38 +1778,49 @@ router.post('/ai/researcher/chat', requireAuth, requireRole(['researcher', 'admi
       } else if (error.message) {
         errorMessage = asUserFacingAiError(error);
       }
-      
       throw new Error(errorMessage);
     }
 
+    const analysisMemoryUpdated = isDreamAnalysisRequest;
     res.json({
       message: assistantMessage,
       quota,
+      dreamMeta,
+      contextUsage: buildContextUsage(model, messages, {
+        historyMessageCount: safeConversationHistory.length,
+        dataContextIncluded: attachDataContext && includeDreamsInContext,
+        systemText: systemPrompt,
+        historyText: safeConversationHistory.map((m) => m.content).join('\n'),
+        dataText: attachDataContext && includeDreamsInContext ? dreamsContext : '',
+        messageText: message,
+      }),
+      analysisMemory: analysisMemoryUpdated ? assistantMessage : previousAnalysisMemory,
+      analysisMemoryUpdated,
       conversationHistory: [
         ...safeConversationHistory,
         { role: 'user', content: message },
-        { role: 'assistant', content: assistantMessage }
-      ]
+        { role: 'assistant', content: assistantMessage },
+      ],
     });
   } catch (error: any) {
     console.error('AI chat error:', error);
-    
+
     let errorMessage = 'Ошибка при обращении к ИИ';
     if (error.message?.includes('timeout')) {
       errorMessage = 'Превышено время ожидания ответа от ИИ. Попробуйте еще раз.';
     } else if (error.status === 503) {
       errorMessage = 'Модель загружается. Подождите несколько секунд и попробуйте снова.';
     } else if (error.status === 401) {
-      errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY в .env файле.';
+      errorMessage = 'Неверный OpenRouter токен. Проверьте OPENROUTER_API_KEY in .env файле.';
     } else if (error.status === 402 || String(error.message || '').toLowerCase().includes('quota exceeded')) {
       errorMessage = 'Лимит токенов AI исчерпан для текущего периода. Проверьте квоту в настройках.';
     } else if (error.message) {
       errorMessage = asUserFacingAiError(error);
     }
-    
-    res.status(error.status || 500).json({ 
-      error: errorMessage, 
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+
+    res.status(error.status || 500).json({
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 });
