@@ -74,11 +74,6 @@ type PlatformTranscriptionModelSettings = {
   options: Array<{ id: string; label: string; strategy: string }>;
 };
 
-type PlatformTranscriptionModelSettings = {
-  model: string;
-  options: Array<{ id: string; label: string; strategy: string }>;
-};
-
 const DND_MIME = 'application/jungai-client-id';
 
 export default function AdminUserManagement() {
