@@ -1,18 +1,13 @@
-import { OpenAI } from 'openai';
+import { createOpenRouterClient } from '../utils/openRouterHttp';
 import { config } from '../config';
 import { MAX_SYMBOLS_PER_DREAM } from '../utils/dreamKeywords';
 
-function makeAiClient(): OpenAI | null {
-  const apiKey = config.openRouterApiKey || config.hfToken;
-  if (!apiKey) return null;
-  return new OpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
-    apiKey,
-    defaultHeaders: {
-      ...(config.openRouterSiteUrl ? { 'HTTP-Referer': config.openRouterSiteUrl } : {}),
-      ...(config.openRouterSiteName ? { 'X-OpenRouter-Title': config.openRouterSiteName } : {}),
-    },
-  });
+function makeAiClient() {
+  try {
+    return createOpenRouterClient();
+  } catch {
+    return null;
+  }
 }
 
 function getModelName(): string {

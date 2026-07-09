@@ -2,6 +2,13 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { requireAuth, requireRole, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import {
+  ensurePlatformSettingTable,
+  getPlatformSetting,
+  isAllowedTranscriptionModel,
+  PLATFORM_TRANSCRIPTION_PRESETS,
+  setPlatformSetting,
+} from '../services/platformSettings';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,20 +35,14 @@ function isTrustedEmailDomain(email: string): boolean {
   );
 }
 
-async function ensurePlatformSettingTable() {
-  await prisma.$executeRawUnsafe(
-    'CREATE TABLE IF NOT EXISTS "PlatformSetting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)'
-  );
+async function ensurePlatformSettingTableLocal() {
+  await ensurePlatformSettingTable();
 }
 
 router.get('/users/settings/ai-model', async (_req: AuthedRequest, res) => {
   try {
-    await ensurePlatformSettingTable();
-    const rows = await prisma.$queryRawUnsafe<Array<{ value: string }>>(
-      'SELECT "value" FROM "PlatformSetting" WHERE "key" = ? LIMIT 1',
-      'ai_model_default'
-    );
-    const current = rows?.[0]?.value || 'deepseek/deepseek-v4-flash';
+    await ensurePlatformSettingTableLocal();
+    const current = (await getPlatformSetting('ai_model_default')) || 'deepseek/deepseek-v4-flash';
     res.json({ model: current, options: PLATFORM_AI_MODEL_OPTIONS });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load AI model setting' });
@@ -54,15 +55,42 @@ router.patch('/users/settings/ai-model', async (req: AuthedRequest, res) => {
     if (!PLATFORM_AI_MODEL_OPTIONS.includes(model)) {
       return res.status(400).json({ error: 'Недопустимая модель' });
     }
-    await ensurePlatformSettingTable();
-    await prisma.$executeRawUnsafe(
-      'INSERT INTO "PlatformSetting" ("key","value") VALUES (?,?) ON CONFLICT("key") DO UPDATE SET "value"=excluded."value"',
-      'ai_model_default',
-      model
-    );
+    await ensurePlatformSettingTableLocal();
+    await setPlatformSetting('ai_model_default', model);
     res.json({ success: true, model });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update AI model setting' });
+  }
+});
+
+router.get('/users/settings/transcription-model', async (_req: AuthedRequest, res) => {
+  try {
+    const current =
+      (await getPlatformSetting('ai_transcription_model')) || 'google/gemini-2.5-flash';
+    res.json({
+      model: isAllowedTranscriptionModel(current) ? current : 'google/gemini-2.5-flash',
+      options: PLATFORM_TRANSCRIPTION_PRESETS.map((p) => ({
+        id: p.id,
+        label: p.label,
+        strategy: p.strategy,
+      })),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load transcription model setting' });
+  }
+});
+
+router.patch('/users/settings/transcription-model', async (req: AuthedRequest, res) => {
+  try {
+    const model = String(req.body?.model || '').trim();
+    if (!isAllowedTranscriptionModel(model)) {
+      return res.status(400).json({ error: 'Недопустимая модель транскрибации' });
+    }
+    await setPlatformSetting('ai_transcription_model', model);
+    const preset = PLATFORM_TRANSCRIPTION_PRESETS.find((p) => p.id === model);
+    res.json({ success: true, model, strategy: preset?.strategy ?? 'stt-first' });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update transcription model setting' });
   }
 });
 

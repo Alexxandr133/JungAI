@@ -69,6 +69,16 @@ type PlatformAiModelSettings = {
   options: string[];
 };
 
+type PlatformTranscriptionModelSettings = {
+  model: string;
+  options: Array<{ id: string; label: string; strategy: string }>;
+};
+
+type PlatformTranscriptionModelSettings = {
+  model: string;
+  options: Array<{ id: string; label: string; strategy: string }>;
+};
+
 const DND_MIME = 'application/jungai-client-id';
 
 export default function AdminUserManagement() {
@@ -103,6 +113,9 @@ export default function AdminUserManagement() {
   const [platformAiModel, setPlatformAiModel] = useState('');
   const [platformAiOptions, setPlatformAiOptions] = useState<string[]>([]);
   const [platformAiBusy, setPlatformAiBusy] = useState(false);
+  const [platformSttModel, setPlatformSttModel] = useState('');
+  const [platformSttOptions, setPlatformSttOptions] = useState<PlatformTranscriptionModelSettings['options']>([]);
+  const [platformSttBusy, setPlatformSttBusy] = useState(false);
 
   const [qDebounced, setQDebounced] = useState('');
 
@@ -121,11 +134,12 @@ export default function AdminUserManagement() {
         const params = new URLSearchParams();
         if (roleFilter) params.set('role', roleFilter);
         if (qDebounced.trim()) params.set('q', qDebounced.trim());
-        const [u, p, c, modelSettings] = await Promise.all([
+        const [u, p, c, modelSettings, sttSettings] = await Promise.all([
           api<{ items: AdminUserRow[] }>(`/api/admin/users?${params.toString()}`, { token }),
           api<{ items: PsychOption[] }>('/api/admin/users/psychologists-options', { token }),
           api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token }),
-          api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token })
+          api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token }),
+          api<PlatformTranscriptionModelSettings>('/api/admin/users/settings/transcription-model', { token })
         ]);
         if (cancelled) return;
         setUsers(u.items || []);
@@ -133,6 +147,8 @@ export default function AdminUserManagement() {
         setClientsCrm(c.items || []);
         setPlatformAiModel(modelSettings.model || '');
         setPlatformAiOptions(modelSettings.options || []);
+        setPlatformSttModel(sttSettings.model || '');
+        setPlatformSttOptions(sttSettings.options || []);
       } catch (e: unknown) {
         if (!cancelled) setError((e as Error).message || 'Ошибка загрузки');
       } finally {
@@ -152,17 +168,20 @@ export default function AdminUserManagement() {
       const params = new URLSearchParams();
       if (roleFilter) params.set('role', roleFilter);
       if (qDebounced.trim()) params.set('q', qDebounced.trim());
-      const [u, p, c, modelSettings] = await Promise.all([
+      const [u, p, c, modelSettings, sttSettings] = await Promise.all([
         api<{ items: AdminUserRow[] }>(`/api/admin/users?${params.toString()}`, { token }),
         api<{ items: PsychOption[] }>('/api/admin/users/psychologists-options', { token }),
         api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token }),
-        api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token })
+        api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token }),
+        api<PlatformTranscriptionModelSettings>('/api/admin/users/settings/transcription-model', { token })
       ]);
       setUsers(u.items || []);
       setPsychOptions(p.items || []);
       setClientsCrm(c.items || []);
       setPlatformAiModel(modelSettings.model || '');
       setPlatformAiOptions(modelSettings.options || []);
+      setPlatformSttModel(sttSettings.model || '');
+      setPlatformSttOptions(sttSettings.options || []);
     } catch (e: unknown) {
       setError((e as Error).message || 'Ошибка загрузки');
     } finally {
@@ -203,6 +222,24 @@ export default function AdminUserManagement() {
       setError((e as Error).message || 'Не удалось изменить модель AI');
     } finally {
       setPlatformAiBusy(false);
+    }
+  }
+
+  async function updatePlatformSttModel(model: string) {
+    if (!token || !model || model === platformSttModel) return;
+    setPlatformSttBusy(true);
+    setError(null);
+    try {
+      await api('/api/admin/users/settings/transcription-model', {
+        method: 'PATCH',
+        token,
+        body: { model }
+      });
+      setPlatformSttModel(model);
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Не удалось изменить модель транскрибации');
+    } finally {
+      setPlatformSttBusy(false);
     }
   }
 
@@ -431,6 +468,34 @@ export default function AdminUserManagement() {
               <option key={o} value={o}>{o}</option>
             ))}
           </select>
+        </div>
+
+        <div className="card" style={{ padding: 14, marginBottom: 16, borderRadius: 12, border: borderSubtle }}>
+          <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            Модель транскрибации (аудио → текст)
+          </label>
+          <select
+            value={platformSttModel}
+            onChange={(e) => void updatePlatformSttModel(e.target.value)}
+            disabled={platformSttBusy}
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              padding: '10px 12px',
+              borderRadius: 10,
+              border: borderInput,
+              background: 'var(--surface-2)',
+              color: 'var(--text)',
+              fontSize: 14
+            }}
+          >
+            {platformSttOptions.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </select>
+          <p className="small" style={{ margin: '8px 0 0', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Whisper рекомендуется для длинных записей (1–3 ч). Gemini — для коротких с разметкой спикеров.
+          </p>
         </div>
 
         {validateOk && (

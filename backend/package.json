@@ -45,6 +45,7 @@
     "pdfjs-dist": "^4.10.38",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
+    "undici": "^6.27.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

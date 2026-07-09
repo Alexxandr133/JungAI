@@ -20,6 +20,8 @@ export const config = {
   openRouterApiKey: process.env.OPENROUTER_API_KEY || '',
   openRouterSiteUrl: process.env.OPENROUTER_SITE_URL || '',
   openRouterSiteName: process.env.OPENROUTER_SITE_NAME || '',
+  /** HTTP(S) прокси для исходящих запросов к OpenRouter (обход geo-block из РФ). */
+  openRouterProxyUrl: process.env.OPENROUTER_PROXY_URL || process.env.HTTPS_PROXY || '',
   aiModelDefault: process.env.AI_MODEL_DEFAULT || 'deepseek/deepseek-chat-v3-0324',
   /** Модель OpenRouter для запросов с изображениями (vision) */
   aiVisionModel: process.env.AI_VISION_MODEL || 'openai/gpt-4o-mini',
@@ -61,6 +63,10 @@ export const config = {
 };
 
 // Логирование для отладки (только первые символы токена для безопасности)
+if (config.openRouterProxyUrl) {
+  const maskedProxy = config.openRouterProxyUrl.replace(/:\/\/([^:@/]+):([^@/]+)@/, '://***:***@');
+  console.log(`[Config] OpenRouter egress proxy: ${maskedProxy}`);
+}
 if (config.openRouterApiKey) {
   console.log(`[Config] OPENROUTER_API_KEY loaded: ${config.openRouterApiKey.substring(0, 10)}... (length: ${config.openRouterApiKey.length})`);
 } else if (config.hfToken) {

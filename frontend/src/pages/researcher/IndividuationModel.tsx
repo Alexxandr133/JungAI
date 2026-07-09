@@ -12,9 +12,12 @@ import {
   loadResearcherIndividuationResult,
   clearResearcherIndividuationResult,
   saveResearcherIndividuationResult,
+  stageStateInterpretation,
+  dominantState,
   type CognitiveHexResult,
   type IndividuationHexResult,
   type StageId,
+  type ViewMode,
 } from '../../data/individuationModel';
 import './IndividuationModel.css';
 
@@ -32,6 +35,7 @@ export default function ResearcherIndividuationModel() {
   const { token } = useAuth();
   const [tab, setTab] = useState<Tab>('model');
   const [activeStage, setActiveStage] = useState<StageId>('S1');
+  const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [testKind, setTestKind] = useState<'individuation-hex' | 'cognitive-hex' | null>(null);
   const [hexResult, setHexResult] = useState<IndividuationHexResult | null>(() =>
     loadResearcherIndividuationResult('individuation-hex') as IndividuationHexResult | null
@@ -43,6 +47,7 @@ export default function ResearcherIndividuationModel() {
   const [loadingParticipants, setLoadingParticipants] = useState(false);
 
   const active = INDIVIDUATION_STAGES.find((s) => s.id === activeStage) ?? INDIVIDUATION_STAGES[0];
+  const activeProf = hexResult?.stages.find((s) => s.stage === activeStage);
 
   const loadParticipants = useCallback(async () => {
     if (!token) return;
@@ -90,8 +95,8 @@ export default function ResearcherIndividuationModel() {
             Модель индивидуации
           </h1>
           <p className="individuation-page__lead">
-            Шесть стадий спиральной динамики на гексаграмме (движение против часовой стрелки), три оси компенсаций и
-            когнитивный слой. Диагностика для участников и исследователя.
+            Шесть стадий спиральной динамики на гексаграмме: движение строго против часовой стрелки (S1 → S6).
+            Два треугольника — путь воли (S1–S3) и путь смысла (S4–S6). Три оси компенсаций и когнитивный слой.
           </p>
           <nav className="individuation-tabs">
             <button type="button" className={tab === 'model' ? 'active' : ''} onClick={() => setTab('model')}>
@@ -110,12 +115,30 @@ export default function ResearcherIndividuationModel() {
           <>
             <div className="individuation-page__grid">
               <div className="individuation-hex-wrap card">
+                <div className="individuation-hex-wrap__modes">
+                  {(['overview', 'axes', 'shadow'] as ViewMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={viewMode === m ? 'individuation-hex-wrap__mode active' : 'individuation-hex-wrap__mode'}
+                      onClick={() => setViewMode(m)}
+                    >
+                      {m === 'overview' ? 'Обзор' : m === 'axes' ? 'Оси' : 'Тень'}
+                    </button>
+                  ))}
+                </div>
                 <IndividuationHexagram
                   activeStage={activeStage}
                   onStageClick={setActiveStage}
                   result={hexResult}
-                  size={460}
+                  viewMode={viewMode}
+                  animated
+                  size={480}
                 />
+                <p className="individuation-hex-wrap__hint small">
+                  Длина луча: I удлиняет, F выходит за круг (уроборос), D укорачивает. Пунктир — дефицит.
+                  Пульсация — фиксация. Золотой центр — баланс интеграции.
+                </p>
                 <div className="individuation-hex-legend">
                   {INDIVIDUATION_STAGES.map((s) => (
                     <button
@@ -125,23 +148,49 @@ export default function ResearcherIndividuationModel() {
                       onClick={() => setActiveStage(s.id)}
                     >
                       <span className="ind-legend-dot" style={{ background: s.color }} />
-                      {s.id}: {s.label}
+                      {s.id}: {s.sdLevel}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className="individuation-detail card">
-                <div className="individuation-detail__axis">{active.archetype}</div>
+                <div className="individuation-detail__badges">
+                  <span className="individuation-detail__axis">{active.archetype}</span>
+                  <span className="individuation-detail__sd" style={{ borderColor: active.color, color: active.color }}>
+                    {active.sdLevel}
+                  </span>
+                </div>
                 <h2>{active.label}</h2>
+                <p className="individuation-detail__meta">{active.position}</p>
                 <p className="individuation-detail__short">{active.focus}</p>
                 <div className="individuation-detail__color" style={{ background: active.color }} />
+                {activeProf && (
+                  <>
+                    <div className="individuation-detail__dfi">
+                      <div><span>D</span><i style={{ width: `${activeProf.D}%`, background: active.color, opacity: 0.45 }} /></div>
+                      <div><span>F</span><i style={{ width: `${activeProf.F}%`, background: active.color, opacity: 0.75 }} /></div>
+                      <div><span>I</span><i style={{ width: `${activeProf.I}%`, background: active.color }} /></div>
+                    </div>
+                    <p className="individuation-detail__interp small">
+                      {stageStateInterpretation(activeProf, active.label)}
+                    </p>
+                    <p className="individuation-detail__dominant small">
+                      Доминанта:{' '}
+                      {dominantState(activeProf) === 'D'
+                        ? 'дефицит'
+                        : dominantState(activeProf) === 'F'
+                          ? 'фиксация'
+                          : 'интеграция'}
+                    </p>
+                  </>
+                )}
                 <div className="individuation-detail__integrations">
                   <h3>Измерения D / F / I</h3>
                   <ul>
-                    <li><strong>D</strong> — дефицит: стадия вытеснена (бледный луч, разрыв)</li>
-                    <li><strong>F</strong> — фиксация: ригидное доминирование (пульсация)</li>
-                    <li><strong>I</strong> — интеграция: ресурс доступен гибко (длина луча)</li>
+                    <li><strong>D</strong> — дефицит: стадия вытеснена (бледный луч, пунктир)</li>
+                    <li><strong>F</strong> — фиксация: ригидное доминирование (пульсация, мутный цвет)</li>
+                    <li><strong>I</strong> — интеграция: ресурс доступен гибко (длина луча до вершины)</li>
                   </ul>
                 </div>
               </div>

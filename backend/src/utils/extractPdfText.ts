@@ -1,6 +1,7 @@
 import path from 'path';
-import { OpenAI } from 'openai';
+import type OpenAI from 'openai';
 import { config } from '../config';
+import { createOpenRouterClient } from './openRouterHttp';
 
 // pdf-parse v2 fallback
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -100,19 +101,7 @@ async function extractPdfTextViaPdfParse(buffer: Buffer): Promise<string> {
 }
 
 async function extractPdfTextViaOpenRouter(buffer: Buffer, fileName: string): Promise<string> {
-  const apiKey = config.openRouterApiKey || config.hfToken;
-  if (!apiKey) {
-    throw new Error('AI-извлечение недоступно (нет OPENROUTER_API_KEY)');
-  }
-
-  const client = new OpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
-    apiKey,
-    defaultHeaders: {
-      ...(config.openRouterSiteUrl ? { 'HTTP-Referer': config.openRouterSiteUrl } : {}),
-      ...(config.openRouterSiteName ? { 'X-OpenRouter-Title': config.openRouterSiteName } : {}),
-    },
-  });
+  const client = createOpenRouterClient();
 
   const base64 = buffer.toString('base64');
   const model = config.aiModelDefault || 'google/gemini-2.0-flash-001';

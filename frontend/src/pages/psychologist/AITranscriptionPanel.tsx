@@ -59,32 +59,51 @@ function formatDate(iso: string): string {
 }
 
 const SPEAKER_LINE_RE = /^(Спикер\s*\d+|Speaker\s*\d+|Психолог|Клиент|Терапевт|Пациент)\s*:\s*/iu;
+const TIMESTAMP_PREFIX_RE = /^(\[\d{1,2}:\d{2}:\d{2}\])\s*/;
+
+function renderTranscriptionLine(line: string, key: number) {
+  const tsMatch = line.match(TIMESTAMP_PREFIX_RE);
+  const ts = tsMatch?.[1] ?? '';
+  const rest = ts ? line.slice(tsMatch![0].length) : line;
+  const speakerMatch = rest.match(SPEAKER_LINE_RE);
+
+  if (speakerMatch) {
+    const label = speakerMatch[0];
+    const body = rest.slice(label.length);
+    return (
+      <div key={key} className="ai-transcription-speaker-line">
+        {ts ? <span className="ai-transcription-timestamp">{ts}</span> : null}
+        <span className="ai-transcription-speaker-label">{label}</span>
+        <span>{body}</span>
+      </div>
+    );
+  }
+
+  if (!rest.trim()) {
+    return <div key={key} className="ai-transcription-text-gap" aria-hidden />;
+  }
+
+  if (ts) {
+    return (
+      <p key={key} className="ai-transcription-text-para ai-transcription-text-para--timestamped">
+        <span className="ai-transcription-timestamp">{ts}</span>
+        <span>{rest}</span>
+      </p>
+    );
+  }
+
+  return (
+    <p key={key} className="ai-transcription-text-para">
+      {rest}
+    </p>
+  );
+}
 
 export function TranscriptionText({ text, className = '' }: { text: string; className?: string }) {
   const lines = text.split('\n');
   return (
     <div className={`ai-transcription-text ${className}`.trim()}>
-      {lines.map((line, i) => {
-        const m = line.match(SPEAKER_LINE_RE);
-        if (m) {
-          const label = m[0];
-          const body = line.slice(label.length);
-          return (
-            <div key={i} className="ai-transcription-speaker-line">
-              <span className="ai-transcription-speaker-label">{label}</span>
-              <span>{body}</span>
-            </div>
-          );
-        }
-        if (!line.trim()) {
-          return <div key={i} className="ai-transcription-text-gap" aria-hidden />;
-        }
-        return (
-          <p key={i} className="ai-transcription-text-para">
-            {line}
-          </p>
-        );
-      })}
+      {lines.map((line, i) => renderTranscriptionLine(line, i))}
     </div>
   );
 }
@@ -387,9 +406,9 @@ export function AITranscriptionPanel({
   return (
     <div className="ai-transcription-root">
       <p className="ai-transcription-hint small">
-        Загрузите аудиозапись сессии или интервью — сервис подготовит текстовую расшифровку с репликами
-        собеседников. Подходят MP3, WAV, OGG, M4A и другие форматы; длинные записи (в том числе на несколько
-        часов) обрабатываются автоматически.
+        Загрузите аудиозапись сессии или интервью — сервис подготовит текстовую расшифровку с таймкодами
+        [ЧЧ:ММ:СС] и репликами собеседников. Подходят MP3, WAV, OGG, M4A и другие форматы; длинные записи
+        (1–3 ч) обрабатываются по частям автоматически.
       </p>
 
       <div

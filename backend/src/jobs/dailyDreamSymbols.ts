@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import { OpenAI } from 'openai';
 import { prisma } from '../db/prisma';
 import { config } from '../config';
+import { createOpenRouterClient } from '../utils/openRouterHttp';
 import { symbolKey } from '../utils/dreamKeywords';
 
 type SymbolCountRow = { symbol: string; count: number };
@@ -202,16 +202,11 @@ function buildTagNormalizationPrompt(input: {
 }
 
 function makeAiClient() {
-  const apiKey = config.openRouterApiKey || config.hfToken;
-  if (!apiKey) return null;
-  return new OpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
-    apiKey,
-    defaultHeaders: {
-      ...(config.openRouterSiteUrl ? { 'HTTP-Referer': config.openRouterSiteUrl } : {}),
-      ...(config.openRouterSiteName ? { 'X-OpenRouter-Title': config.openRouterSiteName } : {})
-    }
-  });
+  try {
+    return createOpenRouterClient();
+  } catch {
+    return null;
+  }
 }
 
 function getModelName(): string {

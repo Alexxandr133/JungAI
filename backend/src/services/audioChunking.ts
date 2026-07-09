@@ -29,6 +29,15 @@ export function chunkSegmentSeconds(): number {
   return Number.isFinite(s) ? Math.max(120, Math.floor(s)) : 600;
 }
 
+/** Короче сегменты для очень длинных файлов (2–3 ч) — меньше галлюцинаций и «заеданий». */
+export function effectiveChunkSegmentSeconds(byteLength: number): number {
+  const base = chunkSegmentSeconds();
+  const mb = byteLength / (1024 * 1024);
+  if (mb >= 80) return Math.min(base, 300);
+  if (mb >= 45) return Math.min(base, 420);
+  return base;
+}
+
 function ffmpegSplitTimeoutMs(byteLength: number): number {
   const mb = byteLength / (1024 * 1024);
   return Math.min(1_800_000, Math.max(300_000, Math.floor(300_000 + mb * 15_000)));
@@ -49,7 +58,11 @@ function fileExtForFormat(format: string): string {
  * Режет аудио на части (~8 мин по умолчанию) через ffmpeg -c copy.
  * При ошибке или отсутствии ffmpeg возвращает исходный буфер одним элементом.
  */
-export async function splitAudioBuffer(buffer: Buffer, format: string): Promise<Buffer[]> {
+export async function splitAudioBuffer(
+  buffer: Buffer,
+  format: string,
+  segmentSecOverride?: number
+): Promise<Buffer[]> {
   const ffmpeg = getFfmpegPath();
   if (!ffmpeg) {
     console.warn('[STT] ffmpeg не найден — длинный файл отправится целиком (риск 502)');
@@ -60,7 +73,7 @@ export async function splitAudioBuffer(buffer: Buffer, format: string): Promise<
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'jing-stt-'));
   const inputPath = path.join(tmpDir, `input.${ext}`);
   const outPattern = path.join(tmpDir, `part_%03d.${ext}`);
-  const segmentSec = chunkSegmentSeconds();
+  const segmentSec = segmentSecOverride ?? chunkSegmentSeconds();
   const splitTimeout = ffmpegSplitTimeoutMs(buffer.length);
 
   try {

@@ -295,6 +295,38 @@
   border-left: 3px solid rgba(91, 124, 250, 0.45);
 }
 
+.ai-transcription-timestamp {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: rgba(91, 124, 250, 0.1);
+  border-radius: 6px;
+  padding: 2px 6px;
+  margin-right: 8px;
+  vertical-align: baseline;
+  letter-spacing: 0.02em;
+}
+
+.ai-transcription-text-para--timestamped {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ai-transcription-text-para--timestamped .ai-transcription-timestamp {
+  flex-shrink: 0;
+  margin-right: 0;
+  margin-top: 2px;
+}
+
+.ai-transcription-speaker-line .ai-transcription-timestamp {
+  display: block;
+  margin-bottom: 4px;
+  width: fit-content;
+}
+
 .ai-transcription-speaker-label {
   display: block;
   font-weight: 700;

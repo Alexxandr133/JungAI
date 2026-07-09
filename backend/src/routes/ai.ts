@@ -4,7 +4,7 @@ import { requireAuth, requireRole, requireVerification, AuthedRequest } from '..
 import { prisma } from '../db/prisma';
 import { enqueueDreamSymbolExtraction } from '../jobs/dreamSymbolExtraction';
 import { config } from '../config';
-import { OpenAI } from 'openai';
+import { createOpenRouterClient, getOpenRouterApiKeyOrNull } from '../utils/openRouterHttp';
 import { assertAiQuotaAvailable, consumeAiTokens, getAiQuotaStatus } from '../services/aiTokenQuota';
 import {
   AI_TRANSCRIPTION_MAX_BYTES,
@@ -177,16 +177,8 @@ function parsePsychologistClientModeEnabled(body: unknown): boolean {
   return true;
 }
 
-const apiKey = config.openRouterApiKey || config.hfToken;
-// OpenRouter OpenAI-compatible endpoint
-const openRouterClient = apiKey ? new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey,
-  defaultHeaders: {
-    ...(config.openRouterSiteUrl ? { 'HTTP-Referer': config.openRouterSiteUrl } : {}),
-    ...(config.openRouterSiteName ? { 'X-OpenRouter-Title': config.openRouterSiteName } : {})
-  }
-}) : null;
+const apiKey = getOpenRouterApiKeyOrNull();
+const openRouterClient = apiKey ? createOpenRouterClient(apiKey) : null;
 
 const AI_FALLBACK_MODEL = 'deepseek/deepseek-v3.2';
 const DEFAULT_AI_MODEL = config.aiModelDefault || AI_FALLBACK_MODEL;

@@ -278,6 +278,40 @@ JingAI — monorepo-платформа для психологов и клиен
   - `AI_ALLOWED_MODELS=...` (актуальный whitelist)
 - `HF_TOKEN` лучше не использовать на проде, чтобы избежать неявного fallback.
 
+#### 18.2.1 Прокси для OpenRouter (geo-block из РФ)
+
+Если с прод-сервера OpenRouter отвечает `403 Access denied by security policy`, исходящие запросы бэкенда идут через зарубежный VPS-прокси.
+
+**На прокси-сервере** (например `72.56.29.52`) — `tinyproxy`, доступ только с IP основного сервера:
+
+```bash
+apt install -y tinyproxy
+sed -i 's/^Allow /#Allow /' /etc/tinyproxy/tinyproxy.conf
+echo 'Allow 212.193.30.213' >> /etc/tinyproxy/tinyproxy.conf   # IP jung-ai.ru
+echo 'Port 3128' >> /etc/tinyproxy/tinyproxy.conf
+systemctl enable --now tinyproxy
+ufw allow from 212.193.30.213 to any port 3128 proto tcp
+```
+
+**На основном сервере** (`backend/.env`):
+
+```env
+OPENROUTER_PROXY_URL=http://72.56.29.52:3128
+```
+
+Перезапуск: `pm2 restart jingai-backend --update-env`. В логах должно быть: `[Config] OpenRouter egress proxy: http://72.56.29.52:3128`.
+
+Проверка с основного сервера:
+
+```bash
+curl -x http://72.56.29.52:3128 -s -o /dev/null -w "%{http_code}" https://openrouter.ai/api/v1/models \
+  -H "Authorization: Bearer $OPENROUTER_API_KEY"
+```
+
+Код реализован в `backend/src/utils/openRouterHttp.ts` — прокси применяется ко всем вызовам OpenRouter (чаты, транскрибация, PDF, dream symbols).
+
+**Модель транскрибации** задаётся в админке (`/admin/users` → «Модель транскрибации»), ключ в БД: `ai_transcription_model`. Варианты: `openai/whisper-large-v3` (stt-first, лучше для 1–3 ч) и `google/gemini-2.5-flash` (chat-first, спикеры). Env `AI_TRANSCRIPTION_STRATEGY` по-прежнему может переопределить стратегию.
+
 ### 18.3 Время событий (/events) и timezone
 - Исправлен прод-сдвиг времени для `datetime-local` (когда 18:00 превращалось в 21:00).
 - Добавлены env-параметры:

@@ -1,6 +1,11 @@
-import { config } from '../config';
+import { getOpenRouterApiKey, openRouterAuthHeaders, openRouterFetch } from '../utils/openRouterHttp';
+import {
+  getPlatformTranscriptionModel,
+  resolveTranscriptionPreset,
+} from './platformSettings';
 import {
   chunkThresholdBytes,
+  effectiveChunkSegmentSeconds,
   getFfmpegPath,
   shouldChunkAudio,
   splitAudioBuffer,
@@ -32,48 +37,141 @@ const RATE_LIMIT_RETRY_MS = 45_000;
 
 const DEFAULT_LANGUAGE = () => (process.env.AI_TRANSCRIPTION_LANGUAGE || 'ru').trim();
 
-/** chat-first — Gemini/audio в chat (работает при 403 на OpenAI STT); stt-first — классический /audio/transcriptions */
-const TRANSCRIPTION_STRATEGY = (): 'chat-first' | 'stt-first' => {
-  const s = (process.env.AI_TRANSCRIPTION_STRATEGY || 'chat-first').trim().toLowerCase();
-  return s === 'stt-first' || s === 'stt' ? 'stt-first' : 'chat-first';
+export type TranscriptionRuntimeConfig = {
+  primaryModel: string;
+  strategy: 'chat-first' | 'stt-first';
+  sttModels: string[];
+  chatModels: string[];
 };
 
-/** Модели для /audio/transcriptions (по порядку) */
-const STT_MODEL_CANDIDATES = (): string[] => {
-  const fromEnv = (process.env.AI_TRANSCRIPTION_MODEL || '')
+export async function loadTranscriptionRuntimeConfig(): Promise<TranscriptionRuntimeConfig> {
+  const primaryModel = await getPlatformTranscriptionModel();
+  const preset = resolveTranscriptionPreset(primaryModel);
+  const envStrategy = (process.env.AI_TRANSCRIPTION_STRATEGY || '').trim().toLowerCase();
+  const strategy: 'chat-first' | 'stt-first' =
+    envStrategy === 'stt-first' || envStrategy === 'stt'
+      ? 'stt-first'
+      : envStrategy === 'chat-first' || envStrategy === 'chat'
+        ? 'chat-first'
+        : preset.strategy;
+
+  const sttFromEnv = (process.env.AI_TRANSCRIPTION_MODEL || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const defaults = ['openai/whisper-large-v3'];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const m of [...fromEnv, ...defaults]) {
-    if (!seen.has(m)) {
-      seen.add(m);
-      out.push(m);
-    }
-  }
-  return out;
-};
-
-/** Fallback: chat/completions + input_audio (если STT endpoint даёт 403) */
-const CHAT_AUDIO_MODEL_CANDIDATES = (): string[] => {
-  const fromEnv = (process.env.AI_TRANSCRIPTION_CHAT_MODEL || '')
+  const chatFromEnv = (process.env.AI_TRANSCRIPTION_CHAT_MODEL || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  const defaults = ['google/gemini-2.5-flash', 'openai/gpt-4o-mini'];
+
+  const sttModels = uniqueModels([
+    ...(preset.strategy === 'stt-first' ? [primaryModel] : []),
+    ...sttFromEnv,
+    'openai/whisper-large-v3',
+  ]);
+  const chatModels = uniqueModels([
+    ...(preset.strategy === 'chat-first' ? [primaryModel] : []),
+    ...chatFromEnv,
+    'google/gemini-2.5-flash',
+    'openai/gpt-4o-mini',
+  ]);
+
+  return { primaryModel, strategy, sttModels, chatModels };
+}
+
+function uniqueModels(models: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const m of [...fromEnv, ...defaults]) {
-    if (!seen.has(m)) {
-      seen.add(m);
-      out.push(m);
-    }
+  for (const m of models) {
+    if (!m || seen.has(m)) continue;
+    seen.add(m);
+    out.push(m);
   }
   return out;
-};
+}
 
+export function formatTimestamp(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+}
+
+const TIMESTAMP_PREFIX_RE = /^\[\d{1,2}:\d{2}:\d{2}\]\s*/;
+
+export function shiftTimestampsInText(text: string, offsetSec: number): string {
+  if (offsetSec <= 0) return text;
+  return text
+    .split('\n')
+    .map((line) => {
+      const m = line.match(/^(\[)(\d{1,2}):(\d{2}):(\d{2})(\])\s*/);
+      if (!m) return line;
+      const total =
+        Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4]) + offsetSec;
+      return `[${formatTimestamp(total)}] ${line.slice(m[0].length)}`;
+    })
+    .join('\n');
+}
+
+function prefixChunkTimestamp(text: string, startSec: number): string {
+  const trimmed = text.trim();
+  if (!trimmed) return '';
+  if (TIMESTAMP_PREFIX_RE.test(trimmed.split('\n')[0] || '')) {
+    return shiftTimestampsInText(trimmed, startSec);
+  }
+  return `[${formatTimestamp(startSec)}]\n${trimmed}`;
+}
+
+function segmentsToTimestampedText(
+  segments: Array<{ start?: number; text?: string }>,
+  offsetSec = 0
+): string {
+  return segments
+    .map((seg) => {
+      const body = String(seg.text || '').trim();
+      if (!body) return '';
+      const start = (typeof seg.start === 'number' ? seg.start : 0) + offsetSec;
+      return `[${formatTimestamp(start)}] ${body}`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** Детект «заеданий», английского переключения и мусора на длинных записях. */
+export function isLowQualityTranscription(text: string, lang: string): boolean {
+  const t = text.trim();
+  if (t.length < 4) return true;
+
+  const compact = t.replace(/[\s\[\]:0-9-]/g, '');
+  if (compact.length >= 8) {
+    let maxRun = 1;
+    let run = 1;
+    for (let i = 1; i < compact.length; i++) {
+      if (compact[i] === compact[i - 1]) {
+        run++;
+        if (run > maxRun) maxRun = run;
+      } else {
+        run = 1;
+      }
+    }
+    if (maxRun >= 10) return true;
+  }
+
+  if (/(?:[аaуy]-){12,}/i.test(t)) return true;
+  if (/(?:а{6,}|a{6,}|уа{5,}|la{5,})/i.test(t)) return true;
+
+  if (lang === 'ru') {
+    const cyr = (t.match(/[а-яё]/gi) || []).length;
+    const lat = (t.match(/[a-z]/gi) || []).length;
+    const total = cyr + lat;
+    if (total > 40 && lat / total > 0.42) return true;
+  }
+
+  return false;
+}
+
+/** chat-first — Gemini/audio в chat; stt-first — классический /audio/transcriptions */
 const AUDIO_MIMES = new Set([
   'audio/mpeg',
   'audio/mp3',
@@ -175,22 +273,7 @@ async function emitProgress(
 }
 
 function getApiKey(): string {
-  const apiKey = config.openRouterApiKey || config.hfToken;
-  if (!apiKey) {
-    throw new Error('OpenRouter API не настроен. Установите OPENROUTER_API_KEY.');
-  }
-  return apiKey;
-}
-
-function openRouterHeaders(apiKey: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  };
-  if (config.openRouterSiteUrl) headers['HTTP-Referer'] = config.openRouterSiteUrl;
-  if (config.openRouterSiteName) headers['X-OpenRouter-Title'] = config.openRouterSiteName;
-  return headers;
+  return getOpenRouterApiKey();
 }
 
 function parseApiError(json: any, raw: string, status: number): string {
@@ -260,7 +343,9 @@ async function postStt(
   base64: string,
   format: string,
   language: string,
-  timeoutMs: number
+  timeoutMs: number,
+  offsetSec = 0,
+  verbose = true
 ): Promise<{ ok: true; result: TranscriptionApiResult } | { ok: false; status: number; error: string }> {
   const body: Record<string, unknown> = {
     model,
@@ -270,10 +355,14 @@ async function postStt(
       allow_fallbacks: true,
     },
   };
+  if (verbose) {
+    body.response_format = 'verbose_json';
+    body.timestamp_granularities = ['segment'];
+  }
 
-  const res = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
+  const res = await openRouterFetch('/audio/transcriptions', {
     method: 'POST',
-    headers: openRouterHeaders(apiKey),
+    headers: openRouterAuthHeaders(apiKey, { 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -287,7 +376,15 @@ async function postStt(
   }
 
   if (res.ok) {
-    const text = String(json?.text || '').trim();
+    let text = '';
+    if (Array.isArray(json?.segments) && json.segments.length) {
+      text = segmentsToTimestampedText(json.segments, offsetSec);
+    } else {
+      text = String(json?.text || '').trim();
+      if (text && offsetSec > 0) {
+        text = prefixChunkTimestamp(text, offsetSec);
+      }
+    }
     if (!text) {
       return { ok: false, status: res.status, error: 'Транскрибация пуста. Проверьте качество записи.' };
     }
@@ -305,6 +402,23 @@ async function postStt(
   return { ok: false, status: res.status, error: parseApiError(json, raw, res.status) };
 }
 
+async function postSttWithFallback(
+  apiKey: string,
+  model: string,
+  base64: string,
+  format: string,
+  language: string,
+  timeoutMs: number,
+  offsetSec = 0
+): Promise<{ ok: true; result: TranscriptionApiResult } | { ok: false; status: number; error: string }> {
+  const verbose = await postStt(apiKey, model, base64, format, language, timeoutMs, offsetSec, true);
+  if (verbose.ok) return verbose;
+  if (verbose.status === 400 || verbose.status === 422) {
+    return postStt(apiKey, model, base64, format, language, timeoutMs, offsetSec, false);
+  }
+  return verbose;
+}
+
 function isDiarizationEnabled(): boolean {
   const v = (process.env.AI_TRANSCRIPTION_DIARIZE ?? 'true').trim().toLowerCase();
   return v !== '0' && v !== 'false' && v !== 'no';
@@ -314,15 +428,29 @@ function chatMaxTokens(): number {
   return isDiarizationEnabled() ? 16_000 : 8_000;
 }
 
-function buildTranscriptionPrompt(language: string, partIndex: number, partTotal: number): string {
+function buildTranscriptionPrompt(
+  language: string,
+  partIndex: number,
+  partTotal: number,
+  chunkStartSec = 0
+): string {
   const diarize = isDiarizationEnabled();
+  const tsRule =
+    'В начале каждой реплики (или абзаца) ставь метку времени [ЧЧ:ММ:СС] относительно начала всей записи. ' +
+    (chunkStartSec > 0
+      ? `Этот фрагмент начинается в [${formatTimestamp(chunkStartSec)}] полной записи — учитывай смещение. `
+      : '');
+
+  const ruStrict =
+    'Строго только русский язык. Не переключайся на английский. ' +
+    'Если фрагмент неразборчив — напиши [неразборчиво], не повторяй одну букву и не выдумывай текст. ';
 
   if (language === 'ru') {
     if (diarize) {
       const speakerRules =
         'Если говорят несколько человек — помечай каждую реплику: «Спикер 1:», «Спикер 2:», «Спикер 3:» (только если слышно 3+ голоса). ' +
         'Если роли очевидны (терапия/консультация), можно «Психолог:» и «Клиент:». При смене говорящего — новая строка с меткой. ' +
-        'Сохраняй дословность; без заголовков markdown и без итогового пересказа.';
+        `${tsRule}${ruStrict}Сохраняй дословность; без заголовков markdown и без итогового пересказа.`;
       if (partTotal > 1) {
         return (
           `Дословно транскрибируй фрагмент ${partIndex} из ${partTotal} длинной записи на русском. ${speakerRules} ` +
@@ -332,9 +460,9 @@ function buildTranscriptionPrompt(language: string, partIndex: number, partTotal
       return `Дословно транскрибируй всю запись на русском. ${speakerRules}`;
     }
     if (partTotal > 1) {
-      return `Дословно транскрибируй фрагмент ${partIndex} из ${partTotal} длинной аудиозаписи на русском языке. Верни только текст речи этого фрагмента, без пояснений и markdown.`;
+      return `Дословно транскрибируй фрагмент ${partIndex} из ${partTotal} длинной аудиозаписи на русском языке. ${tsRule}${ruStrict}Верни только текст речи этого фрагмента, без пояснений и markdown.`;
     }
-    return 'Дословно транскрибируй всё сказанное в аудио на русском языке. Верни только текст речи, без пояснений и markdown.';
+    return `Дословно транскрибируй всё сказанное в аудио на русском языке. ${tsRule}${ruStrict}Верни только текст речи, без пояснений и markdown.`;
   }
 
   if (diarize) {
@@ -365,8 +493,10 @@ async function refineStructuredTranscript(
 Приведи к единому читаемому виду:
 1. Реплики разных людей — «Спикер 1:», «Спикер 2:», «Спикер 3:» (или «Психолог:»/«Клиент:», если роли ясны).
 2. Одна реплика — одна строка с меткой; при смене говорящего — новая строка.
-3. Убери дубли и обрывки на стыках фрагментов, не теряй содержание.
-4. Дословность сохраняй; без вступлений, без пересказа и без markdown-заголовков.
+3. Сохрани все метки времени [ЧЧ:ММ:СС]; при необходимости выровняй их по ходу разговора.
+4. Убери дубли и обрывки на стыках фрагментов, не теряй содержание.
+5. Дословность сохраняй; без вступлений, без пересказа и без markdown-заголовков.
+6. Строго русский язык; убери случайные английские вставки и «заедания» букв (А-А-А-А).
 
 Верни только итоговый текст.
 
@@ -377,9 +507,9 @@ ${draft}`
 --- DRAFT ---
 ${draft}`;
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const res = await openRouterFetch('/chat/completions', {
     method: 'POST',
-    headers: openRouterHeaders(apiKey),
+    headers: openRouterAuthHeaders(apiKey, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       model,
       temperature: 0,
@@ -412,13 +542,14 @@ async function postChatAudioTranscription(
   language: string,
   timeoutMs: number,
   partIndex = 1,
-  partTotal = 1
+  partTotal = 1,
+  chunkStartSec = 0
 ): Promise<{ ok: true; result: TranscriptionApiResult } | { ok: false; status: number; error: string }> {
-  const prompt = buildTranscriptionPrompt(language, partIndex, partTotal);
+  const prompt = buildTranscriptionPrompt(language, partIndex, partTotal, chunkStartSec);
 
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const res = await openRouterFetch('/chat/completions', {
     method: 'POST',
-    headers: openRouterHeaders(apiKey),
+    headers: openRouterAuthHeaders(apiKey, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       model,
       temperature: 0,
@@ -453,10 +584,15 @@ async function postChatAudioTranscription(
     return { ok: false, status: res.status, error: 'Модель не вернула текст транскрибации.' };
   }
 
+  const normalized =
+    chunkStartSec > 0 && !TIMESTAMP_PREFIX_RE.test(text.split('\n')[0] || '')
+      ? prefixChunkTimestamp(text, chunkStartSec)
+      : text;
+
   return {
     ok: true,
     result: {
-      text,
+      text: normalized,
       language,
       modelUsed: `${model} (chat+audio)`,
     },
@@ -468,9 +604,11 @@ async function transcribeViaSttEndpoint(
   base64: string,
   format: string,
   language: string,
-  timeoutMs: number
+  timeoutMs: number,
+  runtime: TranscriptionRuntimeConfig,
+  offsetSec = 0
 ): Promise<TranscriptionApiResult | null> {
-  const models = STT_MODEL_CANDIDATES();
+  const models = runtime.sttModels;
   let lastError = '';
 
   const formatHints = chatAudioFormatHints(format);
@@ -487,8 +625,13 @@ async function transcribeViaSttEndpoint(
             attempt,
             base64Len: base64.length,
           });
-          const out = await postStt(apiKey, model, base64, fmt, language, timeoutMs);
+          const out = await postSttWithFallback(apiKey, model, base64, fmt, language, timeoutMs, offsetSec);
           if (out.ok) {
+            if (isLowQualityTranscription(out.result.text, language)) {
+              lastError = 'low quality stt output';
+              console.warn('[STT] low quality output, retry', { model, format: fmt, partOffset: offsetSec });
+              break;
+            }
             console.log('[STT] success', { model, format: fmt });
             return out.result;
           }
@@ -520,10 +663,12 @@ async function transcribeViaChatAudio(
   format: string,
   language: string,
   timeoutMs: number,
+  runtime: TranscriptionRuntimeConfig,
   partIndex = 1,
-  partTotal = 1
+  partTotal = 1,
+  chunkStartSec = 0
 ): Promise<TranscriptionApiResult> {
-  const models = CHAT_AUDIO_MODEL_CANDIDATES();
+  const models = runtime.chatModels;
   const formatHints = chatAudioFormatHints(format);
   let lastError = userFacing403Hint();
 
@@ -540,9 +685,15 @@ async function transcribeViaChatAudio(
             language,
             timeoutMs,
             partIndex,
-            partTotal
+            partTotal,
+            chunkStartSec
           );
           if (out.ok) {
+            if (isLowQualityTranscription(out.result.text, language)) {
+              lastError = 'low quality chat output';
+              console.warn('[STT] chat+audio low quality', { model, format: fmt, partIndex });
+              break;
+            }
             console.log('[STT] chat+audio success', { model, format: fmt, partIndex });
             return out.result;
           }
@@ -596,25 +747,43 @@ async function transcribeSingleBuffer(
   buffer: Buffer,
   format: string,
   lang: string,
+  runtime: TranscriptionRuntimeConfig,
   partIndex: number,
-  partTotal: number
+  partTotal: number,
+  chunkStartSec = 0
 ): Promise<TranscriptionApiResult> {
   const apiKey = getApiKey();
   const base64 = buffer.toString('base64');
   const timeoutMs = transcriptionTimeoutMs(buffer.length);
-  const strategy = TRANSCRIPTION_STRATEGY();
+  const strategy = runtime.strategy;
+
+  const runStt = () =>
+    transcribeViaSttEndpoint(apiKey, base64, format, lang, timeoutMs, runtime, chunkStartSec);
+  const runChat = () =>
+    transcribeViaChatAudio(
+      apiKey,
+      base64,
+      format,
+      lang,
+      timeoutMs,
+      runtime,
+      partIndex,
+      partTotal,
+      chunkStartSec
+    );
 
   if (strategy === 'stt-first') {
-    const sttResult = await transcribeViaSttEndpoint(apiKey, base64, format, lang, timeoutMs);
+    const sttResult = await runStt();
     if (sttResult) return sttResult;
-    return transcribeViaChatAudio(apiKey, base64, format, lang, timeoutMs, partIndex, partTotal);
+    return runChat();
   }
 
   try {
-    return await transcribeViaChatAudio(apiKey, base64, format, lang, timeoutMs, partIndex, partTotal);
+    const chatResult = await runChat();
+    return chatResult;
   } catch (chatErr: any) {
     console.warn('[STT] chat-first failed, trying STT endpoint', chatErr?.message || chatErr);
-    const sttResult = await transcribeViaSttEndpoint(apiKey, base64, format, lang, timeoutMs);
+    const sttResult = await runStt();
     if (sttResult) return sttResult;
     throw chatErr;
   }
@@ -627,12 +796,19 @@ export async function transcribeAudioBuffer(
   onProgress?: (u: TranscriptionProgressUpdate) => void | Promise<void>
 ): Promise<TranscriptionApiResult> {
   const lang = (language?.trim() || DEFAULT_LANGUAGE()).slice(0, 10);
+  const runtime = await loadTranscriptionRuntimeConfig();
+  console.log('[STT] runtime config', {
+    primaryModel: runtime.primaryModel,
+    strategy: runtime.strategy,
+  });
+
   await emitProgress(onProgress, 15, 'Анализ файла');
 
+  const segmentSec = effectiveChunkSegmentSeconds(buffer.length);
   let chunks: Buffer[] = [buffer];
   if (shouldChunkAudio(buffer.length)) {
     await emitProgress(onProgress, 18, 'Разделение на части');
-    chunks = await splitAudioBuffer(buffer, format);
+    chunks = await splitAudioBuffer(buffer, format, segmentSec);
     if (chunks.length === 1 && buffer.length > chunkThresholdBytes() && !getFfmpegPath()) {
       throw new Error(
         `Файл ${(buffer.length / 1024 / 1024).toFixed(0)} МБ слишком большой для одного запроса к OpenRouter. ` +
@@ -644,7 +820,7 @@ export async function transcribeAudioBuffer(
 
   if (chunks.length === 1) {
     await emitProgress(onProgress, 25, 'Транскрибация');
-    const single = await transcribeSingleBuffer(buffer, format, lang, 1, 1);
+    const single = await transcribeSingleBuffer(buffer, format, lang, runtime, 1, 1, 0);
     await emitProgress(onProgress, 100, 'Готово');
     return single;
   }
@@ -659,15 +835,28 @@ export async function transcribeAudioBuffer(
     if (i > 0) {
       await sleep(CHUNK_PAUSE_MS);
     }
+    const chunkStartSec = i * segmentSec;
     const pct = 20 + Math.round(((i + 0.2) / total) * span);
     await emitProgress(onProgress, pct, `Часть ${i + 1} из ${total}`);
     console.log('[STT] transcribing chunk', {
       part: i + 1,
       total,
+      chunkStartSec,
       mb: (chunks[i].length / 1024 / 1024).toFixed(1),
     });
-    const part = await transcribeSingleBuffer(chunks[i], format, lang, i + 1, total);
-    const t = part.text.trim();
+    const part = await transcribeSingleBuffer(
+      chunks[i],
+      format,
+      lang,
+      runtime,
+      i + 1,
+      total,
+      chunkStartSec
+    );
+    let t = part.text.trim();
+    if (t && chunkStartSec > 0 && !TIMESTAMP_PREFIX_RE.test(t.split('\n')[0] || '')) {
+      t = prefixChunkTimestamp(t, chunkStartSec);
+    }
     if (t) texts.push(t);
     if (part.modelUsed) modelUsed = part.modelUsed;
     await emitProgress(onProgress, 20 + Math.round(((i + 1) / total) * span), `Часть ${i + 1} из ${total}`);

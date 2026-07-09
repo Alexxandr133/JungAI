@@ -11,6 +11,10 @@ export type StageDef = {
   label: string;
   archetype: string;
   color: string;
+  /** Уровень Spiral Dynamics */
+  sdLevel: string;
+  /** Позиция на гексаграмме */
+  position: string;
   focus: string;
   /** Индекс вершины 0–5, порядок против часовой от S1 (низ) */
   ccwIndex: number;
@@ -22,6 +26,8 @@ export const INDIVIDUATION_STAGES: StageDef[] = [
     label: 'Мистическое соучастие',
     archetype: 'Ева / Уроборос',
     color: '#D4A574',
+    sdLevel: 'Бежевый',
+    position: 'Нижняя вершина',
     focus: 'Базовое доверие, телесность, слияние vs автономия',
     ccwIndex: 0,
   },
@@ -30,6 +36,8 @@ export const INDIVIDUATION_STAGES: StageDef[] = [
     label: 'Проективная стадия',
     archetype: 'Елена',
     color: '#9B59B6',
+    sdLevel: 'Фиолетовый',
+    position: 'Правая нижняя',
     focus: 'Магическое мышление, зависимость от авторитета, безопасность',
     ccwIndex: 1,
   },
@@ -38,6 +46,8 @@ export const INDIVIDUATION_STAGES: StageDef[] = [
     label: 'Сила и импульсивность',
     archetype: 'Ипполита / Герой',
     color: '#E74C3C',
+    sdLevel: 'Красный',
+    position: 'Правая верхняя',
     focus: 'Воля, границы, агрессия, «Я хочу», витальность',
     ccwIndex: 2,
   },
@@ -46,6 +56,8 @@ export const INDIVIDUATION_STAGES: StageDef[] = [
     label: 'Абстрактные содержания',
     archetype: 'Мария',
     color: '#3498DB',
+    sdLevel: 'Синий',
+    position: 'Верхняя вершина',
     focus: 'Порядок, мораль, долг, идеология, правила',
     ccwIndex: 3,
   },
@@ -54,6 +66,8 @@ export const INDIVIDUATION_STAGES: StageDef[] = [
     label: 'Снятие проекций',
     archetype: 'Саломея / Рацио',
     color: '#F39C12',
+    sdLevel: 'Оранжевый',
+    position: 'Левая верхняя',
     focus: 'Автономия, рациональность, кризис смыслов',
     ccwIndex: 4,
   },
@@ -62,6 +76,8 @@ export const INDIVIDUATION_STAGES: StageDef[] = [
     label: 'Воссоединение',
     archetype: 'София / Самость',
     color: '#2ECC71',
+    sdLevel: 'Зелёный',
+    position: 'Левая нижняя',
     focus: 'Целостность, эмпатия, принятие, трансперсональность',
     ccwIndex: 5,
   },
@@ -130,9 +146,111 @@ export type StageProfile = {
   I: number;
 };
 
-/** Длина луча = I (интеграция), 18%–100% радиуса */
+/** Длина луча по ТЗ: I удлиняет, F выходит за гексаграмму, D укорачивает */
+export function dominantState(prof: StageProfile): StateKind {
+  if (prof.D >= prof.F && prof.D >= prof.I) return 'D';
+  if (prof.F >= prof.I && prof.F >= prof.D) return 'F';
+  return 'I';
+}
+
+export type RayRenderParams = {
+  lengthFactor: number;
+  dominant: StateKind;
+  dash?: string;
+  pulse: boolean;
+  breathe: boolean;
+  opacity: number;
+  filter: string;
+  deficit: boolean;
+  fixation: boolean;
+};
+
+export function computeRayRender(prof: StageProfile, hasResult = true): RayRenderParams {
+  const D = prof.D / 100;
+  const I = prof.I / 100;
+  const F = prof.F / 100;
+  const dominant = dominantState(prof);
+
+  if (!hasResult) {
+    return {
+      lengthFactor: 0.5,
+      dominant: 'I',
+      pulse: false,
+      breathe: false,
+      opacity: 0.65,
+      filter: 'none',
+      deficit: false,
+      fixation: false,
+    };
+  }
+
+  let lengthFactor = 0.35 + I * 0.6 + F * 0.8 - D * 0.5;
+  if (dominant === 'D' || prof.D > 50) lengthFactor = Math.min(lengthFactor, 0.42 + I * 0.12);
+  if (dominant === 'F' || prof.F > 50) lengthFactor = Math.max(lengthFactor, 1.05 + F * 0.25);
+  if (dominant === 'I' && prof.I > 50) lengthFactor = Math.max(0.88, Math.min(lengthFactor, 1.0));
+  lengthFactor = Math.max(0.3, Math.min(1.3, lengthFactor));
+
+  const deficit = dominant === 'D';
+  const fixation = dominant === 'F';
+
+  return {
+    lengthFactor,
+    dominant,
+    dash: deficit || prof.D > 60 ? '7 5' : undefined,
+    pulse: fixation || prof.F > 60,
+    breathe: dominant === 'I' && prof.I > 40,
+    opacity: deficit ? 0.28 + I * 0.45 : fixation ? 0.88 + F * 0.12 : 0.72 + I * 0.28,
+    filter: deficit
+      ? 'saturate(0.35) brightness(1.18)'
+      : fixation
+        ? 'saturate(1.75) hue-rotate(12deg) brightness(1.08)'
+        : 'saturate(1.15) brightness(1.03)',
+    deficit,
+    fixation,
+  };
+}
+
 export function integrationRayLength(prof: StageProfile): number {
-  return 0.18 + (prof.I / 100) * 0.82;
+  return computeRayRender(prof, true).lengthFactor;
+}
+
+export type StageVisualState = {
+  deficit: boolean;
+  fixation: boolean;
+  rayOpacity: number;
+  colorFilter: string;
+};
+
+export function stageVisualState(prof: StageProfile): StageVisualState {
+  const r = computeRayRender(prof, true);
+  return { deficit: r.deficit, fixation: r.fixation, rayOpacity: r.opacity, colorFilter: r.filter };
+}
+
+export function selfCenterFromStages(stages: StageProfile[]): {
+  radius: number;
+  glow: number;
+  dispersed: boolean;
+} {
+  if (!stages.length) return { radius: 22, glow: 0.5, dispersed: false };
+  const avgI = stages.reduce((s, p) => s + p.I, 0) / stages.length;
+  const variance = stages.reduce((s, p) => s + (p.I - avgI) ** 2, 0) / stages.length;
+  const std = Math.sqrt(variance);
+  return {
+    radius: 16 + (avgI / 100) * 20,
+    glow: std > 22 ? 0.35 : 0.55 + (avgI / 100) * 0.45,
+    dispersed: std > 22,
+  };
+}
+
+export function stageStateInterpretation(prof: StageProfile, stageLabel: string): string {
+  const d = dominantState(prof);
+  if (d === 'I') {
+    return `Ресурсная зона. Вы гибко используете паттерн «${stageLabel}» — это опора, а не клетка.`;
+  }
+  if (d === 'F') {
+    return `Зона перенапряжения. Ценность «${stageLabel}» стала жёстким правилом; много сил уходит на удержание контроля.`;
+  }
+  return `Слепая зона. Энергия «${stageLabel}» вытеснена; в стрессе паттерн может проявиться неконтролируемо.`;
 }
 
 export type IndividuationHexResult = {
