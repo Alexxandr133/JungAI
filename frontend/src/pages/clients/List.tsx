@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
@@ -10,6 +10,8 @@ import { readableTextOnBackground } from '../../lib/colorContrast';
 import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
 import { PSYCHOLOGIST_CLIENTS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
+import { ClientCard } from './ClientCard';
+import './ClientsList.css';
 
 const fieldBorder = '1px solid var(--navbar-edge)';
 
@@ -64,6 +66,7 @@ export default function ClientsList() {
   const [error, setError] = useState<string | null>(null);
   const [createdClientLink, setCreatedClientLink] = useState<string | null>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [refreshingLinkId, setRefreshingLinkId] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
   const location = useLocation();
@@ -116,6 +119,17 @@ export default function ClientsList() {
   function getColorForLabel(label: string): string {
     const preset = PRESET_TAGS.find(t => t.label.toLowerCase() === label.trim().toLowerCase());
     return preset?.color || hashColorFromLabel(label);
+  }
+
+  function formatTokenExpiry(iso?: string | null): string | null {
+    if (!iso) return null;
+    try {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch {
+      return null;
+    }
   }
 
   function isArchivedClient(c: any) {
@@ -326,6 +340,36 @@ export default function ClientsList() {
     }
   }
 
+  async function refreshRegistrationLink(clientId: string) {
+    if (!token) return;
+    if (!confirm('Обновить ссылку регистрации? Старая ссылка перестанет работать.')) return;
+    setRefreshingLinkId(clientId);
+    setError(null);
+    try {
+      const res = await api<{ registrationLink: string; tokenExpiresAt?: string }>(
+        `/api/clients/${clientId}/refresh-registration-token`,
+        { method: 'POST', token }
+      );
+      setItems(prev =>
+        prev.map(c =>
+          c.id === clientId
+            ? {
+                ...c,
+                registrationLink: res.registrationLink,
+                tokenExpiresAt: res.tokenExpiresAt ?? c.tokenExpiresAt,
+                registrationPending: true,
+                platformRegistered: false,
+              }
+            : c
+        )
+      );
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось обновить ссылку регистрации');
+    } finally {
+      setRefreshingLinkId(null);
+    }
+  }
+
   async function endTherapy(id: string, name?: string) {
     const label = name ? `«${name}»` : 'этого клиента';
     if (!confirm(`Завершить терапию с клиентом ${label}?\n\nКлиент останется на платформе и будет перенесён в архив. Его можно будет вернуть из архива.`)) {
@@ -525,7 +569,6 @@ export default function ClientsList() {
           </div>
           <div data-tour="clients-add" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: isMobile ? 'stretch' : 'flex-end' }}>
             <PsychologistTourHelpButton tourId="clients" steps={PSYCHOLOGIST_CLIENTS_TOUR_STEPS} userId={user?.id} role={user?.role} />
-            <button className={isMobile ? 'button secondary' : 'button secondary'} onClick={() => load()} style={{ padding: isMobile ? '8px 10px' : '10px 20px', minWidth: isMobile ? 44 : undefined }} title="Обновить данные">🔄</button>
             {clientView === 'active' && (
               <button className="button" onClick={() => setShowModal(true)} style={{ padding: isMobile ? '8px 12px' : '10px 20px', fontSize: isMobile ? 14 : 15 }}>Добавить клиента</button>
             )}
@@ -590,169 +633,38 @@ export default function ClientsList() {
           </div>
         </div>
 
-        <div data-tour="clients-grid" style={{ marginTop: 12, display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap: isMobile ? 10 : 14 }}>
+        <div
+          data-tour="clients-grid"
+          className={`clients-page-grid${isMobile ? ' clients-page-grid--mobile' : ''}`}
+        >
           {filteredItems.map(c => (
-            <div key={c.id} className="card" style={{ padding: isMobile ? 12 : 16, display: 'grid', gap: isMobile ? 8 : 10 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 14, alignItems: 'center' }}>
-                {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
-                  <img
-                    src={getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) || ''}
-                    key={`avatar-${c.id}-${c.avatarUrl || c.profile?.avatarUrl || 'none'}`}
-                    alt={c.name || 'Аватар'}
-                    style={{
-                      width: isMobile ? 42 : 48,
-                      height: isMobile ? 42 : 48,
-                      borderRadius: '50%',
-                      objectFit: 'cover',
-                      border: `2px solid var(--navbar-edge)`
-                    }}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                      const parent = target.parentElement;
-                      if (parent && !parent.querySelector('.avatar-fallback')) {
-                        const fallback = document.createElement('div');
-                        fallback.className = 'avatar-fallback';
-                        fallback.style.cssText = 'width: 48px; height: 48px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #f8fafc; text-shadow: 0 1px 2px rgba(0,0,0,0.3); display: grid; place-items: center; font-weight: 800;';
-                        fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
-                        parent.appendChild(fallback);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div style={{ width: isMobile ? 42 : 48, height: isMobile ? 42 : 48, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#f8fafc', textShadow: '0 1px 2px rgba(0,0,0,0.3)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>
-                    {(c.name || '?').trim().charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, overflowWrap: 'anywhere', fontSize: isMobile ? 21 : undefined }}>{c.name}</div>
-                  <div className="small" style={{ color: 'var(--text-muted)' }}>{c.city || '—'}{c.age ? ` • ${c.age} лет` : ''}</div>
-                </div>
-              </div>
-              {c.registrationPending && c.registrationLink && (
-                <div
-                  style={{
-                    padding: 10,
-                    borderRadius: 10,
-                    background: 'rgba(250, 204, 21, 0.14)',
-                    border: '1px solid rgba(234, 179, 8, 0.45)'
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6, color: 'var(--text)' }}>Ожидает регистрации</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input
-                      readOnly
-                      value={c.registrationLink}
-                      title={c.registrationLink}
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        border: fieldBorder,
-                        background: 'var(--surface-2)',
-                        color: 'var(--text)',
-                        fontSize: 11
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="button secondary"
-                      style={{ padding: '6px 10px', fontSize: 12 }}
-                      onClick={() => copyText(c.registrationLink)}
-                    >
-                      Копировать
-                    </button>
-                  </div>
-                </div>
-              )}
-              {c.platformRegistered && !c.registrationPending && (
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    background: 'rgba(34, 197, 94, 0.15)',
-                    border: '1px solid rgba(34, 197, 94, 0.45)',
-                    color: 'var(--text)'
-                  }}
-                >
-                  Авторизован
-                </div>
-              )}
-              {c.email && <div className="small" style={{ wordBreak: 'break-word', color: 'var(--text-muted)' }}>{c.email}</div>}
-              {c.phone && <div className="small" style={{ color: 'var(--text-muted)' }}>{c.phone}</div>}
-              {Array.isArray(c.tags) && c.tags.length > 0 && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {c.tags.map((t: any, idx: number) => {
-                    const hex = typeof t.color === 'string' && t.color.startsWith('#') ? t.color : getColorForLabel(String(t.label));
-                    return (
-                      <span
-                        key={idx}
-                        style={{
-                          padding: '3px 10px',
-                          borderRadius: 999,
-                          fontWeight: 600,
-                          fontSize: 12,
-                          color: 'var(--text)',
-                          background: `color-mix(in srgb, ${hex} 20%, var(--surface-2))`,
-                          border: `1px solid color-mix(in srgb, ${hex} 50%, var(--navbar-edge))`
-                        }}
-                      >
-                        {t.label}
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              {clientView === 'archive' && c.therapyEndedAt && (
-                <div className="small" style={{ color: 'var(--text-muted)' }}>
-                  Терапия завершена: {new Date(c.therapyEndedAt).toLocaleDateString('ru-RU')}
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-                <Link to={`/clients/${c.id}/profile`} className="button secondary" style={{ padding: '6px 10px', fontSize: 13 }}>Профиль</Link>
-                {clientView === 'active' && (
-                  <Link to={`/psychologist/work-area?client=${c.id}`} className="button" style={{ padding: '6px 10px', fontSize: 13 }}>Рабочая область</Link>
-                )}
-                <button type="button" onClick={() => openEditClient(c)} className="button secondary" style={{ padding: '6px 10px', fontSize: 13 }}>
-                  Изменить
-                </button>
-                {clientView === 'active' ? (
-                  <button
-                    type="button"
-                    onClick={() => endTherapy(c.id, c.name)}
-                    className="button secondary"
-                    style={{ padding: '6px 10px', marginLeft: isMobile ? 0 : 'auto', fontSize: 13, borderColor: 'rgba(234, 179, 8, 0.5)' }}
-                  >
-                    Завершить терапию
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => restoreTherapy(c.id, c.name)}
-                    className="button"
-                    style={{ padding: '6px 10px', marginLeft: isMobile ? 0 : 'auto', fontSize: 13 }}
-                  >
-                    Вернуть в активные
-                  </button>
-                )}
-              </div>
-            </div>
+            <ClientCard
+              key={c.id}
+              client={c}
+              clientView={clientView}
+              avatarUrl={getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id)}
+              tokenExpiryLabel={formatTokenExpiry(c.tokenExpiresAt)}
+              refreshingLink={refreshingLinkId === c.id}
+              onCopyLink={copyText}
+              onRefreshLink={refreshRegistrationLink}
+              onEdit={openEditClient}
+              onEndTherapy={endTherapy}
+              onRestoreTherapy={restoreTherapy}
+              tagColor={getColorForLabel}
+            />
           ))}
 
-          {items.length === 0 && (
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                {clientView === 'archive' ? 'Архив пуст' : 'Пока нет клиентов'}
+          {filteredItems.length === 0 && (
+            <div className="clients-empty-card" style={{ gridColumn: '1 / -1' }}>
+              <div className="clients-empty-card__title">
+                {clientView === 'archive' ? 'Архив пуст' : query || selectedTags.length ? 'Ничего не найдено' : 'Пока нет клиентов'}
               </div>
-              <div className="small">
+              <div className="clients-empty-card__hint">
                 {clientView === 'archive'
-                  ? 'Здесь появятся клиенты, у которых вы завершили терапию.'
-                  : 'Добавьте первого клиента с помощью кнопки «Добавить клиента».'}
+                  ? 'Здесь появятся клиенты, у которых вы завершили терапию. Их можно вернуть в активные в любой момент.'
+                  : query || selectedTags.length
+                    ? 'Попробуйте изменить поиск или сбросить фильтры по тегам.'
+                    : 'Добавьте первого клиента с помощью кнопки «Добавить клиента».'}
               </div>
             </div>
           )}

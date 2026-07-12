@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
-import { AUTH_SESSION_EXPIRED_EVENT, isUnauthorizedError } from '../utils/authSession';
+import { AUTH_SESSION_EXPIRED_EVENT, isLocalDevHost, isUnauthorizedError } from '../utils/authSession';
 import { clearVerificationCache } from '../utils/verification';
 
 type UserRole = 'psychologist' | 'client' | 'researcher' | 'admin' | 'guest';
@@ -30,15 +30,37 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('auth_token'));
-  const [user, setUser] = useState<AuthUser | null>(() => {
+function readStoredUser(): AuthUser | null {
+  try {
     const raw = localStorage.getItem('auth_user');
-    return raw ? (JSON.parse(raw) as AuthUser) : null;
-  });
+    if (!raw || raw === 'undefined' || raw === 'null') return null;
+    const parsed = JSON.parse(raw) as AuthUser;
+    if (!parsed || typeof parsed !== 'object' || !parsed.id) {
+      localStorage.removeItem('auth_user');
+      return null;
+    }
+    return parsed;
+  } catch {
+    localStorage.removeItem('auth_user');
+    return null;
+  }
+}
+
+function readStoredToken(): string | null {
+  const raw = localStorage.getItem('auth_token');
+  if (!raw || raw === 'undefined' || raw === 'null') {
+    localStorage.removeItem('auth_token');
+    return null;
+  }
+  return raw;
+}
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [token, setToken] = useState<string | null>(() => readStoredToken());
+  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
   const [profile, setProfile] = useState<{ avatarUrl?: string | null; name?: string | null } | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [authReady, setAuthReady] = useState<boolean>(() => !localStorage.getItem('auth_token'));
+  const [authReady, setAuthReady] = useState<boolean>(() => !readStoredToken());
 
   async function loadProfileFor(authToken: string, authUser: AuthUser) {
     try {
@@ -65,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearVerificationCache();
       return me;
     } catch (e) {
-      if (isUnauthorizedError(e)) {
+      if (isUnauthorizedError(e) && !isLocalDevHost()) {
         setSessionExpired(true);
       } else {
         console.warn('[Auth] /api/auth/me failed, keeping cached user:', e);

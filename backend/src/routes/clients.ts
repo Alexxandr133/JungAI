@@ -155,10 +155,10 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     console.log(`[GET /clients] Authorization Header: ${req.headers.authorization?.substring(0, 50)}...`);
 
     const status = String(req.query.status || 'active').toLowerCase();
-    const therapyFilter =
-      status === 'archived'
-        ? { therapyEndedAt: { not: null } }
-        : { therapyEndedAt: null };
+    const isArchivedView = status === 'archived' || status === 'archive';
+    const therapyFilter = isArchivedView
+      ? { therapyEndedAt: { not: null } }
+      : { therapyEndedAt: null };
 
     // КРИТИЧНО: Для психологов - ТОЛЬКО свои клиенты, для админов - всех
     let whereClause: any = {};
@@ -610,6 +610,43 @@ router.post('/client/profile/avatar', requireAuth, requireRole(['client', 'admin
     res.json({ success: true, avatarUrl });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to upload avatar' });
+  }
+});
+
+// Обновить ссылку регистрации (если клиент ещё не зарегистрировался)
+router.post('/clients/:id/refresh-registration-token', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const existingUser = client.email
+      ? await prisma.user.findFirst({ where: { email: client.email } })
+      : null;
+    if (existingUser) {
+      return res.status(400).json({ error: 'Клиент уже зарегистрирован на платформе' });
+    }
+
+    const crypto = require('crypto');
+    const registrationToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiresAt = new Date();
+    tokenExpiresAt.setDate(tokenExpiresAt.getDate() + 7);
+
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: { registrationToken, tokenExpiresAt },
+    });
+
+    res.json({
+      ok: true,
+      registrationLink: `${config.frontendUrl}/register-client?token=${registrationToken}`,
+      tokenExpiresAt: tokenExpiresAt.toISOString(),
+      client: updated,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to refresh registration token' });
   }
 });
 

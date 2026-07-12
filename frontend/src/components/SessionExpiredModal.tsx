@@ -1,11 +1,14 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { isLocalDevHost } from '../utils/authSession';
 
 export function SessionExpiredModal() {
   const { token, sessionExpired, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isPublicRoom = /^\/room\/[^/]+/.test(location.pathname);
 
-  if (!sessionExpired || !token) return null;
+  if (!sessionExpired || !token || isPublicRoom || isLocalDevHost()) return null;
 
   function handleRelogin() {
     logout();

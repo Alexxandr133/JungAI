@@ -30,7 +30,7 @@ export function resolvePublicFileUrl(url: string | null | undefined): string | n
 
 import { notifySessionExpired } from '../utils/authSession';
 
-export async function api<T = unknown>(path: string, options: { method?: HttpMethod; token?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
+export async function api<T = unknown>(path: string, options: { method?: HttpMethod; token?: string; body?: unknown; headers?: Record<string, string>; suppressSessionExpired?: boolean } = {}): Promise<T> {
   const env = (import.meta as any).env || {};
   let baseOrigin: string = env.VITE_API_ORIGIN || env.VITE_API_URL || '';
   if (!baseOrigin && env.DEV && typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '4000') {
@@ -88,7 +88,7 @@ export async function api<T = unknown>(path: string, options: { method?: HttpMet
       // Если не JSON, используем текст как есть
     }
     
-    if (res.status === 401 && options.token) {
+    if (res.status === 401 && options.token && !options.suppressSessionExpired) {
       notifySessionExpired();
     }
 
