@@ -188,6 +188,25 @@ type ConferenceProps = {
   selfAvatarUrl?: string | null;
 };
 
+function MicStatusIcon({ enabled, size = 14, className = '' }: { enabled: boolean; size?: number; className?: string }) {
+  const cls = `voice-room-mic-status${enabled ? '' : ' voice-room-mic-status--off'}${className ? ` ${className}` : ''}`;
+  return enabled ? <Mic size={size} strokeWidth={2} className={cls} aria-hidden /> : <MicOff size={size} strokeWidth={2} className={cls} aria-hidden />;
+}
+
+function ParticipantNameBadge({ displayName, avatarUrl, micEnabled, suffix }: { displayName: string; avatarUrl?: string; micEnabled: boolean; suffix?: string }) {
+  return (
+    <div className="voice-room-tile__badge">
+      {avatarUrl !== undefined && (
+        <div className="voice-room-tile__badge-avatar">
+          {avatarUrl ? <img src={avatarUrl} alt="" draggable={false} /> : <PlatformIcon name="user" size={11} color="#cbd5e1" />}
+        </div>
+      )}
+      <span className="voice-room-tile__badge-name">{displayName}{suffix ? ` · ${suffix}` : ''}</span>
+      <MicStatusIcon enabled={micEnabled} size={13} />
+    </div>
+  );
+}
+
 function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt, roomId, selfDisplayName, selfAvatarUrl }: ConferenceProps) {
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>(null);
@@ -319,12 +338,11 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
             className="voice-room-tile__video"
             title={getConnectionQualityLabel(trackRef.participant)}
           />
-          <div className="voice-room-tile__badge">
-            <div className="voice-room-tile__badge-avatar">
-              {avatarUrl ? <img src={avatarUrl} alt="" draggable={false} /> : <PlatformIcon name="user" size={11} color="#cbd5e1" />}
-            </div>
-            <span className="voice-room-tile__badge-name">{displayName}</span>
-          </div>
+          <ParticipantNameBadge
+            displayName={displayName}
+            avatarUrl={avatarUrl}
+            micEnabled={trackRef.participant.isMicrophoneEnabled}
+          />
         </div>
       );
     }
@@ -335,12 +353,12 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
           {avatarUrl ? (
             <img src={avatarUrl} alt={displayName} draggable={false} onContextMenu={(e) => e.preventDefault()} />
           ) : (
-            <PlatformIcon name="user" size={72} color="#94a3b8" />
+            <div className="voice-room-tile__avatar-fallback" aria-hidden>
+              <PlatformIcon name="user" size={56} color="#94a3b8" />
+            </div>
           )}
         </div>
-        <div className="voice-room-tile__badge">
-          <span className="voice-room-tile__badge-name">{displayName}</span>
-        </div>
+        <ParticipantNameBadge displayName={displayName} micEnabled={trackRef.participant.isMicrophoneEnabled} />
       </div>
     );
   }
@@ -364,7 +382,7 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
         </div>
         <div className="voice-room-solo__name">
           <span>{displayName}</span>
-          <span aria-hidden>{micOn ? '🎤' : '🔇'}</span>
+          <MicStatusIcon enabled={micOn} size={15} />
         </div>
       </div>
     );
@@ -427,13 +445,14 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
 
   const chatOpen = sidebarMode === 'chat';
   const participantsOpen = sidebarMode === 'participants';
-  const gridClass =
-    participantTiles.length <= 1 ? 'voice-room-grid--1' :
-    participantTiles.length <= 4 ? 'voice-room-grid--2' :
-    'voice-room-grid--3';
+  const participantCount = participantTiles.length;
+  const gridLayoutClass =
+    participantCount === 2 ? 'voice-room-grid--count-2' :
+    participantCount <= 4 ? 'voice-room-grid--count-4' :
+    'voice-room-grid--count-9';
 
   return (
-    <div className={`voice-room-call${sidebarMode && !isMobile ? ' voice-room-call--with-sidebar' : ''}`}>
+    <div className={`voice-room-call${sidebarMode && !isMobile ? ' voice-room-call--with-sidebar' : ''}${isMobile ? ' voice-room-call--mobile' : ''}`}>
       <div className="voice-room-stage-wrap">
         {!canPlayAudio && (
           <div className="voice-room-audio-hint">
@@ -443,20 +462,20 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
           </div>
         )}
 
-        <div className={`voice-room-stage${!soloView && !hasScreenShare ? ' voice-room-stage--grid' : ''}`}>
+        <div className={`voice-room-stage${!soloView && !hasScreenShare ? ' voice-room-stage--grid' : ''}${hasScreenShare ? ' voice-room-stage--screenshare' : ''}`}>
           {hasScreenShare ? (
             <div className="voice-room-screenshare">
-              <div className="voice-room-tile-host">
-                <ParticipantTile trackRef={screenTracks[0]} className="voice-room-tile__video" title={getConnectionQualityLabel(screenTracks[0].participant)} />
+              <div className="voice-room-screenshare__frame voice-room-tile-host">
+                <ParticipantTile trackRef={screenTracks[0]} className="voice-room-tile__video voice-room-tile__video--contain" title={getConnectionQualityLabel(screenTracks[0].participant)} />
                 {(() => {
                   const { avatarUrl, displayName } = getParticipantMeta(screenTracks[0].participant);
                   return (
-                    <div className="voice-room-tile__badge">
-                      <div className="voice-room-tile__badge-avatar">
-                        {avatarUrl ? <img src={avatarUrl} alt="" draggable={false} /> : <PlatformIcon name="user" size={12} color="#cbd5e1" />}
-                      </div>
-                      <span className="voice-room-tile__badge-name">{displayName} · экран</span>
-                    </div>
+                    <ParticipantNameBadge
+                      displayName={displayName}
+                      avatarUrl={avatarUrl}
+                      micEnabled={screenTracks[0].participant.isMicrophoneEnabled}
+                      suffix="экран"
+                    />
                   );
                 })()}
               </div>
@@ -464,7 +483,7 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
           ) : soloView ? (
             renderSoloView()
           ) : (
-            <div className={`voice-room-grid ${gridClass} voice-room-grid--auto-rows`}>
+            <div className={`voice-room-grid ${gridLayoutClass}`}>
               {participantTiles.map((trackRef, idx) => renderParticipantTile(trackRef, `${trackRef.participant.identity}-${idx}`))}
             </div>
           )}
@@ -495,13 +514,13 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
             )}
             <button
               type="button"
-              className="voice-room-ctrl-btn voice-room-ctrl-btn--round"
+              className={`voice-room-ctrl-btn voice-room-ctrl-btn--round${!isMicrophoneEnabled ? ' voice-room-ctrl-btn--muted' : ''}`}
               title="Микрофон"
               aria-label="Микрофон"
               aria-pressed={isMicrophoneEnabled}
               onClick={() => void localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)}
             >
-              {isMicrophoneEnabled ? <Mic size={22} strokeWidth={2} /> : <MicOff size={22} strokeWidth={2} />}
+              <MicStatusIcon enabled={isMicrophoneEnabled} size={22} />
             </button>
             <button
               type="button"
@@ -845,7 +864,7 @@ export default function VoiceRoom() {
             </div>
           </div>
         ) : (
-          <div style={{ width: '100%', minHeight: 0 }}>
+          <div style={{ width: '100%', minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <LiveKitRoom
               token={livekitToken}
               serverUrl={livekitUrl}
@@ -862,7 +881,7 @@ export default function VoiceRoom() {
                 setLivekitToken('');
                 setReconnectHint('Связь с комнатой прервалась. Нажмите «Присоединиться к встрече» ещё раз.');
               }}
-              style={{ height: '100%' }}
+              style={{ height: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
             >
               <LiveKitConferenceRu
                 eventType={event.type}
