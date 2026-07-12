@@ -1,5 +1,6 @@
-/* ParticipantTile подставляет имя (span.lk-participant-name); поверх рисуем свой бейдж с аватаром */
-.voice-room-tile-host .lk-participant-name {
+/* ParticipantTile подставляет имя и metadata; поверх рисуем свой бейдж */
+.voice-room-tile-host .lk-participant-name,
+.voice-room-tile-host .lk-participant-metadata {
   display: none !important;
 }
 
@@ -62,8 +63,11 @@
 }
 
 .voice-room-stage--grid {
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 16px 20px 12px;
+  box-sizing: border-box;
 }
 
 .voice-room-stage--screenshare {
@@ -72,38 +76,47 @@
 }
 
 .voice-room-grid {
+  flex: 1;
   width: 100%;
-  max-width: 980px;
+  height: 100%;
+  max-width: min(1280px, 100%);
+  max-height: 100%;
   margin: 0 auto;
   display: grid;
-  gap: 10px;
-  padding: 12px 16px 8px;
+  gap: 12px;
+  padding: 0;
   box-sizing: border-box;
-  place-content: center;
+  place-content: stretch;
   place-items: stretch;
   min-height: 0;
+  min-width: 0;
 }
 
 .voice-room-grid--count-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr);
-  max-height: min(46vh, 380px);
-  height: min(46vh, 380px);
+}
+
+.voice-room-grid--count-3 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.voice-room-grid--count-3 > .voice-room-tile:nth-child(3) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: min(100%, calc(50% - 6px));
 }
 
 .voice-room-grid--count-4 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
-  max-height: min(62vh, 520px);
-  height: min(62vh, 520px);
 }
 
 .voice-room-grid--count-9 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-template-rows: repeat(3, minmax(0, 1fr));
-  max-height: min(72vh, 620px);
-  height: min(72vh, 620px);
-  max-width: 1100px;
+  max-width: min(1400px, 100%);
 }
 
 .voice-room-tile {
@@ -118,7 +131,7 @@
 }
 
 .voice-room-tile--speaking {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 24px rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 0 2px rgba(74, 222, 128, 0.82), inset 0 0 18px rgba(34, 197, 94, 0.22);
 }
 
 .voice-room-tile__video {
@@ -145,10 +158,10 @@
 }
 
 .voice-room-tile__avatar-full img {
-  width: min(120px, 46%);
-  height: min(120px, 46%);
-  max-width: min(120px, 46%);
-  max-height: min(120px, 46%);
+  width: min(180px, 44%);
+  height: min(180px, 44%);
+  max-width: min(180px, 44%);
+  max-height: min(180px, 44%);
   border-radius: 50%;
   object-fit: cover;
   background: #121212;
@@ -157,8 +170,8 @@
 }
 
 .voice-room-tile__avatar-fallback {
-  width: min(120px, 46%);
-  height: min(120px, 46%);
+  width: min(180px, 44%);
+  height: min(180px, 44%);
   border-radius: 50%;
   background: linear-gradient(135deg, #2d2d2d, #404040);
   display: grid;
@@ -167,8 +180,9 @@
 
 .voice-room-tile__badge {
   position: absolute;
-  left: 10px;
   top: 10px;
+  right: 10px;
+  left: auto;
   bottom: auto;
   display: flex;
   align-items: center;
@@ -610,6 +624,11 @@
   white-space: pre-wrap;
 }
 
+.voice-room-device-menu-anchor {
+  position: relative;
+  flex-shrink: 0;
+}
+
 .voice-room-device-menu {
   position: absolute;
   bottom: calc(100% + 10px);
@@ -621,6 +640,53 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(30, 30, 30, 0.98);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.voice-room-device-menu--mobile {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left, 0px));
+  right: max(12px, env(safe-area-inset-right, 0px));
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  z-index: 80;
+  min-width: unset;
+  width: auto;
+  transform: none;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.voice-room-device-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.voice-room-device-menu__action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5f5f5;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.voice-room-device-menu__action--active {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 
 .voice-room-audio-hint {
@@ -680,6 +746,10 @@
     flex-wrap: nowrap;
   }
 
+  .voice-room-toolbar__group--center.voice-room-toolbar__group--menu-open {
+    overflow: visible;
+  }
+
   .voice-room-toolbar__group--center::-webkit-scrollbar {
     display: none;
   }
@@ -728,34 +798,29 @@
     padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   }
 
+  .voice-room-stage--grid {
+    padding: 10px 10px 6px;
+  }
+
   .voice-room-grid {
-    padding: 8px 10px 4px;
     gap: 8px;
     max-width: 100%;
   }
 
-  .voice-room-grid--count-2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: min(38vh, 280px);
-    height: min(38vh, 280px);
-  }
-
-  .voice-room-grid--count-4 {
-    max-height: min(48vh, 360px);
-    height: min(48vh, 360px);
+  .voice-room-grid--count-3 > .voice-room-tile:nth-child(3) {
+    width: min(100%, calc(66% - 6px));
   }
 
   .voice-room-grid--count-9 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: unset;
     grid-auto-rows: minmax(0, 1fr);
-    max-height: min(58vh, 440px);
-    height: min(58vh, 440px);
   }
 
   .voice-room-tile__badge {
-    left: 6px;
     top: 6px;
+    right: 6px;
+    left: auto;
     padding: 3px 8px;
     font-size: 11px;
     gap: 4px;
@@ -807,14 +872,6 @@
   .voice-room-sidebar--overlay {
     inset: max(8px, env(safe-area-inset-top, 0px)) 8px max(72px, calc(68px + env(safe-area-inset-bottom, 0px))) 8px;
   }
-
-  .voice-room-device-menu {
-    min-width: unset;
-    width: min(288px, calc(100vw - 32px));
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-  }
 }
 
 @media (max-width: 480px) {
@@ -857,18 +914,11 @@
   .voice-room-grid--count-2 {
     grid-template-columns: 1fr;
     grid-template-rows: repeat(2, minmax(0, 1fr));
-    max-height: min(52vh, 420px);
-    height: min(52vh, 420px);
   }
 
-  .voice-room-grid--count-4 {
-    max-height: min(54vh, 400px);
-    height: min(54vh, 400px);
-  }
-
-  .voice-room-grid--count-9 {
-    max-height: min(56vh, 420px);
-    height: min(56vh, 420px);
+  .voice-room-grid--count-3 > .voice-room-tile:nth-child(3) {
+    width: 100%;
+    justify-self: stretch;
   }
 
   .voice-room-tile__avatar-full img,

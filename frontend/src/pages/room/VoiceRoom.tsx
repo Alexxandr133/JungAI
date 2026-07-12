@@ -213,6 +213,7 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
   const [inviteCopied, setInviteCopied] = useState(false);
   const deviceMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileDeviceMenuRef = useRef<HTMLDivElement | null>(null);
   const inviteResetTimerRef = useRef<number | null>(null);
   const [chatText, setChatText] = useState('');
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -236,12 +237,20 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
 
   useEffect(() => {
     if (!deviceMenuOpen) return;
-    function onDocMouseDown(e: MouseEvent) {
-      const el = deviceMenuRef.current;
-      if (el && !el.contains(e.target as Node)) setDeviceMenuOpen(false);
-    }
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
+    let removeListener: (() => void) | undefined;
+    const timer = window.setTimeout(() => {
+      function onPointerDown(e: PointerEvent) {
+        const target = e.target as Node;
+        if (deviceMenuRef.current?.contains(target) || mobileDeviceMenuRef.current?.contains(target)) return;
+        setDeviceMenuOpen(false);
+      }
+      document.addEventListener('pointerdown', onPointerDown);
+      removeListener = () => document.removeEventListener('pointerdown', onPointerDown);
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      removeListener?.();
+    };
   }, [deviceMenuOpen]);
 
   useEffect(() => {
@@ -443,11 +452,30 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
     );
   }
 
+  function renderDeviceMenuPanel(mobile = false) {
+    return (
+      <div className={`voice-room-device-menu${mobile ? ' voice-room-device-menu--mobile' : ''}`} role="menu">
+        {mobile && (
+          <button
+            type="button"
+            className={`voice-room-device-menu__action${isScreenShareEnabled ? ' voice-room-device-menu__action--active' : ''}`}
+            onClick={() => void localParticipant.setScreenShareEnabled(!isScreenShareEnabled)}
+          >
+            <MonitorUp size={18} strokeWidth={2} />
+            <span>{isScreenShareEnabled ? 'Остановить демонстрацию' : 'Демонстрация экрана'}</span>
+          </button>
+        )}
+        <RoomMediaDeviceSettings isLight={false} isOpen={deviceMenuOpen} />
+      </div>
+    );
+  }
+
   const chatOpen = sidebarMode === 'chat';
   const participantsOpen = sidebarMode === 'participants';
   const participantCount = participantTiles.length;
   const gridLayoutClass =
     participantCount === 2 ? 'voice-room-grid--count-2' :
+    participantCount === 3 ? 'voice-room-grid--count-3' :
     participantCount <= 4 ? 'voice-room-grid--count-4' :
     'voice-room-grid--count-9';
 
@@ -500,6 +528,18 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
           )}
         </div>
 
+        {deviceMenuOpen && isMobile && (
+          <>
+            <button
+              type="button"
+              className="voice-room-device-menu-backdrop"
+              aria-label="Закрыть настройки"
+              onClick={() => setDeviceMenuOpen(false)}
+            />
+            <div ref={mobileDeviceMenuRef}>{renderDeviceMenuPanel(true)}</div>
+          </>
+        )}
+
         <div className="voice-room-toolbar">
           <div className="voice-room-toolbar__group voice-room-toolbar__group--left">
             {showInviteLink && (
@@ -534,18 +574,20 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
             </button>
           </div>
 
-          <div className="voice-room-toolbar__group voice-room-toolbar__group--center">
-            <button
-              type="button"
-              className={`voice-room-ctrl-btn voice-room-ctrl-btn--pill${isScreenShareEnabled ? ' voice-room-ctrl-btn--active' : ''}`}
-              title="Демонстрация"
-              aria-label="Демонстрация"
-              aria-pressed={isScreenShareEnabled}
-              onClick={() => void localParticipant.setScreenShareEnabled(!isScreenShareEnabled)}
-            >
-              <MonitorUp size={20} strokeWidth={2} />
-              <span className="voice-room-ctrl-label">Демонстрация</span>
-            </button>
+          <div className={`voice-room-toolbar__group voice-room-toolbar__group--center${deviceMenuOpen ? ' voice-room-toolbar__group--menu-open' : ''}`}>
+            {!isMobile && (
+              <button
+                type="button"
+                className={`voice-room-ctrl-btn voice-room-ctrl-btn--pill voice-room-ctrl-btn--screenshare${isScreenShareEnabled ? ' voice-room-ctrl-btn--active' : ''}`}
+                title="Демонстрация"
+                aria-label="Демонстрация"
+                aria-pressed={isScreenShareEnabled}
+                onClick={() => void localParticipant.setScreenShareEnabled(!isScreenShareEnabled)}
+              >
+                <MonitorUp size={20} strokeWidth={2} />
+                <span className="voice-room-ctrl-label">Демонстрация</span>
+              </button>
+            )}
             <button
               type="button"
               className={`voice-room-ctrl-btn voice-room-ctrl-btn--pill${participantsOpen ? ' voice-room-ctrl-btn--active' : ''}`}
@@ -564,21 +606,20 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
               <MessageSquare size={18} />
               <span className="voice-room-ctrl-label">Чат</span>
             </button>
-            <div ref={deviceMenuRef} style={{ position: 'relative' }}>
+            <div ref={deviceMenuRef} className="voice-room-device-menu-anchor">
               <button
                 type="button"
                 className={`voice-room-ctrl-btn voice-room-ctrl-btn--pill${deviceMenuOpen ? ' voice-room-ctrl-btn--active' : ''}`}
                 title="Настройки"
                 aria-expanded={deviceMenuOpen}
-                onClick={() => setDeviceMenuOpen((o) => !o)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeviceMenuOpen((o) => !o);
+                }}
               >
                 <MoreHorizontal size={18} />
               </button>
-              {deviceMenuOpen && (
-                <div className="voice-room-device-menu" role="menu">
-                  <RoomMediaDeviceSettings isLight={false} isOpen={deviceMenuOpen} />
-                </div>
-              )}
+              {deviceMenuOpen && !isMobile && renderDeviceMenuPanel()}
             </div>
           </div>
 
