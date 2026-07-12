@@ -193,6 +193,18 @@ function MicStatusIcon({ enabled, size = 14, className = '' }: { enabled: boolea
   return enabled ? <Mic size={size} strokeWidth={2} className={cls} aria-hidden /> : <MicOff size={size} strokeWidth={2} className={cls} aria-hidden />;
 }
 
+function getGridLayoutClass(count: number): string {
+  if (count <= 1) return '';
+  if (count === 2) return 'voice-room-grid--count-2';
+  if (count === 3) return 'voice-room-grid--count-3';
+  if (count === 4) return 'voice-room-grid--count-4';
+  if (count === 5) return 'voice-room-grid--count-5';
+  if (count === 6) return 'voice-room-grid--count-6';
+  if (count === 7) return 'voice-room-grid--count-7';
+  if (count === 8) return 'voice-room-grid--count-8';
+  return 'voice-room-grid--count-9';
+}
+
 function ParticipantNameBadge({ displayName, avatarUrl, micEnabled, suffix }: { displayName: string; avatarUrl?: string; micEnabled: boolean; suffix?: string }) {
   return (
     <div className="voice-room-tile__badge">
@@ -473,11 +485,7 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
   const chatOpen = sidebarMode === 'chat';
   const participantsOpen = sidebarMode === 'participants';
   const participantCount = participantTiles.length;
-  const gridLayoutClass =
-    participantCount === 2 ? 'voice-room-grid--count-2' :
-    participantCount === 3 ? 'voice-room-grid--count-3' :
-    participantCount <= 4 ? 'voice-room-grid--count-4' :
-    'voice-room-grid--count-9';
+  const gridLayoutClass = getGridLayoutClass(participantCount);
 
   return (
     <div className={`voice-room-call${sidebarMode && !isMobile ? ' voice-room-call--with-sidebar' : ''}${isMobile ? ' voice-room-call--mobile' : ''}`}>
