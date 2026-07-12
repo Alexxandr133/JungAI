@@ -160,9 +160,81 @@
   overflow-x: auto;
 }
 
+/* Строка ввода: скрепка, textarea, кольцо контекста, отправить */
+.ai-chat-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ai-chat-input-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.ai-chat-input-textarea {
+  width: 100%;
+  margin: 0;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+  resize: none;
+  box-sizing: border-box;
+  height: 48px;
+  min-height: 48px;
+  max-height: 200px;
+  line-height: 26px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+
+.ai-chat-input-textarea--focused {
+  border-color: rgba(91, 124, 250, 0.4);
+}
+
 /* Кнопка прикрепления: сброс глобального padding у button из index.css */
 .ai-chat-attach-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 !important;
+  margin: 0 !important;
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-2);
+  color: var(--text);
+  line-height: 0;
   font-weight: 500;
+  font-size: inherit;
+  cursor: pointer;
+  align-self: flex-start;
+  vertical-align: top;
+}
+
+.ai-chat-attach-btn svg {
+  display: block;
+}
+
+.ai-chat-attach-btn__loading {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.ai-chat-attach-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .ai-chat-attach-btn:hover:not(:disabled) {
@@ -173,6 +245,11 @@
 .ai-chat-attach-btn:focus-visible {
   outline: 2px solid rgba(91, 124, 250, 0.5);
   outline-offset: 2px;
+}
+
+.ai-chat-input-row > .button {
+  align-self: flex-start;
+  flex-shrink: 0;
 }
 
 .ai-header-icon-btn {

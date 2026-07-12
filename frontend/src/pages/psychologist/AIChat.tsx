@@ -2506,7 +2506,7 @@ export default function PsychologistAIChat() {
                   )}
 
                   {/* Input field */}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <div className="ai-chat-input-row">
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -2526,44 +2526,23 @@ export default function PsychologistAIChat() {
                         pendingAttachments.length >= AI_CHAT_MAX_ATTACHMENTS
                       }
                       title="Прикрепить PDF, Word, изображение (до 5 файлов, 8 МБ)"
-                      style={{
-                        width: 48,
-                        height: 48,
-                        minWidth: 48,
-                        minHeight: 48,
-                        padding: 0,
-                        margin: 0,
-                        flexShrink: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        boxSizing: 'border-box',
-                        borderRadius: 12,
-                        border: '1px solid rgba(255,255,255,0.12)',
-                        background: 'var(--surface-2)',
-                        color: 'var(--text)',
-                        lineHeight: 1,
-                        cursor:
-                          loading || isSending || uploadingAttachments ? 'not-allowed' : 'pointer',
-                        opacity:
-                          loading || isSending || uploadingAttachments ? 0.5 : 1,
-                      }}
                     >
                       {uploadingAttachments ? (
-                        <span style={{ fontSize: 14, lineHeight: 1, fontWeight: 600 }}>…</span>
+                        <span className="ai-chat-attach-btn__loading">…</span>
                       ) : (
-                        <Paperclip size={20} strokeWidth={2} aria-hidden style={{ display: 'block' }} />
+                        <Paperclip size={22} strokeWidth={2} aria-hidden />
                       )}
                     </button>
-                    <div style={{ flex: 1, position: 'relative' }}>
+                    <div className="ai-chat-input-field">
                       <textarea
                         ref={inputRef}
+                        className="ai-chat-input-textarea"
                         value={input}
                         onChange={e => {
                           setInput(e.target.value);
                           const target = e.target as HTMLTextAreaElement;
                           target.style.height = 'auto';
-                          target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
+                          target.style.height = `${Math.max(48, Math.min(target.scrollHeight, 200))}px`;
                         }}
                         onKeyDown={e => {
                           if (e.key === 'Enter' && !e.shiftKey) {
@@ -2573,7 +2552,7 @@ export default function PsychologistAIChat() {
                             }
                           }
                         }}
-                        placeholder="Напишите сообщение или прикрепите файл (Ctrl+V — вставить фото)..."
+                        placeholder="Напишите сообщение..."
                         disabled={loading || isSending}
                         onPaste={(e) => {
                           const items = e.clipboardData?.items;
@@ -2593,29 +2572,13 @@ export default function PsychologistAIChat() {
                             void handleAttachmentFiles(dt.files);
                           }
                         }}
-                        style={{
-                          width: '100%',
-                          padding: '12px 16px',
-                          paddingRight: 16,
-                          borderRadius: 12,
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          background: 'var(--surface-2)',
-                          color: 'var(--text)',
-                          fontSize: isMobileView ? 13 : 15,
-                          fontFamily: 'inherit',
-                          resize: 'none',
-                          minHeight: 24,
-                          maxHeight: 200,
-                          lineHeight: 1.5,
-                          overflow: 'hidden',
-                          transition: 'border-color 0.2s'
-                        }}
+                        style={{ fontSize: isMobileView ? 13 : 15 }}
                         rows={1}
                         onFocus={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
+                          e.currentTarget.classList.add('ai-chat-input-textarea--focused');
                         }}
                         onBlur={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+                          e.currentTarget.classList.remove('ai-chat-input-textarea--focused');
                         }}
                       />
                     </div>
