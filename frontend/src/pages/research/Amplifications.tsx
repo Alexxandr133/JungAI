@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_AMPLIFICATIONS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type Amplification = {
   id: string;
@@ -149,6 +152,14 @@ export default function AmplificationsPage() {
     return user?.role === 'admin' || amp.authorId === user?.id;
   };
 
+  usePsychologistPlatformTour({
+    tourId: 'amplifications',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && !loading && (user?.role === 'psychologist' || user?.role === 'admin')),
+    steps: PSYCHOLOGIST_AMPLIFICATIONS_TOUR_STEPS
+  });
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
@@ -160,18 +171,26 @@ export default function AmplificationsPage() {
           overflowX: 'hidden'
         }}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
+        <div data-tour="amplifications-header" style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Сборник амплификаций</h1>
             <div className="small" style={{ color: 'var(--text-muted)' }}>Символы, архетипы, мифы и их интерпретации</div>
           </div>
-          {(user?.role === 'psychologist' || user?.role === 'admin') && (
-            <button className="button" onClick={openCreateModal} style={{ padding: '8px 16px', fontSize: 14 }}>+ Добавить амплификацию</button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <PsychologistTourHelpButton
+              tourId="amplifications"
+              steps={PSYCHOLOGIST_AMPLIFICATIONS_TOUR_STEPS}
+              userId={user?.id}
+              role={user?.role}
+            />
+            {(user?.role === 'psychologist' || user?.role === 'admin') && (
+              <button className="button" onClick={openCreateModal} style={{ padding: '8px 16px', fontSize: 14 }}>+ Добавить амплификацию</button>
+            )}
+          </div>
         </div>
 
         {/* Фильтры */}
-        <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div data-tour="amplifications-filters" style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
             <span style={{ position: 'absolute', left: 12, top: 10, opacity: .7 }}>🔎</span>
             <input
@@ -214,7 +233,7 @@ export default function AmplificationsPage() {
             </div>
           </div>
         ) : (
-          <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
+          <div data-tour="amplifications-list" style={{ marginTop: 16, display: 'grid', gap: 12 }}>
             {filtered.map(amp => (
               <div key={amp.id} className="card" style={{ padding: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>

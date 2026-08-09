@@ -52,6 +52,8 @@ export const config = {
   smtpUser: process.env.SMTP_USER || '',
   smtpPass: process.env.SMTP_PASS || '',
   smtpFrom: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  /** Куда слать заявки (сертификаты, обращения). По умолчанию inbox. */
+  supportEmail: process.env.SUPPORT_EMAIL || process.env.CONTACT_EMAIL || process.env.SMTP_FROM || process.env.SMTP_USER || 'inbox@jung-ai.ru',
   // Allow comma-separated origins, fallback to '*'
   corsOrigin: (process.env.CORS_ORIGIN || '*').includes(',')
     ? (process.env.CORS_ORIGIN || '*')

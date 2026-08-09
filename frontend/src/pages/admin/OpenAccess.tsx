@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
-import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { AdminNavbar } from '../../components/AdminNavbar';
 import { Link, useSearchParams } from 'react-router-dom';
 import WorkArea from '../psychologist/WorkArea';
 
@@ -93,7 +93,7 @@ export default function AdminOpenAccess() {
 
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <PsychologistNavbar />
+        <AdminNavbar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Header с информацией о запросе */}
           <div style={{ padding: '16px 48px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface)', flexShrink: 0 }}>
@@ -143,7 +143,7 @@ export default function AdminOpenAccess() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <PsychologistNavbar />
+      <AdminNavbar />
       <main
         style={{
           flex: 1,

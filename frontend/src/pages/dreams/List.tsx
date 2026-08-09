@@ -10,6 +10,9 @@ import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import { StarfieldBackground } from '../../components/visuals';
 import { PlatformIcon } from '../../components/icons';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_DREAMS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type Dream = {
   id: string;
@@ -50,6 +53,19 @@ export default function DreamsList() {
     const q = searchParams.get('q');
     if (q) setQuery(q);
   }, [searchParams]);
+
+  useEffect(() => {
+    const wantNew = searchParams.get('new') === '1' || searchParams.get('create') === '1';
+    if (!wantNew) return;
+    setFormTitle('');
+    setFormContent('');
+    setShowModal(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    next.delete('create');
+    const qs = next.toString();
+    navigate(qs ? `/dreams?${qs}` : '/dreams', { replace: true });
+  }, [searchParams, navigate]);
 
   // Check verification status for psychologists
   useEffect(() => {
@@ -161,6 +177,14 @@ export default function DreamsList() {
 
   function closeModal() { setShowModal(false); }
 
+  usePsychologistPlatformTour({
+    tourId: 'dreams',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && isPsychologist && isVerified === true && !loading),
+    steps: PSYCHOLOGIST_DREAMS_TOUR_STEPS
+  });
+
   async function onCreateDream(e: React.FormEvent) {
     e.preventDefault();
     const payload = {
@@ -236,7 +260,7 @@ export default function DreamsList() {
         }}
       >
         {/* Header */}
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16 }} data-tour="dreams-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
             <h1 style={{ 
               margin: 0, 
@@ -248,8 +272,16 @@ export default function DreamsList() {
               color: 'var(--text-muted)',
               textShadow: '0 1px 4px rgba(0, 0, 0, 0.5)'
             }}>· {items.length}</span>
+            {isPsychologist && (
+              <PsychologistTourHelpButton
+                tourId="dreams"
+                steps={PSYCHOLOGIST_DREAMS_TOUR_STEPS}
+                userId={user?.id}
+                role={user?.role}
+              />
+            )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div data-tour="dreams-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <button 
               className="button" 
               onClick={openModal} 
@@ -354,6 +386,7 @@ export default function DreamsList() {
                 }
               `}</style>
               <div 
+                data-tour="dreams-grid"
                 className="dreams-grid"
                 style={{ 
                   display: 'grid', 

@@ -7,6 +7,9 @@ import { api, resolvePublicFileUrl } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
 import { PlatformIcon } from '../../components/icons';
 import { PostModal } from './PostModal';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type Community = {
   id: string;
@@ -343,6 +346,14 @@ export default function PublicationsPage() {
     document.execCommand('insertText', false, text || '');
   }
 
+  usePsychologistPlatformTour({
+    tourId: 'publications',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && (user?.role === 'psychologist' || user?.role === 'admin')),
+    steps: PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS
+  });
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
@@ -355,7 +366,7 @@ export default function PublicationsPage() {
             alignItems: 'start'
           }}
         >
-          <aside className="card" style={{ padding: narrow ? 14 : 16, alignSelf: 'start', width: '100%', minWidth: 0 }}>
+          <aside data-tour="publications-sidebar" className="card" style={{ padding: narrow ? 14 : 16, alignSelf: 'start', width: '100%', minWidth: 0 }}>
             <div style={{ fontWeight: 800, marginBottom: 8 }}>Мой профиль</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 14 }}>
               <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'grid', placeItems: 'center', fontWeight: 700 }}>
@@ -432,7 +443,7 @@ export default function PublicationsPage() {
             </div>
           </aside>
 
-          <section style={{ minWidth: 0, width: '100%' }}>
+          <section data-tour="publications-main" style={{ minWidth: 0, width: '100%' }}>
             <div className="card" style={{ padding: narrow ? 14 : 18, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
@@ -441,6 +452,12 @@ export default function PublicationsPage() {
                     Ваши публикации, комментарии и реакции
                   </div>
                 </div>
+                <PsychologistTourHelpButton
+                  tourId="publications"
+                  steps={PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS}
+                  userId={user?.id}
+                  role={user?.role}
+                />
               </div>
             </div>
 

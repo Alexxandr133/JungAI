@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_SUPPORT_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type SupportRequest = {
   id: string;
@@ -17,7 +20,7 @@ type SupportRequest = {
 };
 
 export default function PsychologistSupport() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [requests, setRequests] = useState<SupportRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -111,6 +114,14 @@ export default function PsychologistSupport() {
     );
   };
 
+  usePsychologistPlatformTour({
+    tourId: 'support',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && !loading && (user?.role === 'psychologist' || user?.role === 'admin')),
+    steps: PSYCHOLOGIST_SUPPORT_TOUR_STEPS
+  });
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
@@ -122,14 +133,22 @@ export default function PsychologistSupport() {
           overflowX: 'hidden'
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+        <div data-tour="support-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32, gap: 12, flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Тех.поддержка</h1>
             <div className="small" style={{ color: 'var(--text-muted)' }}>Создайте запрос, если у вас возникли проблемы</div>
           </div>
-          <button className="button" onClick={() => setShowModal(true)} style={{ padding: '8px 16px', fontSize: 14 }}>
-            Создать запрос
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <PsychologistTourHelpButton
+              tourId="support"
+              steps={PSYCHOLOGIST_SUPPORT_TOUR_STEPS}
+              userId={user?.id}
+              role={user?.role}
+            />
+            <button className="button" onClick={() => setShowModal(true)} style={{ padding: '8px 16px', fontSize: 14 }}>
+              Создать запрос
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -141,14 +160,14 @@ export default function PsychologistSupport() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>Загрузка...</div>
         ) : requests.length === 0 ? (
-          <div className="card" style={{ padding: 32, textAlign: 'center' }}>
+          <div data-tour="support-list" className="card" style={{ padding: 32, textAlign: 'center' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔧</div>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Нет запросов</div>
             <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 24 }}>Создайте первый запрос в техподдержку</div>
             <button className="button" onClick={() => setShowModal(true)} style={{ padding: '8px 16px', fontSize: 14 }}>Создать запрос</button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: 16 }}>
+          <div data-tour="support-list" style={{ display: 'grid', gap: 16 }}>
             {requests.map(req => (
               <div key={req.id} className="card" style={{ padding: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>

@@ -174,7 +174,7 @@ router.get('/dreams/:id', requireAuth, async (req, res) => {
 
 router.put('/dreams/:id', requireAuth, requireRole(['client', 'psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
-    const { title, content, symbols, clientId } = req.body ?? {};
+    const { title, content, symbols, clientId, discussOnSession } = req.body ?? {};
     
     const dream = await (prisma as any).dream.findUnique({
       where: { id: req.params.id }
@@ -199,7 +199,8 @@ router.put('/dreams/:id', requireAuth, requireRole(['client', 'psychologist', 'a
         ...(title !== undefined && { title }),
         ...(content !== undefined && { content }),
         ...(contentChanged && { symbols: [] }),
-        ...(clientId !== undefined && { clientId: clientId || null })
+        ...(clientId !== undefined && { clientId: clientId || null }),
+        ...(discussOnSession !== undefined && { discussOnSession: Boolean(discussOnSession) }),
       }
     });
 

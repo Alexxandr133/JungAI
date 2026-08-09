@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
-import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { AdminNavbar } from '../../components/AdminNavbar';
 
 type CatalogItem = {
   id: string;
@@ -104,7 +104,7 @@ export default function AdminPsychologistsCatalog() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <PsychologistNavbar />
+      <AdminNavbar />
       <main style={{ flex: 1, padding: '24px 32px 40px', maxWidth: 920, margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
           <div>

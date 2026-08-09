@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import App from './App.tsx'
 import './styles/tokens.css'
 import './styles/appearance.css'
@@ -14,7 +14,6 @@ import { ErrorBoundary } from './ErrorBoundary'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import DreamsList from './pages/dreams/List'
-import DreamCreate from './pages/dreams/Create'
 import DreamFeedbackPage from './pages/dreams/Feedback'
 import DreamDetail from './pages/dreams/Detail'
 import ParanormalList from './pages/paranormal/List'
@@ -43,6 +42,10 @@ import ClientCommunity from './pages/client/Community'
 import ClientSessions from './pages/client/Sessions'
 import ClientPsychologistsList from './pages/client/PsychologistsList'
 import ClientAIChat from './pages/client/ClientAIChat'
+import ClientCare from './pages/client/Care'
+import ClientProgress from './pages/client/Progress'
+import ClientMatch from './pages/client/Match'
+import ClientCertificate from './pages/client/Certificate'
 import VoiceRoom from './pages/room/VoiceRoom'
 import { ResearcherDashboard } from './pages/researcher/Dashboard'
 import ResearcherProfile from './pages/researcher/Profile'
@@ -61,6 +64,7 @@ import CommunityManage from './pages/publications/CommunityManage'
 import PostView from './pages/publications/PostView'
 import PsychologistProfile from './pages/psychologist/Profile'
 import PsychologistSupport from './pages/psychologist/Support'
+import PsychologistHandbook from './pages/psychologist/Handbook'
 import PsychologistAIChat from './pages/psychologist/AIChat'
 import PsychologistRequestsPage from './pages/psychologist/Requests'
 import AdminDashboard from './pages/admin/Dashboard'
@@ -69,6 +73,8 @@ import AdminSupport from './pages/admin/Support'
 import AdminOpenAccess from './pages/admin/OpenAccess'
 import AdminUserManagement from './pages/admin/UserManagement'
 import AdminPsychologistsCatalog from './pages/admin/PsychologistsCatalog'
+import AdminMailings from './pages/admin/Mailings'
+import AdminAnalytics from './pages/admin/Analytics'
 import RegisterClient from './pages/auth/RegisterClient'
 import Register from './pages/Register'
 import GuestPage from './pages/guest/Guest'
@@ -181,6 +187,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 }
               />
               <Route
+                path="/psychologist/handbook"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'admin']}>
+                    <PsychologistHandbook />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/psychologist/support"
                 element={
                   <ProtectedRoute roles={['psychologist', 'admin']}>
@@ -253,6 +267,22 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/admin/mailings"
+                element={
+                  <ProtectedRoute roles={['admin']}>
+                    <AdminMailings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/analytics"
+                element={
+                  <ProtectedRoute roles={['admin']}>
+                    <AdminAnalytics />
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/clients"
@@ -289,11 +319,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               />
               <Route
                 path="/dreams/new"
-                element={
-                  <ProtectedRoute roles={['client', 'psychologist', 'admin']}>
-                    <DreamCreate />
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/dreams?new=1" replace />}
               />
               <Route
                 path="/dreams/:id"
@@ -504,6 +530,38 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 element={
                   <ProtectedRoute roles={['client', 'admin']}>
                     <ClientAIChat />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client/care"
+                element={
+                  <ProtectedRoute roles={['client', 'admin']}>
+                    <ClientCare />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client/progress"
+                element={
+                  <ProtectedRoute roles={['client', 'admin']}>
+                    <ClientProgress />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client/match"
+                element={
+                  <ProtectedRoute roles={['client', 'admin']}>
+                    <ClientMatch />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client/certificate"
+                element={
+                  <ProtectedRoute roles={['client', 'admin']}>
+                    <ClientCertificate />
                   </ProtectedRoute>
                 }
               />

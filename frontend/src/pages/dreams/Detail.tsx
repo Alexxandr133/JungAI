@@ -11,6 +11,7 @@ type Dream = {
   symbols?: string[];
   createdAt: string;
   userId?: string;
+  discussOnSession?: boolean;
 };
 
 export default function DreamDetail() {
@@ -19,6 +20,9 @@ export default function DreamDetail() {
   const [dream, setDream] = useState<Dream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [discussSaving, setDiscussSaving] = useState(false);
+
+  const canToggleDiscuss = Boolean(token && user?.role === 'client' && dream);
 
   useEffect(() => {
     (async () => {
@@ -64,6 +68,24 @@ export default function DreamDetail() {
     return `${date} · ${time}`;
   }
 
+  async function toggleDiscussOnSession() {
+    if (!dream || !token || !canToggleDiscuss) return;
+    const next = !dream.discussOnSession;
+    setDiscussSaving(true);
+    try {
+      const updated = await api<Dream>(`/api/dreams/${dream.id}`, {
+        token,
+        method: 'PUT',
+        body: { discussOnSession: next },
+      });
+      setDream({ ...dream, discussOnSession: updated.discussOnSession ?? next });
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось обновить флаг');
+    } finally {
+      setDiscussSaving(false);
+    }
+  }
+
   return (
     <div style={{ padding: 12 }}>
       {/* Header */}
@@ -100,7 +122,31 @@ export default function DreamDetail() {
               </div>
             )}
             <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{dream.content || '—'}</div>
-            {dream.userId && (
+            {canToggleDiscuss && (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--navbar-edge)',
+                  cursor: discussSaving ? 'wait' : 'pointer',
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(dream.discussOnSession)}
+                  disabled={discussSaving}
+                  onChange={() => void toggleDiscussOnSession()}
+                />
+                Обсудить на сессии
+              </label>
+            )}
+            {dream.userId && user?.role !== 'client' && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Link className="button secondary" to={`/psychologist/work-area?client=${encodeURIComponent(String(dream.userId))}`} style={{ padding: '6px 10px', fontSize: 13 }}>К рабочей области клиента</Link>
               </div>

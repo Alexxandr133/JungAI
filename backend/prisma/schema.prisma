@@ -58,6 +58,7 @@ model Dream {
   symbolsStatus String @default("ready") // pending | processing | ready | failed
   symbolsExtractedAt DateTime?
   symbolsAiVersion Int @default(0)
+  discussOnSession Boolean @default(false) // Клиент хочет обсудить сон на сессии
   userId    String?
   clientId  String? // Связь с клиентом
   client    Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -111,16 +112,21 @@ model Client {
   createdAt      DateTime @default(now())
 
   // Связи
-  dreams           Dream[]
-  testResults      TestResult[]
-  journalEntries   JournalEntry[]
-  therapySessions  TherapySession[]
-  clientNotes      ClientNote[]
-  documents        ClientDocument[]
-  documentVersions DocumentVersion[]
-  supportRequests  SupportRequest[]
-  tabs             ClientTabs?
-  aiChats          AIChat[]
+  dreams                Dream[]
+  testResults           TestResult[]
+  journalEntries        JournalEntry[]
+  therapySessions       TherapySession[]
+  clientNotes           ClientNote[]
+  documents             ClientDocument[]
+  documentVersions      DocumentVersion[]
+  supportRequests       SupportRequest[]
+  tabs                  ClientTabs?
+  aiChats               AIChat[]
+  moodCheckIns          MoodCheckIn[]
+  matchProfile          ClientMatchProfile?
+  practiceCompletions   ClientPracticeCompletion[]
+  certificateRequests   CertificateRequest[]
+  sessionReflections    SessionReflection[]
 }
 
 model TherapySession {
@@ -320,6 +326,83 @@ model Notification {
   createdAt  DateTime @default(now())
 }
 
+// Чек-ин настроения клиента (трекер состояния)
+model MoodCheckIn {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mood      Int // 1–5
+  energy    Int // 1–5
+  anxiety   Int // 1–5
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+}
+
+// Анкета подбора психолога
+model ClientMatchProfile {
+  id             String   @id @default(cuid())
+  clientId       String   @unique
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  topics         Json // string[]
+  format         String   @default("individual") // individual | couple
+  timePreference String? // morning | day | evening | flexible
+  methodNotes    String?
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+}
+
+// Каталог коротких практик
+model ClientPractice {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  durationMin Int
+  kind        String // breath | meditation | reflection
+  content     String // шаги / текст практики
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  completions ClientPracticeCompletion[]
+}
+
+model ClientPracticeCompletion {
+  id          String         @id @default(cuid())
+  clientId    String
+  client      Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  practiceId  String
+  practice    ClientPractice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  completedAt DateTime       @default(now())
+
+  @@index([clientId, completedAt])
+}
+
+// Заявка на подарочный сертификат (без оплаты)
+model CertificateRequest {
+  id        String   @id @default(cuid())
+  clientId  String?
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  email     String
+  message   String?
+  status    String   @default("pending") // pending | contacted | done
+  createdAt DateTime @default(now())
+}
+
+// Рефлексия после сессии (клиент)
+model SessionReflection {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  eventId   String?
+  sessionId String? // TherapySession.id если есть
+  moodAfter Int // 1–5
+  text      String?
+  createdAt DateTime @default(now())
+
+  @@index([clientId, createdAt])
+}
+
 // Записи дневника клиента
 model JournalEntry {
   id        String   @id @default(cuid())
@@ -509,4 +592,78 @@ model PublicationReaction {
   createdAt DateTime @default(now())
 
   @@unique([postId, userId, type])
+}
+
+// Admin mailing CRM
+model MailGroup {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  members     MailGroupMember[]
+  campaigns   MailCampaign[]
+}
+
+model MailGroupMember {
+  id        String    @id @default(cuid())
+  groupId   String
+  group     MailGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  email     String
+  userId    String?
+  source    String    @default("manual") // manual | platform
+  createdAt DateTime  @default(now())
+
+  @@unique([groupId, email])
+  @@index([email])
+}
+
+model MailTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String
+  bodyHtml  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MailCampaign {
+  id             String                 @id @default(cuid())
+  subject        String
+  bodyHtml       String
+  groupId        String
+  group          MailGroup              @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  status         String                 @default("draft") // draft | queued | sending | sent | failed | cancelled
+  createdBy      String
+  totalCount     Int                    @default(0)
+  sentCount      Int                    @default(0)
+  failedCount    Int                    @default(0)
+  skippedCount   Int                    @default(0)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  recipients     MailCampaignRecipient[]
+}
+
+model MailCampaignRecipient {
+  id         String       @id @default(cuid())
+  campaignId String
+  campaign   MailCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  email      String
+  name       String?
+  status     String       @default("pending") // pending | sent | failed | skipped
+  error      String?
+  sentAt     DateTime?
+  createdAt  DateTime     @default(now())
+
+  @@index([campaignId, status])
+  @@index([email])
+}
+
+model MailUnsubscribe {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  token     String   @unique
+  createdAt DateTime @default(now())
 }

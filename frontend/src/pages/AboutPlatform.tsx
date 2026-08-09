@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { PsychologistNavbar } from '../components/PsychologistNavbar';
 import { ClientNavbar } from '../components/ClientNavbar';
 import { ResearcherNavbar } from '../components/ResearcherNavbar';
+import { AdminNavbar } from '../components/AdminNavbar';
 import { PlatformUpdateBody } from '../components/PlatformUpdateBody';
 import { PlatformUpdateEditor } from '../components/PlatformUpdateEditor';
 
@@ -409,6 +410,7 @@ function AboutPlatform() {
   const Navbar =
     user?.role === 'client' ? ClientNavbar :
     user?.role === 'researcher' ? ResearcherNavbar :
+    user?.role === 'admin' ? AdminNavbar :
     PsychologistNavbar;
 
   return (

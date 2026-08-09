@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
-import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { AdminNavbar } from '../../components/AdminNavbar';
 
 type DashboardStats = {
   support: {
@@ -171,7 +171,7 @@ export default function AdminDashboard() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <PsychologistNavbar />
+      <AdminNavbar />
       <main
         style={{
           flex: 1,

@@ -53,6 +53,7 @@ export default function ClientsList() {
   const [tagColor, setTagColor] = useState('#7c5cff');
   const [showModal, setShowModal] = useState(false);
   const [clientView, setClientView] = useState<'active' | 'archive'>('active');
+  const [crmFilter, setCrmFilter] = useState<'all' | 'needs_attention' | 'no_upcoming' | 'expired_invite' | 'has_tasks'>('all');
   const [editingClient, setEditingClient] = useState<any | null>(null);
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
@@ -109,6 +110,8 @@ export default function ClientsList() {
     { label: 'Тень', color: '#ff8b94' },
   ];
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [draftTags, setDraftTags] = useState<string[]>([]);
+  const [tagFiltersOpen, setTagFiltersOpen] = useState(false);
 
   function hashColorFromLabel(label: string): string {
     const palette = ['#ff6b6b', '#ffcc66', '#19e0ff', '#7c5cff', '#3ddc97', '#f08cff', '#ffd166'];
@@ -136,11 +139,16 @@ export default function ClientsList() {
     return Boolean(c.therapyEndedAt);
   }
 
-  async function load(view: 'active' | 'archive' = clientView) {
+  async function load(
+    view: 'active' | 'archive' = clientView,
+    filter: typeof crmFilter = crmFilter,
+    tags: string[] = selectedTags,
+    search: string = query,
+  ) {
     const demo: any[] = [
-      { id: 'c1', name: 'Иван Петров', email: 'ivan@example.com', phone: '+7 900 111-22-33', age: 34, city: 'Москва', tags: [{ label: 'PTSD', color: '#ff6b6b' }, { label: 'Сноведение', color: '#19e0ff' }] },
-      { id: 'c2', name: 'Анна Смирнова', email: 'anna@example.com', phone: '+7 900 222-33-44', age: 29, city: 'СПб', tags: [{ label: 'Тревога', color: '#ffcc66' }] },
-      { id: 'c3', name: 'Мария Коваль', email: 'maria@example.com', phone: '+7 900 333-44-55', age: 41, city: 'Казань', tags: [{ label: 'Депрессия', color: '#7c5cff' }] },
+      { id: 'c1', name: 'Иван Петров', email: 'ivan@example.com', phone: '+7 900 111-22-33', age: 34, city: 'Москва', tags: [{ label: 'PTSD', color: '#ff6b6b' }, { label: 'Сноведение', color: '#19e0ff' }], nextSessionAt: null, lastContactAt: null, openTasksCount: 1 },
+      { id: 'c2', name: 'Анна Смирнова', email: 'anna@example.com', phone: '+7 900 222-33-44', age: 29, city: 'СПб', tags: [{ label: 'Тревога', color: '#ffcc66' }], nextSessionAt: null, lastContactAt: null, openTasksCount: 0 },
+      { id: 'c3', name: 'Мария Коваль', email: 'maria@example.com', phone: '+7 900 333-44-55', age: 41, city: 'Казань', tags: [{ label: 'Депрессия', color: '#7c5cff' }], nextSessionAt: null, lastContactAt: null, openTasksCount: 2 },
     ];
     const stored = readItemsFromStorage();
     const deletedIds = new Set(readDeletedFromStorage());
@@ -153,7 +161,13 @@ export default function ClientsList() {
       return;
     }
     try {
-      const res = await api<{ items: any[] }>(`/api/clients?status=${view}`, { token });
+      const params = new URLSearchParams();
+      params.set('status', view);
+      if (filter !== 'all') params.set('filter', filter);
+      if (tags.length) params.set('tags', tags.join(','));
+      const q = search.trim();
+      if (q) params.set('q', q);
+      const res = await api<{ items: any[] }>(`/api/clients?${params.toString()}`, { token });
       const enriched = (res.items || []).map((c) => ({
         ...c,
         tags: Array.isArray(c.tags) ? c.tags : []
@@ -179,7 +193,7 @@ export default function ClientsList() {
       const combined = Object.values(byId)
         .filter(it => !deletedIds.has(String(it.id)))
         .filter(it => (view === 'archive' ? isArchivedClient(it) : !isArchivedClient(it)));
-      setItems(combined.length > 0 ? combined : (view === 'archive' ? [] : demo));
+      setItems(combined.length > 0 ? combined : (view === 'archive' ? [] : (filter === 'all' && !tags.length && !q ? demo : [])));
       setError(null);
     } catch (e: any) {
       // backend not reachable or 404 -> show demo data
@@ -214,9 +228,20 @@ export default function ClientsList() {
 
   useEffect(() => {
     if (isVerified !== false) {
-      load(clientView);
+      load(clientView, crmFilter, selectedTags, query);
     }
-  }, [token, isVerified, clientView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, isVerified, clientView, crmFilter, selectedTags]);
+
+  // Debounced search → server
+  useEffect(() => {
+    if (isVerified === false) return;
+    const t = window.setTimeout(() => {
+      load(clientView, crmFilter, selectedTags, query);
+    }, 280);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   // Обновление данных при возврате на страницу
   useEffect(() => {
@@ -243,14 +268,20 @@ export default function ClientsList() {
     const params = new URLSearchParams(location.search);
     const urlTags = params.get('tags');
     const stored = localStorage.getItem('clients.tagFilter');
-    if (urlTags) setSelectedTags(urlTags.split(',').filter(Boolean));
+    let initial: string[] = [];
+    if (urlTags) initial = urlTags.split(',').filter(Boolean);
     else if (stored) {
-      try { const parsed = JSON.parse(stored); if (Array.isArray(parsed?.tags)) setSelectedTags(parsed.tags); } catch {}
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed?.tags)) initial = parsed.tags;
+      } catch {}
     }
+    setSelectedTags(initial);
+    setDraftTags(initial);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist tag filters
+  // Persist applied tag filters
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (selectedTags.length > 0) params.set('tags', selectedTags.join(',')); else params.delete('tags');
@@ -258,6 +289,22 @@ export default function ClientsList() {
     window.history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}`);
     localStorage.setItem('clients.tagFilter', JSON.stringify({ tags: selectedTags }));
   }, [selectedTags, location.pathname, location.search]);
+
+  function openTagFilters() {
+    setDraftTags(selectedTags);
+    setTagFiltersOpen((v) => !v);
+  }
+
+  function applyTagFilters() {
+    setSelectedTags(draftTags);
+    setTagFiltersOpen(false);
+  }
+
+  function clearAppliedTagFilters() {
+    setDraftTags([]);
+    setSelectedTags([]);
+    setTagFiltersOpen(false);
+  }
 
   usePsychologistPlatformTour({
     tourId: 'clients',
@@ -518,29 +565,50 @@ export default function ClientsList() {
     // Search is handled by the query state and filteredItems logic below
   }
 
-  // Derived: all tags in dataset and filtered items
+  // Derived: all tags in dataset and filtered items (server already applied filter/tags/q; keep light client pass for offline/demo)
   const allExistingTags: string[] = Array.from(new Set(items.flatMap(c => (Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : []))));
   const filtersToUse = Array.from(new Set([...selectedTags]));
   const queryLower = query.toLowerCase().trim();
   const filteredItems = items.filter(c => {
-    // Filter by tags
-    if (filtersToUse.length > 0) {
-      const labels: string[] = Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [];
-      if (!filtersToUse.some(t => labels.includes(t))) return false;
-    }
-    // Filter by query (search in name, email, phone, city)
-    if (queryLower) {
-      const searchable = [
-        c.name || '',
-        c.email || '',
-        c.phone || '',
-        c.city || '',
-        ...(Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [])
-      ].join(' ').toLowerCase();
-      if (!searchable.includes(queryLower)) return false;
+    if (!token) {
+      if (filtersToUse.length > 0) {
+        const labels: string[] = Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [];
+        if (!filtersToUse.some(t => labels.includes(t))) return false;
+      }
+      if (queryLower) {
+        const searchable = [
+          c.name || '',
+          c.email || '',
+          c.phone || '',
+          c.city || '',
+          ...(Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [])
+        ].join(' ').toLowerCase();
+        if (!searchable.includes(queryLower)) return false;
+      }
+      if (crmFilter === 'needs_attention') {
+        const expired = c.registrationStatus === 'expired' || (c.registrationPending && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now());
+        if (!(expired || (!c.nextSessionAt && !c.therapyEndedAt) || (c.openTasksCount || 0) > 0)) return false;
+      } else if (crmFilter === 'no_upcoming') {
+        if (c.nextSessionAt || c.therapyEndedAt) return false;
+      } else if (crmFilter === 'expired_invite') {
+        const expired = c.registrationStatus === 'expired' || (c.registrationPending && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now());
+        if (!expired) return false;
+      } else if (crmFilter === 'has_tasks') {
+        if (!(c.openTasksCount > 0)) return false;
+      }
     }
     return true;
   });
+
+  const CRM_FILTERS: { id: typeof crmFilter; label: string }[] = [
+    { id: 'all', label: 'Все' },
+    { id: 'needs_attention', label: 'Требуют внимания' },
+    { id: 'no_upcoming', label: 'Без ближайшей сессии' },
+    { id: 'expired_invite', label: 'Просрочен инвайт' },
+    { id: 'has_tasks', label: 'Есть открытые задачи' },
+  ];
+
+  const hasActiveFilters = Boolean(query || selectedTags.length || crmFilter !== 'all');
 
   // Show verification required message
   if (token && isVerified === false) {
@@ -575,7 +643,7 @@ export default function ClientsList() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }} data-tour="clients-views">
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
@@ -599,39 +667,89 @@ export default function ClientsList() {
             <span style={{ opacity: .6 }}> / {items.length}</span>
           </span>
         </div>
-        {error && <div style={{ color: 'red', marginTop: 10 }}>{error}</div>}
 
-        {/* Tag filters */}
-        <div data-tour="clients-tags" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 10, flexWrap: 'wrap' }}>
-          <div className="small" style={{ opacity: .8, color: 'var(--text-muted)' }}>Фильтр по тегам:</div>
-          {[...PRESET_TAGS, ...allExistingTags.filter(l => !PRESET_TAGS.some(p => p.label === l)).map(l => ({ label: l, color: getColorForLabel(l) }))].slice(0, 24).map(t => {
-            const active = selectedTags.includes(t.label);
-            const onColor = readableTextOnBackground(t.color);
-            return (
+        <div className="clients-crm-filters" data-tour="clients-crm-filters">
+          {clientView === 'active' &&
+            CRM_FILTERS.map((f) => (
               <button
-                key={t.label}
+                key={f.id}
                 type="button"
-                onClick={() => setSelectedTags(prev => active ? prev.filter(x => x !== t.label) : [...prev, t.label])}
-                style={{
-                  padding: isMobile ? '4px 10px' : '5px 11px',
-                  fontSize: isMobile ? 11 : 12,
-                  fontWeight: 600,
-                  borderRadius: 999,
-                  cursor: 'pointer',
-                  border: `2px solid ${t.color}`,
-                  background: active ? t.color : 'var(--surface-2)',
-                  color: active ? onColor : 'var(--text)',
-                  boxShadow: active ? `0 2px 10px ${t.color}40` : 'none'
-                }}
+                className={`clients-crm-filters__chip${crmFilter === f.id ? ' is-active' : ''}`}
+                onClick={() => setCrmFilter(f.id)}
               >
-                {t.label}
+                {f.label}
               </button>
-            );
-          })}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-            {selectedTags.length > 0 && <button className="button danger" onClick={() => setSelectedTags([])} style={{ padding: '4px 8px', fontSize: 12 }}>Сбросить</button>}
+            ))}
+          <div className="clients-crm-filters__right" data-tour="clients-tags">
+            <button
+              type="button"
+              className={`button${tagFiltersOpen || selectedTags.length > 0 ? '' : ' secondary'}`}
+              onClick={openTagFilters}
+              style={{ padding: '7px 14px', fontSize: 13 }}
+            >
+              Фильтры{selectedTags.length > 0 ? ` (${selectedTags.length})` : ''}
+            </button>
           </div>
         </div>
+
+        {tagFiltersOpen && (
+          <div className="clients-tag-filters-panel">
+            <div className="small" style={{ color: 'var(--text-muted)' }}>
+              Фильтр по тегам — выберите теги и нажмите «Применить»
+            </div>
+            <div className="clients-tag-filters-panel__tags">
+              {[...PRESET_TAGS, ...allExistingTags.filter((l) => !PRESET_TAGS.some((p) => p.label === l)).map((l) => ({ label: l, color: getColorForLabel(l) }))].slice(0, 24).map((t) => {
+                const active = draftTags.includes(t.label);
+                const onColor = readableTextOnBackground(t.color);
+                return (
+                  <button
+                    key={t.label}
+                    type="button"
+                    onClick={() =>
+                      setDraftTags((prev) =>
+                        active ? prev.filter((x) => x !== t.label) : [...prev, t.label]
+                      )
+                    }
+                    style={{
+                      padding: isMobile ? '4px 10px' : '5px 11px',
+                      fontSize: isMobile ? 11 : 12,
+                      fontWeight: 600,
+                      borderRadius: 999,
+                      cursor: 'pointer',
+                      border: `2px solid ${t.color}`,
+                      background: active ? t.color : 'var(--surface)',
+                      color: active ? onColor : 'var(--text)',
+                      boxShadow: active ? `0 2px 10px ${t.color}40` : 'none',
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="clients-tag-filters-panel__actions">
+              {(draftTags.length > 0 || selectedTags.length > 0) && (
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ padding: '6px 12px', fontSize: 13 }}
+                  onClick={clearAppliedTagFilters}
+                >
+                  Сбросить
+                </button>
+              )}
+              <button
+                type="button"
+                className="button"
+                style={{ padding: '6px 14px', fontSize: 13 }}
+                onClick={applyTagFilters}
+              >
+                Применить
+              </button>
+            </div>
+          </div>
+        )}
+        {error && <div style={{ color: 'red', marginTop: 10 }}>{error}</div>}
 
         <div
           data-tour="clients-grid"
@@ -657,13 +775,13 @@ export default function ClientsList() {
           {filteredItems.length === 0 && (
             <div className="clients-empty-card" style={{ gridColumn: '1 / -1' }}>
               <div className="clients-empty-card__title">
-                {clientView === 'archive' ? 'Архив пуст' : query || selectedTags.length ? 'Ничего не найдено' : 'Пока нет клиентов'}
+                {clientView === 'archive' ? 'Архив пуст' : hasActiveFilters ? 'Ничего не найдено' : 'Пока нет клиентов'}
               </div>
               <div className="clients-empty-card__hint">
                 {clientView === 'archive'
                   ? 'Здесь появятся клиенты, у которых вы завершили терапию. Их можно вернуть в активные в любой момент.'
-                  : query || selectedTags.length
-                    ? 'Попробуйте изменить поиск или сбросить фильтры по тегам.'
+                  : hasActiveFilters
+                    ? 'Попробуйте изменить поиск или сбросить фильтры.'
                     : 'Добавьте первого клиента с помощью кнопки «Добавить клиента».'}
               </div>
             </div>

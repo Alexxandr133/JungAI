@@ -6,6 +6,9 @@ import { useAuth } from '../../context/AuthContext';
 import { api, resolvePublicFileUrl } from '../../lib/api';
 import { PlatformIcon } from '../../components/icons';
 import { PostModal } from './PostModal';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_FEED_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type Author = { id: string; email: string; role: string; name?: string | null; avatarUrl?: string | null };
 type Community = { id: string; slug: string; name: string; description: string; avatarUrl?: string | null };
@@ -24,7 +27,7 @@ type Post = {
 };
 
 export default function FeedPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
   const narrow = useIsNarrowViewport();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -85,11 +88,19 @@ export default function FeedPage() {
     }
   }
 
+  usePsychologistPlatformTour({
+    tourId: 'feed',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && !loading && (user?.role === 'psychologist' || user?.role === 'admin')),
+    steps: PSYCHOLOGIST_FEED_TOUR_STEPS
+  });
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <UniversalNavbar />
       <main style={{ flex: 1, padding: narrow ? '16px 12px' : '24px clamp(16px, 4vw, 42px)', overflowX: 'hidden' }}>
-        <div className="card" style={{ padding: narrow ? 14 : 16, marginBottom: 14 }}>
+        <div data-tour="feed-header" className="card" style={{ padding: narrow ? 14 : 16, marginBottom: 14 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0 }}>
               <h1 style={{ margin: 0, fontSize: narrow ? 22 : undefined }}>Лента</h1>
@@ -98,6 +109,12 @@ export default function FeedPage() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <PsychologistTourHelpButton
+                tourId="feed"
+                steps={PSYCHOLOGIST_FEED_TOUR_STEPS}
+                userId={user?.id}
+                role={user?.role}
+              />
               {selectedAuthor && (
                 <span className="small" style={{ color: 'var(--text-muted)' }}>
                   Фильтр автора: <b>{selectedAuthor.name || selectedAuthor.email}</b>
@@ -120,7 +137,7 @@ export default function FeedPage() {
             overflow: 'hidden'
           }}
         >
-          <aside className="card" style={{ padding: 14, alignSelf: 'start', order: narrow ? 1 : undefined, width: '100%', minWidth: 0 }}>
+          <aside data-tour="feed-communities" className="card" style={{ padding: 14, alignSelf: 'start', order: narrow ? 1 : undefined, width: '100%', minWidth: 0 }}>
             <div style={{ fontWeight: 700, marginBottom: 10 }}>Сообщества</div>
             <div style={{ display: 'grid', gap: 8 }}>
               {communities.map((community) => (
@@ -145,7 +162,7 @@ export default function FeedPage() {
             </div>
           </aside>
 
-          <section style={{ display: 'grid', gap: 12, minWidth: 0, order: narrow ? -1 : undefined, width: '100%' }}>
+          <section data-tour="feed-posts" style={{ display: 'grid', gap: 12, minWidth: 0, order: narrow ? -1 : undefined, width: '100%' }}>
             {loading && <div className="small">Загрузка...</div>}
             {visiblePosts.map((post) => (
               <article

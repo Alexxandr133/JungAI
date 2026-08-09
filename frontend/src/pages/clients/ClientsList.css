@@ -16,6 +16,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
   padding: 0;
   border-radius: 18px;
   border: 1px solid var(--navbar-edge);
@@ -65,6 +67,8 @@
   display: flex;
   flex-direction: column;
   gap: 11px;
+  flex: 1;
+  min-height: 0;
 }
 
 .client-card__head {
@@ -155,6 +159,7 @@
   gap: 6px;
   font-size: 13px;
   color: var(--text-muted);
+  min-height: 46px;
 }
 
 .client-card__contact-row {
@@ -176,10 +181,26 @@
   white-space: nowrap;
 }
 
+.client-card__contact-text.is-empty {
+  opacity: 0.55;
+  font-style: italic;
+}
+
 .client-card__tags {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
+  min-height: 28px;
+  max-height: 28px;
+  overflow: hidden;
+}
+
+.client-card__tags-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  font-style: italic;
 }
 
 .client-card__tag {
@@ -270,12 +291,101 @@
   border: 1px dashed var(--navbar-edge);
 }
 
+.client-card__crm {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--navbar-edge);
+}
+
+.client-card__crm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.client-card__crm-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.client-card__crm-value {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.client-card__extra {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.clients-crm-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.clients-crm-filters__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.clients-tag-filters-panel {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface-2);
+  display: grid;
+  gap: 12px;
+}
+
+.clients-tag-filters-panel__tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.clients-tag-filters-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.clients-crm-filters__chip {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.clients-crm-filters__chip.is-active {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--navbar-edge));
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface-2));
+}
+
 .client-card__actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
-  margin-top: 2px;
+  margin-top: auto;
   padding-top: 12px;
   border-top: 1px solid var(--navbar-edge);
 }

@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_MATERIALS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 export default function MaterialsList() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [items, setItems] = useState<any[]>([]);
   const [query, setQuery] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   async function load() {
     try {
@@ -22,10 +26,18 @@ export default function MaterialsList() {
         { id: 'v1', title: 'Лекция: Коллективное бессознательное', type: 'video', tags: ['лекция'], cover: null }
       ]);
     } catch (e: any) { console.error('Failed to load:', e); }
+    finally { setLoaded(true); }
   }
 
   useEffect(() => { load(); }, [token]);
 
+  usePsychologistPlatformTour({
+    tourId: 'materials',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && loaded && (user?.role === 'psychologist' || user?.role === 'admin')),
+    steps: PSYCHOLOGIST_MATERIALS_TOUR_STEPS
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -45,7 +57,7 @@ export default function MaterialsList() {
         }}
       >
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
+        <div data-tour="materials-header" style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800 }}>Библиотека</h1>
             <span className="small" style={{ color: 'var(--text-muted)' }}>· {items.length}</span>
@@ -53,10 +65,16 @@ export default function MaterialsList() {
               <input placeholder="Поиск по названию/тегам" value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)' }} />
             </div>
           </div>
+          <PsychologistTourHelpButton
+            tourId="materials"
+            steps={PSYCHOLOGIST_MATERIALS_TOUR_STEPS}
+            userId={user?.id}
+            role={user?.role}
+          />
         </div>
 
         {/* Collections */}
-        <div style={{ marginTop: 12, display: 'grid', gap: 12 }}>
+        <div data-tour="materials-list" style={{ marginTop: 12, display: 'grid', gap: 12 }}>
           <section className="card" style={{ padding: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontWeight: 800 }}>Книги</div>

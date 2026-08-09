@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
@@ -161,12 +161,39 @@ export default function ClientPsychologistsList() {
           <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>
             {hasAttachedPsychologist ? 'Мой психолог' : 'Психологи'}
           </h1>
-          <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>
+          <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
             {hasAttachedPsychologist 
               ? 'Ваш прикрепленный психолог'
               : 'Найдите подходящего психолога и запишитесь на консультацию'
             }
           </p>
+
+          {!hasAttachedPsychologist && (
+            <div
+              className="card"
+              style={{
+                padding: 16,
+                marginBottom: 24,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                background: 'linear-gradient(135deg, rgba(124,92,255,0.14), rgba(25,224,255,0.08))',
+                border: '1px solid rgba(124,92,255,0.3)',
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700 }}>Не знаете, с кого начать?</div>
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+                  Короткая анкета подберёт 3–5 специалистов под ваш запрос
+                </div>
+              </div>
+              <Link to="/client/match" className="button" style={{ whiteSpace: 'nowrap' }}>
+                Подобрать по анкете
+              </Link>
+            </div>
+          )}
           
           {/* Search - только для неприкрепленных клиентов */}
           {!hasAttachedPsychologist && (

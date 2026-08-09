@@ -256,42 +256,205 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     }
     
     console.log(`[GET /clients] After deduplication: ${uniqueClients.size} unique clients`);
-    
-    // Обогащаем клиентов данными профиля
-    const items = await Promise.all(Array.from(uniqueClients.values()).map(async (client: any) => {
-      const regTok = client.registrationToken as string | null | undefined;
-      const { registrationToken: _drop, ...restSafe } = client;
-      const registrationPending = Boolean(regTok);
-      const registrationLink = regTok
-        ? `${config.frontendUrl}/register-client?token=${regTok}`
-        : null;
 
-      if (!client.email) {
+    const deduped = Array.from(uniqueClients.values()) as Array<{
+      id: string;
+      name: string;
+      email?: string | null;
+      phone?: string | null;
+      age?: number | null;
+      city?: string | null;
+      tags?: unknown;
+      therapyEndedAt?: Date | null;
+      psychologistId: string;
+      createdAt: Date;
+      registrationToken?: string | null;
+      tokenExpiresAt?: Date | null;
+    }>;
+    const clientIds = deduped.map((c) => c.id);
+    const now = new Date();
+
+    const qRaw = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+    const filterRaw = typeof req.query.filter === 'string' ? req.query.filter.trim().toLowerCase() : '';
+    const tagRaw = typeof req.query.tag === 'string' ? req.query.tag.trim().toLowerCase() : '';
+    const tagsRaw = typeof req.query.tags === 'string' ? req.query.tags : '';
+    const tagFilters = [
+      ...(tagRaw ? [tagRaw] : []),
+      ...tagsRaw
+        .split(',')
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean),
+    ];
+
+    const [upcomingEvents, recentSessions, recentNotes, openTasks] = await Promise.all([
+      clientIds.length
+        ? prisma.event.findMany({
+            where: {
+              clientId: { in: clientIds },
+              startsAt: { gte: now },
+              OR: [{ sessionStatus: null }, { sessionStatus: { in: ['accepted', 'pending'] } }],
+            },
+            orderBy: { startsAt: 'asc' },
+            select: { id: true, clientId: true, startsAt: true, title: true, sessionStatus: true },
+          })
+        : Promise.resolve([]),
+      clientIds.length
+        ? prisma.therapySession.findMany({
+            where: { clientId: { in: clientIds } },
+            orderBy: { date: 'desc' },
+            select: { clientId: true, date: true },
+          })
+        : Promise.resolve([]),
+      clientIds.length
+        ? prisma.clientNote.findMany({
+            where: { clientId: { in: clientIds } },
+            orderBy: { createdAt: 'desc' },
+            select: { clientId: true, createdAt: true },
+          })
+        : Promise.resolve([]),
+      clientIds.length
+        ? prisma.task.findMany({
+            where: {
+              clientId: { in: clientIds },
+              ownerId: req.user.id,
+              status: { not: 'done' },
+            },
+            select: { clientId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const nextByClient = new Map<string, { id: string; startsAt: Date; title: string }>();
+    for (const ev of upcomingEvents) {
+      if (!ev.clientId) continue;
+      if (!nextByClient.has(ev.clientId)) {
+        nextByClient.set(ev.clientId, { id: ev.id, startsAt: ev.startsAt, title: ev.title });
+      }
+    }
+
+    const lastSessionByClient = new Map<string, Date>();
+    for (const s of recentSessions) {
+      if (!lastSessionByClient.has(s.clientId)) lastSessionByClient.set(s.clientId, s.date);
+    }
+    const lastNoteByClient = new Map<string, Date>();
+    for (const n of recentNotes) {
+      if (!lastNoteByClient.has(n.clientId)) lastNoteByClient.set(n.clientId, n.createdAt);
+    }
+    const openTasksByClient = new Map<string, number>();
+    for (const t of openTasks) {
+      if (!t.clientId) continue;
+      openTasksByClient.set(t.clientId, (openTasksByClient.get(t.clientId) || 0) + 1);
+    }
+
+    function registrationStatusFor(client: {
+      therapyEndedAt?: Date | null;
+      registrationToken?: string | null;
+      tokenExpiresAt?: Date | null;
+      platformRegistered?: boolean;
+    }): 'registered' | 'pending' | 'expired' | 'archived' {
+      if (client.therapyEndedAt) return 'archived';
+      if (client.platformRegistered && !client.registrationToken) return 'registered';
+      if (client.registrationToken) {
+        const exp = client.tokenExpiresAt ? client.tokenExpiresAt.getTime() : NaN;
+        if (Number.isFinite(exp) && exp < Date.now()) return 'expired';
+        return 'pending';
+      }
+      return 'registered';
+    }
+
+    // Обогащаем клиентов данными профиля + CRM meta
+    let items = await Promise.all(
+      deduped.map(async (client) => {
+        const regTok = client.registrationToken as string | null | undefined;
+        const { registrationToken: _drop, ...restSafe } = client;
+        const registrationPending = Boolean(regTok);
+        const registrationLink = regTok ? `${config.frontendUrl}/register-client?token=${regTok}` : null;
+
+        let profile = null as any;
+        let avatarUrl = null as string | null;
+        let platformRegistered = false;
+        if (client.email) {
+          const user = await prisma.user.findFirst({
+            where: { email: client.email },
+            include: { profile: true },
+          });
+          profile = user?.profile || null;
+          avatarUrl = user?.profile?.avatarUrl || null;
+          platformRegistered = Boolean(user);
+        }
+
+        const next = nextByClient.get(client.id);
+        const lastSession = lastSessionByClient.get(client.id);
+        const lastNote = lastNoteByClient.get(client.id);
+        let lastContactAt: Date | null = null;
+        for (const d of [lastSession, lastNote, client.createdAt]) {
+          if (!d) continue;
+          if (!lastContactAt || d > lastContactAt) lastContactAt = d;
+        }
+
+        const registrationStatus = registrationStatusFor({
+          therapyEndedAt: client.therapyEndedAt,
+          registrationToken: regTok,
+          tokenExpiresAt: client.tokenExpiresAt,
+          platformRegistered,
+        });
+
         return {
           ...restSafe,
+          profile,
+          avatarUrl,
           registrationPending,
           registrationLink,
-          platformRegistered: false
+          platformRegistered,
+          registrationStatus,
+          nextSessionAt: next?.startsAt ?? null,
+          nextSessionId: next?.id ?? null,
+          nextSessionTitle: next?.title ?? null,
+          lastContactAt,
+          openTasksCount: openTasksByClient.get(client.id) || 0,
         };
-      }
+      })
+    );
 
-      const user = await prisma.user.findFirst({
-        where: { email: client.email },
-        include: { profile: true }
+    if (qRaw) {
+      items = items.filter((c) => {
+        const hay = [c.name, c.email, c.phone, c.city]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        const tagHay = Array.isArray(c.tags)
+          ? (c.tags as Array<{ label?: string }>).map((t) => String(t?.label || '').toLowerCase()).join(' ')
+          : '';
+        return hay.includes(qRaw) || tagHay.includes(qRaw);
       });
+    }
 
-      return {
-        ...restSafe,
-        profile: user?.profile || null,
-        avatarUrl: user?.profile?.avatarUrl || null,
-        registrationPending,
-        registrationLink,
-        platformRegistered: Boolean(user)
-      };
-    }));
-    
+    if (tagFilters.length) {
+      items = items.filter((c) => {
+        const labels = Array.isArray(c.tags)
+          ? (c.tags as Array<{ label?: string }>).map((t) => String(t?.label || '').toLowerCase())
+          : [];
+        return tagFilters.some((t) => labels.includes(t));
+      });
+    }
+
+    if (filterRaw === 'needs_attention') {
+      items = items.filter(
+        (c) =>
+          c.registrationStatus === 'expired' ||
+          (!c.nextSessionAt && !c.therapyEndedAt) ||
+          c.openTasksCount > 0
+      );
+    } else if (filterRaw === 'no_upcoming') {
+      items = items.filter((c) => !c.nextSessionAt && !c.therapyEndedAt);
+    } else if (filterRaw === 'expired_invite') {
+      items = items.filter((c) => c.registrationStatus === 'expired');
+    } else if (filterRaw === 'has_tasks') {
+      items = items.filter((c) => c.openTasksCount > 0);
+    }
+
     console.log(`[GET /clients] ===== REQUEST END: Returning ${items.length} items =====`);
-    
+
     res.json({ items });
   } catch (error: any) {
     console.error('[GET /clients] Error:', error);
@@ -803,15 +966,198 @@ router.post('/clients/:id/sessions', requireAuth, requireRole(['psychologist', '
 });
 
 // Заметки
-router.get('/clients/:id/notes', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req, res) => {
-  const items = await prisma.clientNote.findMany({ where: { clientId: req.params.id }, orderBy: { createdAt: 'desc' } });
-  res.json({ items });
+router.get('/clients/:id/notes', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const items = await prisma.clientNote.findMany({
+      where: { clientId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ items });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load notes' });
+  }
 });
 
 router.post('/clients/:id/notes', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
-  const { content } = req.body ?? {};
-  const n = await prisma.clientNote.create({ data: { clientId: req.params.id, authorId: req.user!.id, content } });
-  res.status(201).json(n);
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const content = String(req.body?.content ?? '').trim();
+    if (!content) return res.status(400).json({ error: 'Пустая заметка' });
+    const n = await prisma.clientNote.create({
+      data: { clientId: req.params.id, authorId: req.user!.id, content },
+    });
+    res.status(201).json(n);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to create note' });
+  }
+});
+
+router.delete('/clients/:id/notes/:noteId', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const client = await prisma.client.findUnique({ where: { id: req.params.id } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const note = await prisma.clientNote.findFirst({
+      where: { id: req.params.noteId, clientId: req.params.id },
+    });
+    if (!note) return res.status(404).json({ error: 'Note not found' });
+    await prisma.clientNote.delete({ where: { id: note.id } });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to delete note' });
+  }
+});
+
+// CRM activity timeline
+router.get('/clients/:id/activity', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  try {
+    const clientId = req.params.id;
+    const client = await prisma.client.findUnique({ where: { id: clientId } });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+    if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const limit = Math.min(80, Math.max(10, Number(req.query.limit) || 50));
+
+    const [notes, sessions, documents, dreams, journal, clientTasks] = await Promise.all([
+      prisma.clientNote.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+      prisma.therapySession.findMany({
+        where: { clientId },
+        orderBy: { date: 'desc' },
+        take: limit,
+      }),
+      prisma.clientDocument.findMany({
+        where: {
+          clientId,
+          ...(req.user!.role === 'admin' ? {} : { psychologistId: req.user!.id }),
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: limit,
+        select: { id: true, tabName: true, updatedAt: true, content: true },
+      }),
+      prisma.dream.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, title: true, content: true, createdAt: true },
+      }),
+      prisma.journalEntry.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, content: true, createdAt: true },
+      }),
+      prisma.task.findMany({
+        where: {
+          clientId,
+          ...(req.user!.role === 'admin' ? {} : { ownerId: req.user!.id }),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, title: true, status: true, createdAt: true, dueAt: true },
+      }),
+    ]);
+
+    const stripHtml = (s: string) =>
+      String(s || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    type ActivityItem = {
+      id: string;
+      type: string;
+      title: string;
+      preview?: string | null;
+      at: string;
+      meta?: Record<string, unknown>;
+    };
+
+    const items: ActivityItem[] = [];
+
+    for (const n of notes) {
+      items.push({
+        id: `note-${n.id}`,
+        type: 'note',
+        title: 'Заметка',
+        preview: n.content.slice(0, 180),
+        at: n.createdAt.toISOString(),
+        meta: { noteId: n.id },
+      });
+    }
+    for (const s of sessions) {
+      items.push({
+        id: `session-${s.id}`,
+        type: 'session',
+        title: 'Сессия',
+        preview: s.summary?.slice(0, 180) || null,
+        at: s.date.toISOString(),
+        meta: { sessionId: s.id },
+      });
+    }
+    for (const d of documents) {
+      const preview = stripHtml(d.content).slice(0, 180);
+      items.push({
+        id: `doc-${d.id}`,
+        type: 'document',
+        title: `Документ: ${d.tabName}`,
+        preview: preview || null,
+        at: d.updatedAt.toISOString(),
+        meta: { documentId: d.id, tabName: d.tabName },
+      });
+    }
+    for (const d of dreams) {
+      items.push({
+        id: `dream-${d.id}`,
+        type: 'dream',
+        title: d.title || 'Сон',
+        preview: (d.content || '').slice(0, 180),
+        at: d.createdAt.toISOString(),
+        meta: { dreamId: d.id },
+      });
+    }
+    for (const j of journal) {
+      items.push({
+        id: `journal-${j.id}`,
+        type: 'journal',
+        title: 'Дневник',
+        preview: j.content.slice(0, 180),
+        at: j.createdAt.toISOString(),
+        meta: { journalId: j.id },
+      });
+    }
+    for (const t of clientTasks) {
+      items.push({
+        id: `task-${t.id}`,
+        type: 'task',
+        title: t.title,
+        preview: t.status === 'done' ? 'Выполнена' : 'Открыта',
+        at: t.createdAt.toISOString(),
+        meta: { taskId: t.id, status: t.status, dueAt: t.dueAt },
+      });
+    }
+
+    items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    res.json({ items: items.slice(0, limit) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load activity' });
+  }
 });
 
 // Документы рабочей области

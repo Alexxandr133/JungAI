@@ -9,6 +9,9 @@ import type { VerificationStatus } from '../../utils/verification';
 import { StarfieldBackground } from '../../components/visuals';
 import { PlatformIcon } from '../../components/icons';
 import { useNavigate } from 'react-router-dom';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_PARANORMAL_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type ParanormalCard = {
   id: string;
@@ -133,6 +136,14 @@ export default function ParanormalList() {
     }
   }
 
+  usePsychologistPlatformTour({
+    tourId: 'paranormal',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && isPsychologist && isVerified === true && !loading),
+    steps: PSYCHOLOGIST_PARANORMAL_TOUR_STEPS
+  });
+
   if (isPsychologist && token && isVerified === false) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -147,10 +158,18 @@ export default function ParanormalList() {
       <StarfieldBackground opacity={1} />
       <UniversalNavbar />
       <main style={{ flex: 1, padding: '24px clamp(16px, 5vw, 48px)', position: 'relative', zIndex: 1 }}>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 14 }} data-tour="paranormal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
             <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800 }}>Необьяснимое</h1>
             <span className="small" style={{ color: 'var(--text-muted)' }}>· {items.length}</span>
+            {isPsychologist && (
+              <PsychologistTourHelpButton
+                tourId="paranormal"
+                steps={PSYCHOLOGIST_PARANORMAL_TOUR_STEPS}
+                userId={user?.id}
+                role={user?.role}
+              />
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <button className="button" onClick={() => { setFormType(''); setFormDescription(''); setShowModal(true); }}>
@@ -180,7 +199,7 @@ export default function ParanormalList() {
         {loading && <div className="card" style={{ padding: 20 }}>Загрузка...</div>}
         {error && <div className="card" style={{ padding: 20, border: '1px solid rgba(255,80,80,0.4)' }}>{error}</div>}
         {!loading && !error && (
-          <div className="dreams-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 1400, margin: '0 auto' }}>
+          <div data-tour="paranormal-grid" className="dreams-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, maxWidth: 1400, margin: '0 auto' }}>
             {filtered.map(item => (
               <div key={item.id} className="card" style={{ padding: 18, border: '1px solid rgba(255,255,255,0.2)', background: 'linear-gradient(135deg, rgba(30, 35, 50, 0.9) 0%, rgba(25, 30, 45, 0.95) 100%)' }}>
                 <div style={{ display: 'flex', alignItems: 'start', gap: 12 }}>

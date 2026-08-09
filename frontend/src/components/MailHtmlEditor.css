@@ -1,0 +1,61 @@
+.mail-html-editor {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--navbar-edge);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.mail-html-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--navbar-edge);
+}
+
+.mail-html-editor__toolbar button {
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mail-html-editor__toolbar button:hover {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--navbar-edge));
+}
+
+.mail-html-editor__sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--navbar-edge);
+  margin: 0 4px;
+}
+
+.mail-html-editor__surface {
+  padding: 12px 14px;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+  background: #fff;
+  min-height: 200px;
+}
+
+.mail-html-editor__surface:focus {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.mail-html-editor__hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--navbar-edge);
+}

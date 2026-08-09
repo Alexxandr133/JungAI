@@ -364,5 +364,129 @@ router.post('/dreams/extract-symbols-ai', async (_req: AuthedRequest, res) => {
   }
 });
 
+router.get('/analytics', async (req: AuthedRequest, res) => {
+  try {
+    const daysRaw = Number(req.query.days);
+    const days = [7, 30, 90].includes(daysRaw) ? daysRaw : 30;
+    const to = new Date();
+    const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+
+    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+    const seriesDays: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(to.getTime() - i * 24 * 60 * 60 * 1000);
+      seriesDays.push(dayKey(d));
+    }
+    const emptySeries = () => Object.fromEntries(seriesDays.map((k) => [k, 0])) as Record<string, number>;
+
+    const [
+      usersInRange,
+      usersByRole,
+      psychologistsVerified,
+      psychologistsUnverified,
+      clientsAll,
+      sessionsInRange,
+      openTasks,
+      pendingVerifications,
+    ] = await Promise.all([
+      prisma.user.findMany({
+        where: { createdAt: { gte: from, lte: to } },
+        select: { createdAt: true, role: true },
+      }),
+      prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
+      prisma.user.count({ where: { role: 'psychologist', isVerified: true } }),
+      prisma.user.count({ where: { role: 'psychologist', isVerified: false } }),
+      prisma.client.findMany({
+        select: {
+          therapyEndedAt: true,
+          registrationToken: true,
+          tokenExpiresAt: true,
+          email: true,
+          createdAt: true,
+        },
+      }),
+      prisma.therapySession.findMany({
+        where: { date: { gte: from, lte: to } },
+        select: { date: true },
+      }),
+      prisma.task.count({ where: { status: { not: 'done' }, clientId: { not: null } } }),
+      prisma.verificationRequest.count({ where: { status: 'pending' } }),
+    ]);
+
+    const registrationsByDay = emptySeries();
+    for (const u of usersInRange) {
+      const k = dayKey(u.createdAt);
+      if (k in registrationsByDay) registrationsByDay[k] += 1;
+    }
+
+    const sessionsByDay = emptySeries();
+    for (const s of sessionsInRange) {
+      const k = dayKey(s.date);
+      if (k in sessionsByDay) sessionsByDay[k] += 1;
+    }
+
+    const now = Date.now();
+    let clientsActive = 0;
+    let clientsArchive = 0;
+    let inviteRegistered = 0;
+    let invitePending = 0;
+    let inviteExpired = 0;
+
+    const clientEmails = clientsAll.map((c) => c.email).filter(Boolean) as string[];
+    const platformUsers = clientEmails.length
+      ? await prisma.user.findMany({
+          where: { email: { in: clientEmails } },
+          select: { email: true },
+        })
+      : [];
+    const platformEmailSet = new Set(platformUsers.map((u) => String(u.email).toLowerCase()));
+
+    for (const c of clientsAll) {
+      if (c.therapyEndedAt) {
+        clientsArchive += 1;
+        continue;
+      }
+      clientsActive += 1;
+      const email = c.email ? String(c.email).toLowerCase() : '';
+      const onPlatform = email && platformEmailSet.has(email);
+      if (onPlatform && !c.registrationToken) {
+        inviteRegistered += 1;
+      } else if (c.registrationToken) {
+        const exp = c.tokenExpiresAt ? c.tokenExpiresAt.getTime() : NaN;
+        if (Number.isFinite(exp) && exp < now) inviteExpired += 1;
+        else invitePending += 1;
+      } else {
+        inviteRegistered += 1;
+      }
+    }
+
+    res.json({
+      range: { from: from.toISOString(), to: to.toISOString(), days },
+      summary: {
+        totalUsers: usersByRole.reduce((a, r) => a + r._count._all, 0),
+        usersByRole: Object.fromEntries(usersByRole.map((r) => [r.role, r._count._all])),
+        psychologistsVerified,
+        psychologistsUnverified,
+        pendingVerifications,
+        clientsActive,
+        clientsArchive,
+        inviteRegistered,
+        invitePending,
+        inviteExpired,
+        openTasks,
+        sessionsInRange: sessionsInRange.length,
+        registrationsInRange: usersInRange.length,
+      },
+      series: {
+        days: seriesDays,
+        registrations: seriesDays.map((d) => registrationsByDay[d] || 0),
+        sessions: seriesDays.map((d) => sessionsByDay[d] || 0),
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load analytics' });
+  }
+});
+
 export default router;
 

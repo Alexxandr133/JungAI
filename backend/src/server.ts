@@ -38,8 +38,11 @@ import psychologists from './routes/psychologists';
 import researcher from './routes/researcher';
 import admin from './routes/admin';
 import adminUsers from './routes/adminUsers';
+import adminMail from './routes/adminMail';
+import mailPublic from './routes/mailPublic';
 import support from './routes/support';
 import platform from './routes/platform';
+import clientWellness from './routes/clientWellness';
 import cron from 'node-cron';
 import { runDailyDreamSymbolValidation } from './jobs/dailyDreamSymbols';
 import {
@@ -48,6 +51,7 @@ import {
   migrateDreamSymbolsToAi,
   reconcileStaleDreamSymbolJobs,
 } from './jobs/dreamSymbolExtraction';
+import { startMailCampaignWorker, ensureDefaultMailTemplates } from './utils/mailCampaign';
 
 const app = express();
 const httpServer = createServer(app);
@@ -154,8 +158,11 @@ app.use('/api/psychologists', psychologists);
 app.use('/api/researcher', researcher);
 app.use('/api/admin', admin);
 app.use('/api/admin', adminUsers);
+app.use('/api/admin', adminMail);
+app.use('/api', mailPublic);
 app.use('/api', support);
 app.use('/api', platform);
+app.use('/api', clientWellness);
 
 // Catch-all для всех остальных путей (только если это не /uploads)
 app.use((req, res, next) => {
@@ -181,6 +188,13 @@ httpServer.listen(config.port, async () => {
   console.log(`Backend listening on :${config.port}`);
   // eslint-disable-next-line no-console
   console.log(`WebSocket server ready for voice rooms`);
+
+  try {
+    await ensureDefaultMailTemplates();
+    startMailCampaignWorker();
+  } catch (e) {
+    console.error('[Mail] startup init failed', e);
+  }
 
   try {
     await ensureDreamSymbolColumns();

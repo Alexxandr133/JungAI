@@ -12,6 +12,7 @@ type MenuItem = {
   label: string;
   path?: string;
   icon?: PlatformIconName;
+  tourKey?: string;
   children?: Array<{ label: string; path: string; icon?: PlatformIconName }>;
 };
 
@@ -23,26 +24,11 @@ export function PsychologistNavbar() {
   const menuRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const menuItems: MenuItem[] = user?.role === 'admin' 
-    ? [
-        {
-          label: 'Администрирование',
-          icon: 'settings',
-          children: [
-            { label: 'Дашборд', path: '/admin', icon: 'dashboard' },
-            { label: 'Пользователи', path: '/admin/users', icon: 'user' },
-            { label: 'Каталог психологов', path: '/admin/psychologists-catalog', icon: 'users' },
-            { label: 'Верификация', path: '/admin/verification', icon: 'check' },
-            { label: 'Тех. запросы', path: '/admin/support', icon: 'wrench' },
-            { label: 'Открытый функционал', path: '/admin/open-access', icon: 'unlock' },
-            { label: 'О платформе', path: '/about', icon: 'info' },
-          ]
-        }
-      ]
-    : [
+  const menuItems: MenuItem[] = [
         {
           label: 'Основное',
           icon: 'chart',
+          tourKey: 'nav-main',
           children: [
             { label: 'Рабочий стол', path: '/psychologist', icon: 'dashboard' },
             { label: 'Клиенты', path: '/clients', icon: 'users' },
@@ -54,6 +40,7 @@ export function PsychologistNavbar() {
         {
           label: 'Инструменты',
           icon: 'hammer',
+          tourKey: 'nav-tools',
           children: [
             { label: 'Рабочая область', path: '/psychologist/work-area', icon: 'briefcase' },
             { label: 'Журнал снов', path: '/dreams', icon: 'dreams' },
@@ -64,11 +51,13 @@ export function PsychologistNavbar() {
         {
           label: 'AI Ассистент',
           path: '/psychologist/ai',
-          icon: 'bot'
+          icon: 'bot',
+          tourKey: 'nav-ai'
         },
         {
           label: 'Исследования',
           icon: 'microscope',
+          tourKey: 'nav-research',
           children: [
             { label: 'Амплификации', path: '/research/amplifications', icon: 'orbit' },
           ]
@@ -76,6 +65,7 @@ export function PsychologistNavbar() {
         {
           label: 'Сообщества',
           icon: 'book',
+          tourKey: 'nav-communities',
           children: [
             { label: 'Публикации', path: '/publications', icon: 'file' },
             { label: 'Лента', path: '/feed', icon: 'messages' }
@@ -84,12 +74,14 @@ export function PsychologistNavbar() {
         {
           label: 'О платформе',
           path: '/about',
-          icon: 'info'
+          icon: 'info',
+          tourKey: 'nav-about'
         },
         {
           label: 'Тех.поддержка',
           path: '/psychologist/support',
-          icon: 'wrench'
+          icon: 'wrench',
+          tourKey: 'nav-support'
         }
       ];
 
@@ -188,6 +180,7 @@ export function PsychologistNavbar() {
             return (
               <div
                 key={item.label}
+                data-tour={item.tourKey}
                 style={{ position: 'relative' }}
                 onMouseEnter={() => hasChildren && handleMouseEnter(item.label)}
                 onMouseLeave={handleMouseLeave}
@@ -318,11 +311,15 @@ export function PsychologistNavbar() {
         </div>
 
         {/* Right Side Actions */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12
-        }} className="navbar-right-actions">
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12
+          }}
+          className="navbar-right-actions"
+          data-tour="nav-actions"
+        >
           <div className="navbar-desktop-icons" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <ThemeMenuButton />
             <NotificationsBell />

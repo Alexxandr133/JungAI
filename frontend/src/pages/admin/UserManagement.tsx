@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
-import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { AdminNavbar } from '../../components/AdminNavbar';
 
 const ROLE_LABELS: Record<string, string> = {
   psychologist: 'Психолог',
@@ -402,7 +402,7 @@ export default function AdminUserManagement() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <PsychologistNavbar />
+      <AdminNavbar />
       <main
         style={{
           flex: 1,

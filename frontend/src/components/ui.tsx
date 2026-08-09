@@ -209,6 +209,15 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
             </div>
           </div>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 0' }} />
+          {(user?.role === 'psychologist' || user?.role === 'admin') && (
+            <Link
+              to="/psychologist/handbook"
+              onClick={() => setOpen(false)}
+              style={{ display: 'block', padding: '8px 10px', textDecoration: 'none', color: 'inherit', borderRadius: 8 }}
+            >
+              Справочник
+            </Link>
+          )}
           <Link to={profileLink} onClick={() => setOpen(false)} style={{ display: 'block', padding: '8px 10px', textDecoration: 'none', color: 'inherit', borderRadius: 8 }}>Профиль</Link>
           {includeMobileMessagesItem && isMobile && (
             <Link to="/chat" onClick={() => setOpen(false)} style={{ display: 'block', padding: '8px 10px', textDecoration: 'none', color: 'inherit', borderRadius: 8 }}>

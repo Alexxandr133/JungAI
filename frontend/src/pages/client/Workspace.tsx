@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
 import { PlatformIcon, type PlatformIconName } from '../../components/icons';
+import { MoodCheckInControl, MoodMiniChart } from '../../components/client/MoodCheckIn';
 import '../../styles/tokens.css';
 
 type DreamBrief = { id: string; title: string; createdAt: string; userId?: string | null };
@@ -79,6 +80,20 @@ export default function ClientWorkspace() {
   const [upcomingEvents, setUpcomingEvents] = useState<EventBrief[]>([]);
   const [hasPsychologist, setHasPsychologist] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onboarding, setOnboarding] = useState<{
+    steps: Array<{ id: string; title: string; done: boolean; path: string }>;
+    doneCount: number;
+    total: number;
+    complete: boolean;
+  } | null>(null);
+  const [todayMood, setTodayMood] = useState<number | null>(null);
+  const [moodEnergy, setMoodEnergy] = useState(3);
+  const [moodAnxiety, setMoodAnxiety] = useState(3);
+  const [moodLocked, setMoodLocked] = useState(false);
+  const [moodTrend, setMoodTrend] = useState<Array<{ date: string; mood: number | null; energy?: number | null; anxiety?: number | null }>>([]);
+  const [progressTeaser, setProgressTeaser] = useState<{ eventCount: number; dreamCount: number; moodAvg30d: number | null } | null>(null);
+  const [sessionReminder, setSessionReminder] = useState<{ id: string; title: string; startsAt: string } | null>(null);
+  const [moodSaving, setMoodSaving] = useState(false);
 
   const insight = useMemo(() => insightForToday(), []);
   const greet = useMemo(() => greetingForHour(), []);
@@ -117,16 +132,52 @@ export default function ClientWorkspace() {
           items: [] as { createdAt: string }[]
         }));
         const eventsP = api<{ items: EventBrief[] }>('/api/my-events', { token }).catch(() => ({ items: [] as EventBrief[] }));
+        const onboardingP = api<{
+          steps: Array<{ id: string; title: string; done: boolean; path: string }>;
+          doneCount: number;
+          total: number;
+          complete: boolean;
+        }>('/api/client/onboarding', { token }).catch(() => null);
+        const moodP = api<{
+          daily: Array<{ date: string; mood: number | null; energy: number | null; anxiety: number | null }>;
+          today: { mood: number; energy: number; anxiety: number } | null;
+          lockedToday: boolean;
+        }>('/api/client/mood?days=14', { token }).catch(() => null);
+        const progressP = api<{ eventCount: number; dreamCount: number; moodAvg30d: number | null }>('/api/client/progress', { token }).catch(() => null);
+        const remindP = api<{ upcoming: Array<{ id: string; title: string; startsAt: string }> }>(
+          '/api/client/session-reminders/sync',
+          { token, method: 'POST', body: {} }
+        ).catch(() => null);
 
-        const [hasP, profile, dreams, journal, events] = await Promise.all([
+        const [hasP, profile, dreams, journal, events, onboard, mood, progress, remind] = await Promise.all([
           psychP,
           profileP,
           dreamsP,
           journalP,
-          eventsP
+          eventsP,
+          onboardingP,
+          moodP,
+          progressP,
+          remindP
         ]);
 
         setHasPsychologist(hasP);
+        setOnboarding(onboard);
+        if (mood?.today) {
+          setTodayMood(mood.today.mood);
+          setMoodEnergy(mood.today.energy);
+          setMoodAnxiety(mood.today.anxiety);
+        }
+        setMoodLocked(Boolean(mood?.lockedToday));
+        setMoodTrend(mood?.daily || []);
+        if (progress) {
+          setProgressTeaser({
+            eventCount: progress.eventCount,
+            dreamCount: progress.dreamCount,
+            moodAvg30d: progress.moodAvg30d,
+          });
+        }
+        setSessionReminder(remind?.upcoming?.[0] || null);
         const name =
           profile?.client?.name?.trim() ||
           profile?.profile?.name?.trim() ||
@@ -199,6 +250,30 @@ export default function ClientWorkspace() {
       }
     })();
   }, [token, user?.id]);
+
+  async function saveWorkspaceMood(next: { mood: number; energy: number; anxiety: number }) {
+    if (!token || moodLocked) return;
+    setMoodSaving(true);
+    try {
+      await api('/api/client/mood', { token, method: 'POST', body: next });
+      setTodayMood(next.mood);
+      setMoodEnergy(next.energy);
+      setMoodAnxiety(next.anxiety);
+      setMoodLocked(true);
+      const todayKey = new Date().toISOString().slice(0, 10);
+      setMoodTrend((prev) =>
+        prev.map((p) =>
+          p.date === todayKey
+            ? { ...p, mood: next.mood, energy: next.energy, anxiety: next.anxiety }
+            : p
+        )
+      );
+    } catch {
+      /* ignore */
+    } finally {
+      setMoodSaving(false);
+    }
+  }
 
   const statCards: Array<{
     label: string;
@@ -276,11 +351,81 @@ export default function ClientWorkspace() {
               <button
                 type="button"
                 className="button"
-                onClick={() => navigate('/client/psychologists')}
+                onClick={() => navigate('/client/match')}
                 style={{ padding: '12px 22px', fontWeight: 700, whiteSpace: 'nowrap' }}
               >
-                Найти психолога
+                Подобрать по анкете
               </button>
+            </div>
+          </div>
+        )}
+
+        {sessionReminder && (
+          <div
+            className="card"
+            style={{
+              padding: '14px 18px',
+              marginBottom: 20,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              border: '1px solid rgba(25, 224, 255, 0.35)',
+              background: 'rgba(25, 224, 255, 0.08)',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>Скоро сессия</div>
+              <div className="small" style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                «{sessionReminder.title}» —{' '}
+                {new Date(sessionReminder.startsAt).toLocaleString('ru-RU', {
+                  day: '2-digit',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </div>
+            </div>
+            <button type="button" className="button" onClick={() => navigate('/client/sessions')}>
+              К сессиям
+            </button>
+          </div>
+        )}
+
+        {onboarding && !onboarding.complete && (
+          <div className="card" style={{ padding: 18, marginBottom: 20, borderRadius: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>С чего начать</div>
+                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+                  {onboarding.doneCount} из {onboarding.total} шагов
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {onboarding.steps.map((s) => (
+                <Link
+                  key={s.id}
+                  to={s.path}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    textDecoration: 'none',
+                    color: 'inherit',
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--navbar-edge)',
+                  }}
+                >
+                  <span style={{ color: s.done ? 'var(--success)' : 'var(--text-muted)', fontWeight: 800, width: 20 }}>
+                    {s.done ? '✓' : '○'}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{s.title}</span>
+                </Link>
+              ))}
             </div>
           </div>
         )}
@@ -306,6 +451,44 @@ export default function ClientWorkspace() {
             Сны, дневник и связь с психологом — в спокойном темпе. Здесь важны ваши шаги, а не идеальный результат с первого раза.
           </p>
         </section>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 14,
+            marginBottom: 28,
+          }}
+        >
+          <div className="card" style={{ padding: 18, borderRadius: 14 }}>
+            <MoodCheckInControl
+              compact
+              mood={todayMood}
+              energy={moodEnergy}
+              anxiety={moodAnxiety}
+              locked={moodLocked}
+              saving={moodSaving}
+              disabled={!token}
+              onSave={(v) => void saveWorkspaceMood(v)}
+            />
+            <Link to="/client/care" className="small" style={{ color: 'var(--accent)', fontWeight: 600, display: 'inline-block', marginTop: 10 }}>
+              Забота о себе →
+            </Link>
+          </div>
+          <div className="card" style={{ padding: 18, borderRadius: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Динамика настроения</div>
+            <MoodMiniChart points={moodTrend} height={160} />
+            {progressTeaser && (
+              <div className="small" style={{ color: 'var(--text-muted)', marginTop: 10, lineHeight: 1.45 }}>
+                Сессий/событий: {progressTeaser.eventCount} · Снов: {progressTeaser.dreamCount}
+                {progressTeaser.moodAvg30d != null ? ` · ср. настроение: ${progressTeaser.moodAvg30d}` : ''}
+              </div>
+            )}
+            <Link to="/client/progress" className="small" style={{ color: 'var(--accent)', fontWeight: 600, display: 'inline-block', marginTop: 8 }}>
+              Прогресс терапии →
+            </Link>
+          </div>
+        </div>
 
         <div
           style={{
@@ -487,7 +670,7 @@ export default function ClientWorkspace() {
           }}
         >
           <Link
-            to="/dreams/new"
+            to="/dreams?new=1"
             className="card card-hover-shimmer"
             style={{
               padding: 24,

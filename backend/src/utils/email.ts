@@ -44,7 +44,14 @@ function emailBrandHeaderCellHtml(): string {
 function emailBrandLogoAttachments(): NonNullable<nodemailer.SendMailOptions['attachments']> {
   const p = resolveBrandLogoPath();
   if (!p) return [];
-  return [{ filename: 'jungai-logo.png', path: p, cid: BRAND_LOGO_CID }];
+  // inline — чтобы клиенты не показывали лого как «вложение файла»
+  return [{
+    filename: 'jungai-logo.png',
+    path: p,
+    cid: BRAND_LOGO_CID,
+    contentDisposition: 'inline',
+    contentType: 'image/png',
+  }];
 }
 
 function stripHtmlToText(html: string): string {
@@ -110,6 +117,10 @@ export async function sendEmail(params: {
   html: string;
   text?: string;
   attachments?: nodemailer.SendMailOptions['attachments'];
+  listUnsubscribeUrl?: string;
+  feedbackId?: string;
+  /** Для рассылок/кампаний — не прикреплять логотип (аватар в Gmail берётся из профиля ящика) */
+  attachBrandLogo?: boolean;
 }) {
   if (!transporter) {
     throw new Error('SMTP is not configured. Set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM in backend/.env');
@@ -118,9 +129,15 @@ export async function sendEmail(params: {
   const toEmail = String(params.to || '').trim().toLowerCase();
   const mid = generateMessageId(toEmail);
   const fromDomain = senderDomain();
-  const brandAtt = emailBrandLogoAttachments();
+  const isCampaign = String(params.feedbackId || '').includes(':campaign:');
+  const wantLogo = params.attachBrandLogo ?? !isCampaign;
+  const brandAtt = wantLogo ? emailBrandLogoAttachments() : [];
   const extra = params.attachments || [];
   const attachments = [...brandAtt, ...extra];
+  const mailtoUnsub = `mailto:${String(config.smtpFrom || '').replace(/^.*<|>.*$/g, '')}?subject=unsubscribe`;
+  const listUnsub = params.listUnsubscribeUrl
+    ? `<${params.listUnsubscribeUrl}>, <${mailtoUnsub}>`
+    : `<${mailtoUnsub}>`;
 
   await transporter.sendMail({
     from: normalizedFromHeader(),
@@ -137,9 +154,9 @@ export async function sendEmail(params: {
       'X-Auto-Response-Suppress': 'OOF, AutoReply',
       'X-Entity-Ref-ID': mid,
       'X-Mailer': 'JungAI Mailer',
-      'List-Unsubscribe': `<mailto:${String(config.smtpFrom || '').replace(/^.*<|>.*$/g, '')}?subject=unsubscribe>`,
+      'List-Unsubscribe': listUnsub,
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-      'Feedback-ID': `jungai:transactional:${fromDomain}`
+      'Feedback-ID': params.feedbackId || `jungai:transactional:${fromDomain}`
     }
   });
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
-import { PsychologistNavbar } from '../../components/PsychologistNavbar';
+import { AdminNavbar } from '../../components/AdminNavbar';
 import { Link } from 'react-router-dom';
 
 type SupportRequest = {
@@ -100,7 +100,7 @@ export default function AdminSupport() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <PsychologistNavbar />
+      <AdminNavbar />
       <main
         style={{
           flex: 1,

@@ -32,7 +32,8 @@ export function ClientNavbar() {
         { label: 'Мои сны', path: '/dreams', icon: 'dreams' },
         { label: 'Необьяснимое', path: '/paranormal', icon: 'star' },
         { label: 'Дневник', path: '/client/journal', icon: 'journal' },
-        { label: 'Сессии', path: '/client/sessions', icon: 'calendar' }
+        { label: 'Сессии', path: '/client/sessions', icon: 'calendar' },
+        { label: 'Забота о себе', path: '/client/care', icon: 'heart' }
       ]
     },
     {
@@ -45,7 +46,9 @@ export function ClientNavbar() {
       icon: 'sparkles',
       children: [
         { label: 'Баллы и уровень', path: '/client/tasks', icon: 'trophy' },
-        { label: 'Тесты', path: '/client/tests', icon: 'chart' }
+        { label: 'Тесты', path: '/client/tests', icon: 'chart' },
+        { label: 'Прогресс', path: '/client/progress', icon: 'chart' },
+        { label: 'Сертификат', path: '/client/certificate', icon: 'star' }
       ]
     },
     {
@@ -57,8 +60,11 @@ export function ClientNavbar() {
     },
     {
       label: 'Мой психолог',
-      path: '/client/psychologists',
-      icon: 'stethoscope'
+      icon: 'stethoscope',
+      children: [
+        { label: 'Каталог', path: '/client/psychologists', icon: 'stethoscope' },
+        { label: 'Подобрать', path: '/client/match', icon: 'sparkles' }
+      ]
     },
     {
       label: 'О платформе',

@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_REQUESTS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 type IncomingRequest = {
   id: string;
@@ -15,7 +18,7 @@ type IncomingRequest = {
 };
 
 export default function PsychologistRequestsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
   const [items, setItems] = useState<IncomingRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,17 +70,35 @@ export default function PsychologistRequestsPage() {
     setItems(prev => prev.map(item => item.id === requestId ? { ...item, ...updated } : item));
   }
 
+  usePsychologistPlatformTour({
+    tourId: 'requests',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && !loading && (user?.role === 'psychologist' || user?.role === 'admin')),
+    steps: PSYCHOLOGIST_REQUESTS_TOUR_STEPS
+  });
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
       <main style={{ flex: 1, padding: '24px clamp(16px, 5vw, 48px)', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
-        <h1 style={{ marginTop: 0 }}>Запросы клиентов</h1>
-        <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-          Все запросы на чат и консультации с контактами клиента.
+        <div data-tour="requests-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <h1 style={{ marginTop: 0, marginBottom: 8 }}>Запросы клиентов</h1>
+            <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+              Все запросы на чат и консультации с контактами клиента.
+            </div>
+          </div>
+          <PsychologistTourHelpButton
+            tourId="requests"
+            steps={PSYCHOLOGIST_REQUESTS_TOUR_STEPS}
+            userId={user?.id}
+            role={user?.role}
+          />
         </div>
 
         {loading ? <div className="card" style={{ padding: 16 }}>Загрузка...</div> : (
-          <div style={{ display: 'grid', gap: 12 }}>
+          <div data-tour="requests-list" style={{ display: 'grid', gap: 12 }}>
             {items.map((r) => (
               <div key={r.id} className="card" style={{ padding: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>

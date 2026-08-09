@@ -126,7 +126,7 @@ export default function ClientTasks() {
       icon: 'dreams',
       title: 'Сны',
       count: sync?.ownDreamCount ?? 0,
-      to: '/dreams/new',
+      to: '/dreams?new=1',
       action: 'Записать сон'
     },
     {

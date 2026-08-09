@@ -1,0 +1,213 @@
+.admin-mailings {
+  flex: 1;
+  padding: 24px clamp(16px, 4vw, 40px);
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.admin-mailings h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.admin-mailings h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+
+.admin-mailings h3 {
+  margin: 12px 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-mailings__hint {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.admin-mailings__warn {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #f59e0b 18%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, #f59e0b 40%, var(--navbar-edge));
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.admin-mailings__error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: #ff7b7b;
+  background: var(--surface-2);
+  margin-bottom: 12px;
+}
+
+.admin-mailings__ok {
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: #22c55e;
+  background: var(--surface-2);
+  margin-bottom: 12px;
+}
+
+.admin-mailings__test-box {
+  margin: 8px 0 4px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--navbar-edge);
+  background: var(--surface-2);
+  display: grid;
+  gap: 8px;
+}
+
+.admin-mailings__checklist {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface-2);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.admin-mailings__checklist-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.admin-mailings__checklist ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.admin-mailings__tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.admin-mailings__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.admin-mailings__panel {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-mailings__panel input,
+.admin-mailings__panel textarea,
+.admin-mailings__panel select {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-mailings__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.admin-mailings__row > * {
+  flex: 1;
+  min-width: 120px;
+}
+
+.admin-mailings__list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.admin-mailings__list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.admin-mailings__list-item.is-active {
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--navbar-edge));
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface-2));
+}
+
+.admin-mailings__members {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.admin-mailings__member {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.admin-mailings__platform-list {
+  max-height: 180px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--navbar-edge);
+}
+
+.admin-mailings__platform-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.admin-mailings__iframe {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--navbar-edge);
+  border-radius: 10px;
+  background: #f4f6fb;
+  margin-top: 4px;
+}
+
+.admin-mailings__preview-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.admin-mailings__campaign {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--navbar-edge);
+  background: var(--surface-2);
+}

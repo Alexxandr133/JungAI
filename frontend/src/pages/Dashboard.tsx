@@ -25,7 +25,7 @@ export default function Dashboard() {
       <div>Вы вошли как: <b>{user?.email}</b> (роль: {user?.role})</div>
       <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
         <Link to="/dreams">Дневник снов</Link>
-        <Link to="/dreams/new">Новая запись сна</Link>
+        <Link to="/dreams?new=1">Новая запись сна</Link>
       </div>
       <button style={{ marginTop: 16 }} onClick={logout}>Выйти</button>
     </div>

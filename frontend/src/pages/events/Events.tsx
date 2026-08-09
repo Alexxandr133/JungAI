@@ -1044,6 +1044,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
         {/* Требуют внимания */}
         {!showHistory && !isResearcherMode && requiresAttention && requiresAttention.clientsWithoutSessions.length > 0 && (
           <div
+            data-tour="events-attention"
             className="card"
             style={{
               marginTop: 16,

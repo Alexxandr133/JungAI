@@ -9,6 +9,9 @@ import { useAppearance } from '../../context/AppearanceContext';
 import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
+import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
+import { PSYCHOLOGIST_MESSAGES_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
+import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 
 export default function ChatPage() {
   const { token, user } = useAuth();
@@ -338,6 +341,14 @@ export default function ChatPage() {
 
   // Rooms list no longer rendered directly; kept loading state for UX
 
+  usePsychologistPlatformTour({
+    tourId: 'messages',
+    userId: user?.id,
+    role: user?.role,
+    enabled: Boolean(token && user?.role === 'psychologist' && isVerified === true),
+    steps: PSYCHOLOGIST_MESSAGES_TOUR_STEPS
+  });
+
   // Show verification required message for psychologists
   if (isPsychologist && token && isVerified === false) {
     return (
@@ -427,7 +438,9 @@ export default function ChatPage() {
             }
           `}</style>
           {/* Clients list (chat sidebar) - Telegram style */}
-          <div style={{ 
+          <div
+            data-tour="messages-sidebar"
+            style={{ 
             display: isMobileView ? (showChatScreen ? 'none' : 'flex') : 'flex',
             background: chat.sidebar, 
             borderRight: isMobileView ? 'none' : edge, 
@@ -448,6 +461,16 @@ export default function ChatPage() {
             }}>
               <div style={{ width: 8, height: 8, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} />
               <b style={{ fontSize: 16, fontWeight: 700 }}>Сообщения</b>
+              {isPsychologist && (
+                <div style={{ marginLeft: 'auto' }}>
+                  <PsychologistTourHelpButton
+                    tourId="messages"
+                    steps={PSYCHOLOGIST_MESSAGES_TOUR_STEPS}
+                    userId={user?.id}
+                    role={user?.role}
+                  />
+                </div>
+              )}
             </div>
             {/* Sidebar content */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -627,7 +650,9 @@ export default function ChatPage() {
           </div>
 
           {/* Chat area - Telegram style */}
-          <div style={{ 
+          <div
+            data-tour="messages-main"
+            style={{ 
             display: isMobileView ? (showChatScreen ? 'flex' : 'none') : 'flex', 
             flexDirection: 'column', 
             background: chat.shell, 

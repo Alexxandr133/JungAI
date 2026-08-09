@@ -58,6 +58,11 @@ export default function ClientSessions() {
   const historySessions = visibleSessions.filter(s => new Date(s.date).getTime() < nowTs);
 
   const [showBookModal, setShowBookModal] = useState(false);
+  const [upcomingReminder, setUpcomingReminder] = useState<{ id: string; title: string; startsAt: string } | null>(null);
+  const [reflectEventId, setReflectEventId] = useState<string | null>(null);
+  const [reflectMood, setReflectMood] = useState(3);
+  const [reflectText, setReflectText] = useState('');
+  const [reflectSaving, setReflectSaving] = useState(false);
 
   const reloadData = useCallback(async () => {
     if (!token) {
@@ -66,12 +71,22 @@ export default function ClientSessions() {
     }
     try {
       setLoading(true);
-      const [sessionsRes, eventsRes] = await Promise.all([
+      const [sessionsRes, eventsRes, remindRes] = await Promise.all([
         api<{ items: Session[] }>('/api/my-sessions', { token }),
-        api<{ items: Event[] }>('/api/my-events', { token })
+        api<{ items: Event[] }>('/api/my-events', { token }),
+        api<{ upcoming: Array<{ id: string; title: string; startsAt: string }> }>(
+          '/api/client/session-reminders/sync',
+          { token, method: 'POST', body: {} }
+        ).catch(() => ({ upcoming: [] as Array<{ id: string; title: string; startsAt: string }> })),
       ]);
       setSessions(sessionsRes.items || []);
       setEvents(eventsRes.items || []);
+      const rem = remindRes.upcoming?.[0];
+      setUpcomingReminder(
+        rem
+          ? { id: rem.id, title: rem.title, startsAt: rem.startsAt }
+          : null
+      );
     } catch (e: any) {
       setError(e.message || 'Не удалось загрузить сессии');
     } finally {
@@ -110,6 +125,25 @@ export default function ClientSessions() {
       alert(e.message || 'Не удалось обновить статус сессии');
     } finally {
       setProcessing(null);
+    }
+  }
+
+  async function submitReflection() {
+    if (!token || !reflectEventId) return;
+    setReflectSaving(true);
+    try {
+      await api('/api/client/session-reflection', {
+        token,
+        method: 'POST',
+        body: { eventId: reflectEventId, moodAfter: reflectMood, text: reflectText },
+      });
+      setReflectEventId(null);
+      setReflectText('');
+      setReflectMood(3);
+    } catch (e: any) {
+      alert(e.message || 'Не удалось сохранить рефлексию');
+    } finally {
+      setReflectSaving(false);
     }
   }
 
@@ -154,6 +188,23 @@ export default function ClientSessions() {
             </div>
           </div>
         </div>
+
+        {upcomingReminder && (
+          <div
+            className="card"
+            style={{
+              marginBottom: 16,
+              padding: 14,
+              border: '1px solid rgba(25,224,255,0.35)',
+              background: 'rgba(25,224,255,0.08)',
+            }}
+          >
+            <div style={{ fontWeight: 700 }}>Напоминание: сессия в ближайшие 24 часа</div>
+            <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
+              «{upcomingReminder.title}» — {formatDateTime(upcomingReminder.startsAt)}
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div style={{ marginTop: 24, textAlign: 'center', padding: 24 }}>
@@ -346,9 +397,19 @@ export default function ClientSessions() {
         {!loading && !error && showHistory && (historyEvents.length > 0 || historySessions.length > 0) && (
           <div style={{ marginTop: 20, display: 'grid', gap: 12 }}>
             {historyEvents.map(event => (
-              <div key={`h-ev-${event.id}`} className="card" style={{ padding: 16, opacity: 0.75, background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)' }}>
-                <div style={{ fontWeight: 600 }}>{event.title}</div>
-                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(event.startsAt)} · Прошла</div>
+              <div key={`h-ev-${event.id}`} className="card" style={{ padding: 16, background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)', display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{event.title}</div>
+                  <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(event.startsAt)} · Прошла</div>
+                </div>
+                <button
+                  type="button"
+                  className="button secondary"
+                  style={{ padding: '8px 12px', fontSize: 13 }}
+                  onClick={() => { setReflectEventId(event.id); setReflectMood(3); setReflectText(''); }}
+                >
+                  Рефлексия 2 мин
+                </button>
               </div>
             ))}
             {historySessions.map(session => (
@@ -365,6 +426,52 @@ export default function ClientSessions() {
             <div style={{ marginBottom: 16, display: 'grid', placeItems: 'center', color: 'var(--primary)' }}><Phone size={44} /></div>
             <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Сессии с психологом</div>
             <div style={{ color: 'var(--text-muted)' }}>Ваш психолог пока не назначил сессий. Сессии будут отображаться здесь после назначения.</div>
+          </div>
+        )}
+
+        {reflectEventId && (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.72)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}
+            onClick={() => setReflectEventId(null)}
+          >
+            <div
+              className="card"
+              style={{ width: 'min(480px, 96vw)', padding: 22, borderRadius: 18 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ marginTop: 0 }}>Как прошла сессия?</h3>
+              <p className="small" style={{ color: 'var(--text-muted)', marginTop: 0 }}>
+                Короткая рефлексия только для вас (и попадёт в ваш прогресс).
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={reflectMood === n ? 'button' : 'button secondary'}
+                    style={{ minWidth: 40, padding: '8px 10px' }}
+                    onClick={() => setReflectMood(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={reflectText}
+                onChange={(e) => setReflectText(e.target.value)}
+                placeholder="Что осталось важным? (необязательно)"
+                rows={4}
+                style={{ width: '100%', padding: 12, borderRadius: 10, resize: 'vertical', fontFamily: 'inherit', marginBottom: 14 }}
+              />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="button secondary" onClick={() => setReflectEventId(null)}>
+                  Закрыть
+                </button>
+                <button type="button" className="button" disabled={reflectSaving} onClick={() => void submitReflection()}>
+                  {reflectSaving ? '…' : 'Сохранить'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

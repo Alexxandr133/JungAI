@@ -41,11 +41,13 @@ JingAI — monorepo-платформа для психологов и клиен
 - `backend/prisma/schema.prisma`
 - `backend/src/routes/events.ts`
 - `backend/src/routes/community.ts`
+- `backend/src/routes/adminMail.ts` / `clientWellness.ts` (см. §25)
 - `backend/src/server.ts`
 - `backend/src/config.ts`
 - `frontend/src/pages/room/VoiceRoom.tsx`
 - `frontend/src/pages/events/Events.tsx`
 - `frontend/src/pages/client/Sessions.tsx`
+- `frontend/src/pages/admin/Mailings.tsx`
 - `frontend/src/main.tsx`
 
 ---
@@ -93,6 +95,16 @@ JingAI — monorepo-платформа для психологов и клиен
 - Настройки/персонализация AI психолога.
 - Модальность (важно не смешивать школы терапии в промптах/контексте).
 
+### 5.5 Админ: рассылки и аналитика
+- Навбар админа: `AdminNavbar` (через `UniversalNavbar` для роли `admin`).
+- Рассылки: `/admin/mailings` — группы, шаблоны, кампании, SMTP-очередь — см. **§25**.
+- Аналитика: `/admin/analytics` — сводка users/clients — см. **§25**.
+
+### 5.6 CRM клиентов (психолог) и wellness клиента
+- Список `/clients`: фильтры (`filter`/`q`/`tags`), карточки с `nextSessionAt`, `lastContactAt`, `openTasksCount`, `registrationStatus`.
+- Профиль: вкладки Overview / Timeline / Notes / Tasks (+ существующие).
+- Клиентский блок wellness (care/progress/match/certificate) + handbook психолога — см. **§25**.
+
 ---
 
 ## 6) Текущее состояние видеовстреч (важный контекст)
@@ -137,8 +149,18 @@ JingAI — monorepo-платформа для психологов и клиен
 - `LIVEKIT_API_SECRET=<long_secret_32+>`
 - `LIVEKIT_TOKEN_TTL_SEC=3600`
 
+SMTP (обязательно для писем и админ-рассылок; без них кампании/test-send падают):
+- `SMTP_HOST`
+- `SMTP_PORT` (часто `587`)
+- `SMTP_SECURE` (`true`/`false`)
+- `SMTP_USER`
+- `SMTP_PASS`
+- `SMTP_FROM`
+- опционально: `SUPPORT_EMAIL` / `CONTACT_EMAIL` (заявки сертификатов и т.п.; fallback на `SMTP_FROM`)
+
 Правило:
 - `LIVEKIT_API_SECRET` в backend `.env` должен совпадать 1:1 с `LIVEKIT_KEYS` в Docker-контейнере LiveKit.
+- SMTP читается **только** из `backend/.env` на той машине, где крутится backend (локальный `.env` ≠ серверный).
 
 ---
 
@@ -158,6 +180,9 @@ JingAI — monorepo-платформа для психологов и клиен
    - `select count(*) from User;`
 3. Не переключать `DATABASE_URL` без явной проверки файла.
 4. Не запускать опасные миграции без свежего backup.
+5. На проде **только** `npm -w backend run prisma:migrate:deploy` — не `db push`, не `migrate dev`.
+6. Локально `DATABASE_URL` может указывать на вложенный путь вроде `file:.../backend/prisma/prisma/dev.db` — сверять фактический файл, не «ожидаемый» `prisma/dev.db`.
+7. Ручной SQL локально **не** переносится на прод: на сервере таблицы появятся только после migrate deploy из репозитория.
 
 ---
 
@@ -179,9 +204,10 @@ JingAI — monorepo-платформа для психологов и клиен
 3. `git pull`
 4. `npm ci` (root + workspaces при необходимости)
 5. `npm -w backend run prisma:generate` из корня монорепо (**никогда** голый `npx prisma` — подтянется Prisma 7 и сломается схема)
-6. `npm run build:backend && npm run build:frontend`
-7. `pm2 restart jingai-backend --update-env`
-8. `pm2 logs ...` (только свежие)
+6. `npm -w backend run prisma:migrate:deploy` (**обязательно**, если в релизе есть миграции)
+7. `npm run build:backend && npm run build:frontend`
+8. `pm2 restart jingai-backend --update-env`
+9. `pm2 logs ...` (только свежие)
 
 Не делать “на автомате”:
 - `prisma db push`
@@ -196,6 +222,15 @@ JingAI — monorepo-платформа для психологов и клиен
 
 - `Cannot find type definition file for 'vite/client'`
   - фронтовые devDependencies не установлены.
+
+- `EADDRINUSE :::4000` / `ERR_CONNECTION_REFUSED` на API
+  - несколько процессов backend на одном порту; оставить один `npm run dev` / один PM2-процесс.
+
+- `MailTemplate does not exist` / `P2021` на mail-таблицах
+  - не применена миграция `20260809123000_admin_mail_tables` → `prisma:migrate:deploy` + `prisma:generate` + restart.
+
+- `SMTP is not configured`
+  - в `backend/.env` нет SMTP_* (локально и на проде — разные файлы).
 
 - `cannot load certificate ... fullchain.pem`
   - SSL путь указан в nginx до выпуска сертификата.
@@ -1032,4 +1067,106 @@ pm2 logs jingai-backend --lines 80
 - `backend/src/jobs/dreamSymbolExtraction.ts`
 - `backend/src/services/dreamSymbolExtraction.ts`
 - `backend/src/routes/research.ts` (participants API)
+
+---
+
+## 25) Релиз 2026-08-09 — админ-рассылки/аналитика, CRM клиентов, wellness клиента
+
+Кратко для ассистента: большой незадеплоенный (до этого раздела) набор на `main`: **две миграции Prisma**, AdminNavbar + mailings/analytics, обогащённый CRM клиентов, клиентский wellness и handbook психолога. На проде после `git pull` обязательны backup `prod.db`, `prisma migrate deploy`, сборка **backend + frontend**, перезапуск PM2. Без migrate `/admin/mailings` и wellness API упадут с отсутствующими таблицами.
+
+### 25.1 Что вошло (продукт)
+
+**Админ**
+- `AdminNavbar` + маршруты `/admin/mailings`, `/admin/analytics`; админ-страницы переведены на AdminNavbar через `UniversalNavbar`.
+- Рассылки: группы (manual + from-platform), шаблоны, кампании, preview, test-send, start/cancel.
+- Worker: `backend/src/utils/mailCampaign.ts` — throttle ~2.5s (`MAIL_SEND_DELAY_MS`), max 500 получателей; старт из `server.ts`.
+- Публичный unsubscribe: `GET/POST` под `/api/mail/unsubscribe` (`mailPublic.ts`).
+- Письма кампаний: **`attachBrandLogo: false`** (без CID-логотипа); короткий футер «С уважением, команда JungAI».
+- Live preview + `MailHtmlEditor` / `mailPreview.ts`.
+- Аналитика: `GET /api/admin/analytics` в `admin.ts`, UI `Analytics.tsx`.
+
+**CRM психолога**
+- `GET /api/clients` обогащён: `nextSessionAt`, `lastContactAt`, `openTasksCount`, `registrationStatus` + query `filter` / `q` / `tags`.
+- `GET /api/clients/:id/activity` — timeline.
+- Задачи по `clientId` + PATCH; notes DELETE (где реализовано в этом релизе).
+- UI: фильтры/карточки равной высоты на `/clients`; профиль — Overview/Timeline/Notes/Tasks.
+
+**Клиент wellness + handbook**
+- Миграция таблиц: MoodCheckIn, ClientMatchProfile, ClientPractice(+Completion), CertificateRequest, SessionReflection; поле `Dream.discussOnSession`.
+- API: `clientWellness.ts` под `/api`.
+- Страницы: `/client/care`, `/client/progress`, `/client/match`, `/client/certificate`.
+- Психолог: `/psychologist/handbook` (`Handbook.tsx`) + доработки тура платформы.
+
+### 25.2 Миграции (обязательны на проде)
+
+| Папка миграции | Суть |
+|---|---|
+| `20260726160000_client_wellness` | wellness-таблицы + `Dream.discussOnSession` |
+| `20260809123000_admin_mail_tables` | MailGroup, MailGroupMember, MailTemplate, MailCampaign, MailCampaignRecipient, MailUnsubscribe |
+
+Локально таблицы mail могли быть созданы ручным SQL после отказа `db push` — **на прод это не действует**. Только migrate из git.
+
+### 25.3 Ключевые файлы
+
+- `backend/prisma/schema.prisma` + обе папки migrations выше
+- `backend/src/routes/adminMail.ts`, `mailPublic.ts`, `clientWellness.ts`, `admin.ts`, `clients.ts`, `tasks.ts`
+- `backend/src/utils/mailCampaign.ts`, `email.ts` (`attachBrandLogo`)
+- `backend/src/server.ts` (mount + worker)
+- `frontend/src/components/AdminNavbar.tsx`, `MailHtmlEditor.tsx`
+- `frontend/src/pages/admin/Mailings.tsx`, `Analytics.tsx`
+- `frontend/src/pages/clients/List.tsx`, `Profile.tsx`, `ClientCard.tsx`, `ClientProfile.css`
+- `frontend/src/pages/client/Care.tsx`, `Progress.tsx`, `Match.tsx`, `Certificate.tsx`
+- `frontend/src/pages/psychologist/Handbook.tsx`
+- `frontend/src/main.tsx` (роуты)
+
+### 25.4 Грабли, зафиксированные при разработке
+
+1. **`prisma db push` локально** может отказать из‑за unrelated data-loss warnings — для продакшена не использовать; в репо класть официальную migration SQL.
+2. **SMTP на локали ≠ SMTP на сервере** — проверка рассылок локально требует SMTP в локальном `backend/.env`.
+3. **Дубли backend на :4000** → `EADDRINUSE` / странный `ERR_CONNECTION_REFUSED`; убить лишние PID, оставить один процесс.
+4. Кампании без логотипа — намеренно (иначе тяжёлые вложения и «брендовый» шум в массовых письмах).
+5. OpenRouter `403 Access denied by security policy` на DreamSymbols — отдельная тема прокси (§18.2.1), не баг mailings.
+
+### 25.5 Деплой на прод (копипаста)
+
+```bash
+cd /var/www/jingai
+grep DATABASE_URL backend/.env   # file:.../prod.db
+# SMTP_* должны быть уже в backend/.env для реальной отправки
+pm2 stop jingai-backend
+
+TS=$(date +%Y%m%d_%H%M%S)
+mkdir -p /root/jingai-backups
+sqlite3 backend/prisma/prod.db ".backup /root/jingai-backups/prod_${TS}.db"
+cp -a backend/prisma/prod.db /root/jingai-backups/prod_${TS}.db.copy
+tar -czf /root/jingai-backups/uploads_${TS}.tar.gz -C backend uploads
+
+git pull --ff-only origin main
+npm ci
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend && npm run build:frontend
+pm2 restart jingai-backend --update-env
+pm2 logs jingai-backend --lines 80
+```
+
+Проверка миграций:
+
+```bash
+sqlite3 backend/prisma/prod.db "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC LIMIT 5;"
+sqlite3 backend/prisma/prod.db ".tables" | tr ' ' '\n' | grep -E 'Mail|Mood|ClientMatch|ClientPractice|Certificate|SessionReflection'
+```
+
+Ожидаются среди последних: `20260726160000_client_wellness`, `20260809123000_admin_mail_tables`.
+
+### 25.6 Чек-лист приёмки
+
+- [ ] `/admin/mailings` — группа, шаблон, preview, test-send (нужен SMTP)
+- [ ] Кампания start → статусы recipients растут; в письме нет тяжёлого логотипа-вложения
+- [ ] Ссылка unsubscribe из письма работает
+- [ ] `/admin/analytics` открывается без 500
+- [ ] `/clients` — фильтры и meta на карточках; профиль Timeline/Tasks
+- [ ] `/client/care`, `/progress`, `/match`, `/certificate`
+- [ ] Handbook психолога открывается
+- [ ] `pm2 logs` без постоянных `P2021` / `MailTemplate does not exist`
 

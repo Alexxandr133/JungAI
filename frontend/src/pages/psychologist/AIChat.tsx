@@ -1872,6 +1872,7 @@ export default function PsychologistAIChat() {
         <div data-tour="ai-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--surface)', overflow: 'hidden', height: '100%', position: 'relative' }}>
           {/* Верхняя панель: заголовок + настройки ИИ */}
           <div
+            data-tour="ai-header"
             style={{
               flexShrink: 0,
               display: 'flex',
@@ -1899,6 +1900,7 @@ export default function PsychologistAIChat() {
                 <button
                   type="button"
                   className="ai-header-icon-btn"
+                  data-tour="ai-transcription"
                   onClick={() => setAiScreen('transcription')}
                   title="Транскрибация аудио"
                   style={{
@@ -1974,6 +1976,7 @@ export default function PsychologistAIChat() {
                 <button
                   type="button"
                   className="ai-header-icon-btn"
+                  data-tour="ai-settings"
                   onClick={() => {
                     setAiDraft(aiSettings);
                     setSettingsOpen(true);

@@ -18,8 +18,13 @@ export type ClientCardData = {
   registrationLink?: string | null;
   tokenExpiresAt?: string | null;
   platformRegistered?: boolean;
+  registrationStatus?: 'registered' | 'pending' | 'expired' | 'archived';
   avatarUrl?: string | null;
   profile?: { avatarUrl?: string | null } | null;
+  nextSessionAt?: string | Date | null;
+  nextSessionTitle?: string | null;
+  lastContactAt?: string | Date | null;
+  openTasksCount?: number;
 };
 
 type ClientVisualStatus = 'registered' | 'pending' | 'expired' | 'archived';
@@ -39,13 +44,26 @@ type Props = {
 };
 
 function resolveVisualStatus(c: ClientCardData, archived: boolean): ClientVisualStatus {
-  if (archived) return 'archived';
+  if (archived || c.registrationStatus === 'archived') return 'archived';
+  if (c.registrationStatus) return c.registrationStatus;
   if (c.platformRegistered && !c.registrationPending) return 'registered';
   const expiresAt = c.tokenExpiresAt ? new Date(c.tokenExpiresAt).getTime() : NaN;
   const isExpired = c.registrationPending && Number.isFinite(expiresAt) && expiresAt < Date.now();
   if (isExpired) return 'expired';
   if (c.registrationPending) return 'pending';
   return 'registered';
+}
+
+function formatShortDate(value?: string | Date | null): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function ClientCard({
@@ -124,26 +142,24 @@ export function ClientCard({
           </button>
         </div>
 
-        {(c.email || c.phone) && (
-          <div className="client-card__contact">
-            {c.email && (
-              <div className="client-card__contact-row" title={c.email}>
-                <Mail size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
-                <span className="client-card__contact-text">{c.email}</span>
-              </div>
-            )}
-            {c.phone && (
-              <div className="client-card__contact-row" title={c.phone}>
-                <Phone size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
-                <span className="client-card__contact-text">{c.phone}</span>
-              </div>
-            )}
+        <div className="client-card__contact">
+          <div className="client-card__contact-row" title={c.email || undefined}>
+            <Mail size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
+            <span className={`client-card__contact-text${!c.email ? ' is-empty' : ''}`}>
+              {c.email || 'Email не указан'}
+            </span>
           </div>
-        )}
+          <div className="client-card__contact-row" title={c.phone || undefined}>
+            <Phone size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
+            <span className={`client-card__contact-text${!c.phone ? ' is-empty' : ''}`}>
+              {c.phone || 'Телефон не указан'}
+            </span>
+          </div>
+        </div>
 
-        {Array.isArray(c.tags) && c.tags.length > 0 && (
-          <div className="client-card__tags">
-            {c.tags.map((t, idx) => {
+        <div className="client-card__tags">
+          {Array.isArray(c.tags) && c.tags.length > 0 ? (
+            c.tags.map((t, idx) => {
               const hex =
                 typeof t.color === 'string' && t.color.startsWith('#')
                   ? t.color
@@ -160,54 +176,81 @@ export function ClientCard({
                   {t.label}
                 </span>
               );
-            })}
-          </div>
-        )}
+            })
+          ) : (
+            <span className="client-card__tags-empty">Без тегов</span>
+          )}
+        </div>
 
-        {showRegBox && (
-          <div
-            className="client-card__reg-box"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="client-card__reg-title">
-              {status === 'expired' ? 'Ссылка регистрации истекла' : 'Ссылка для регистрации'}
-            </div>
-            <div className="client-card__reg-row">
-              <input
-                readOnly
-                value={c.registrationLink!}
-                title={c.registrationLink!}
-                className="client-card__reg-input"
-              />
-              <button
-                type="button"
-                className="client-card__icon-btn"
-                title="Копировать ссылку"
-                onClick={() => onCopyLink(c.registrationLink!)}
-              >
-                <Copy size={16} />
-              </button>
-              <button
-                type="button"
-                className={`client-card__icon-btn${refreshingLink ? ' client-card__icon-btn--spin' : ''}`}
-                title="Нажав на эту кнопку, вы обновите токен регистрации"
-                disabled={refreshingLink}
-                onClick={() => onRefreshLink(c.id)}
-              >
-                <RotateCw size={16} />
-              </button>
-            </div>
-            {tokenExpiryLabel && status === 'pending' && (
-              <div className="client-card__reg-expiry">Действует до {tokenExpiryLabel}</div>
-            )}
+        <div className="client-card__crm">
+          <div className="client-card__crm-row">
+            <span className="client-card__crm-label">Следующая сессия</span>
+            <span className="client-card__crm-value">
+              {formatShortDate(c.nextSessionAt) || 'не запланирована'}
+            </span>
           </div>
-        )}
+          <div className="client-card__crm-row">
+            <span className="client-card__crm-label">Последний контакт</span>
+            <span className="client-card__crm-value">
+              {formatShortDate(c.lastContactAt) || '—'}
+            </span>
+          </div>
+          <div className="client-card__crm-row">
+            <span className="client-card__crm-label">Задачи</span>
+            <span className="client-card__crm-value">
+              {(c.openTasksCount ?? 0) > 0
+                ? `${c.openTasksCount} ${c.openTasksCount === 1 ? 'задача' : (c.openTasksCount ?? 0) < 5 ? 'задачи' : 'задач'}`
+                : 'нет задач'}
+            </span>
+          </div>
+        </div>
 
-        {clientView === 'archive' && c.therapyEndedAt && (
-          <div className="client-card__archive-date">
-            Терапия завершена: {new Date(c.therapyEndedAt).toLocaleDateString('ru-RU')}
-          </div>
-        )}
+        <div className="client-card__extra">
+          {showRegBox && (
+            <div
+              className="client-card__reg-box"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="client-card__reg-title">
+                {status === 'expired' ? 'Ссылка регистрации истекла' : 'Ссылка для регистрации'}
+              </div>
+              <div className="client-card__reg-row">
+                <input
+                  readOnly
+                  value={c.registrationLink!}
+                  title={c.registrationLink!}
+                  className="client-card__reg-input"
+                />
+                <button
+                  type="button"
+                  className="client-card__icon-btn"
+                  title="Копировать ссылку"
+                  onClick={() => onCopyLink(c.registrationLink!)}
+                >
+                  <Copy size={16} />
+                </button>
+                <button
+                  type="button"
+                  className={`client-card__icon-btn${refreshingLink ? ' client-card__icon-btn--spin' : ''}`}
+                  title="Нажав на эту кнопку, вы обновите токен регистрации"
+                  disabled={refreshingLink}
+                  onClick={() => onRefreshLink(c.id)}
+                >
+                  <RotateCw size={16} />
+                </button>
+              </div>
+              {tokenExpiryLabel && status === 'pending' && (
+                <div className="client-card__reg-expiry">Действует до {tokenExpiryLabel}</div>
+              )}
+            </div>
+          )}
+
+          {clientView === 'archive' && c.therapyEndedAt && (
+            <div className="client-card__archive-date">
+              Терапия завершена: {new Date(c.therapyEndedAt).toLocaleDateString('ru-RU')}
+            </div>
+          )}
+        </div>
 
         <div className="client-card__actions" onClick={(e) => e.stopPropagation()}>
           {clientView === 'active' && (

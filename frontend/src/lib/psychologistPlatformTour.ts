@@ -3,9 +3,23 @@ import type { Config, DriveStep, Driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import '../styles/psychologistPlatformTour.css';
 
-export type PsychologistTourId = 'dashboard' | 'clients' | 'workArea' | 'ai' | 'sessions';
+export type PsychologistTourId =
+  | 'dashboard'
+  | 'clients'
+  | 'workArea'
+  | 'ai'
+  | 'sessions'
+  | 'messages'
+  | 'requests'
+  | 'dreams'
+  | 'paranormal'
+  | 'materials'
+  | 'amplifications'
+  | 'publications'
+  | 'feed'
+  | 'support';
 
-const STORAGE_KEY = 'jingai.psychologist.platformTour.v1';
+const STORAGE_KEY = 'jingai.psychologist.platformTour.v2';
 
 type TourStore = Record<string, Partial<Record<PsychologistTourId, boolean>>>;
 
