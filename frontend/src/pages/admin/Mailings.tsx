@@ -23,6 +23,18 @@ type MailCampaign = {
   createdAt: string;
 };
 type PlatformUser = { id: string; email: string; role: string };
+type CampaignPreview = {
+  memberCount: number;
+  unsubscribedCount: number;
+  deliverableCount: number;
+  willSendCount: number;
+  capped: boolean;
+  maxRecipients: number;
+  subject: string;
+  previewHtml: string;
+  smtpConfigured: boolean;
+  _groupId?: string;
+};
 
 export default function AdminMailings() {
   const { token, user } = useAuth();
@@ -51,7 +63,7 @@ export default function AdminMailings() {
   const [campTemplateId, setCampTemplateId] = useState('');
   const [campSubject, setCampSubject] = useState('');
   const [campBody, setCampBody] = useState('');
-  const [preview, setPreview] = useState<any>(null);
+  const [preview, setPreview] = useState<CampaignPreview | null>(null);
   const [busy, setBusy] = useState(false);
 
   const loadStatus = useCallback(async () => {
@@ -240,7 +252,7 @@ export default function AdminMailings() {
     setBusy(true);
     setError(null);
     try {
-      const p = await api('/api/admin/mail/campaigns/preview', {
+      const p = await api<CampaignPreview>('/api/admin/mail/campaigns/preview', {
         method: 'POST',
         token,
         body: { groupId: campGroupId, subject: campSubject, bodyHtml: campBody },
@@ -291,7 +303,7 @@ export default function AdminMailings() {
     try {
       let p = preview;
       if (!p || p._groupId !== campGroupId) {
-        p = await api<any>('/api/admin/mail/campaigns/preview', {
+        p = await api<CampaignPreview>('/api/admin/mail/campaigns/preview', {
           method: 'POST',
           token,
           body: { groupId: campGroupId, subject: campSubject, bodyHtml: campBody },
