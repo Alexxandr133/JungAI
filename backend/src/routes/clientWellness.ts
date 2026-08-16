@@ -280,98 +280,42 @@ router.post('/client/match', requireAuth, requireRole(['client', 'admin']), asyn
     const client = await resolveClient(req.user!.email);
     if (!client) return res.status(404).json({ error: 'Client not found', code: 'NO_CLIENT_PROFILE' });
 
-    let topics: string[] = Array.isArray(req.body?.topics) ? req.body.topics.map(String) : [];
-    let format = req.body?.format === 'couple' ? 'couple' : 'individual';
-    let timePreference = req.body?.timePreference || 'flexible';
-    let methodNotes = typeof req.body?.methodNotes === 'string' ? req.body.methodNotes : '';
-
-    if (!topics.length) {
-      const saved = await prisma.clientMatchProfile.findUnique({ where: { clientId: client.id } });
-      if (saved) {
-        topics = Array.isArray(saved.topics) ? (saved.topics as string[]) : [];
-        format = saved.format === 'couple' ? 'couple' : 'individual';
-        timePreference = saved.timePreference || 'flexible';
-        methodNotes = saved.methodNotes || '';
-      }
-    }
+    const { parseMatchBody, runPsychologistMatch } = await import('../utils/matchEngine');
+    const query = parseMatchBody(req.body || {});
 
     await prisma.clientMatchProfile.upsert({
       where: { clientId: client.id },
-      create: { clientId: client.id, topics, format, timePreference, methodNotes: methodNotes || null },
-      update: { topics, format, timePreference, methodNotes: methodNotes || null },
-    });
-
-    const psychologists = await prisma.user.findMany({
-      where: { role: 'psychologist', isVerified: true, catalogHidden: false },
-      select: { id: true, email: true },
-      orderBy: [{ catalogSortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
-    const profiles = await prisma.profile.findMany({
-      where: { userId: { in: psychologists.map((p) => p.id) } },
-      select: {
-        userId: true,
-        name: true,
-        bio: true,
-        specialization: true,
-        experience: true,
-        avatarUrl: true,
+      create: {
+        clientId: client.id,
+        topics: query.topics,
+        format: query.whoFor === 'couple' ? 'couple' : query.whoFor === 'child' ? 'child' : 'self',
+        timePreference: query.timePreference,
+        methodNotes: query.methodNotes || null,
+      },
+      update: {
+        topics: query.topics,
+        format: query.whoFor === 'couple' ? 'couple' : query.whoFor === 'child' ? 'child' : 'self',
+        timePreference: query.timePreference,
+        methodNotes: query.methodNotes || null,
       },
     });
-    const profileMap = new Map(profiles.map((p) => [p.userId, p]));
-    const topicLower = topics.map((t) => t.toLowerCase());
-    const notesLower = methodNotes.toLowerCase();
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "ClientMatchProfile" SET "whoFor" = ?, "customTopic" = ?, "priceMin" = ?, "priceMax" = ?, "preferredSlotStart" = ?, "preferredSlotEnd" = ? WHERE "clientId" = ?`,
+        query.whoFor,
+        query.customTopic || null,
+        query.priceMin ?? null,
+        query.priceMax ?? null,
+        query.preferredSlotStart || null,
+        query.preferredSlotEnd || null,
+        client.id
+      );
+    } catch {
+      /* extended columns may appear after ensure */
+    }
 
-    const scored = psychologists
-      .map((psych) => {
-        const profile = profileMap.get(psych.id);
-        const name = profile?.name || psych.email.split('@')[0];
-        const bio = (profile?.bio || '').toLowerCase();
-        const specRaw = profile?.specialization;
-        const specs: string[] = specRaw
-          ? typeof specRaw === 'string'
-            ? [specRaw]
-            : Array.isArray(specRaw)
-              ? (specRaw as string[])
-              : []
-          : [];
-        const hay = `${bio} ${specs.join(' ')} ${notesLower}`.toLowerCase();
-        const reasons: string[] = [];
-        let score = 10;
-        for (const topic of topicLower) {
-          if (topic && hay.includes(topic.toLowerCase())) {
-            score += 18;
-            reasons.push(`Тема «${topic}» близка к профилю`);
-          }
-        }
-        if (format === 'couple' && (hay.includes('пар') || hay.includes('сем'))) {
-          score += 22;
-          reasons.push('Работает с парами / семьёй');
-        }
-        if (format === 'individual') score += 5;
-        const exp = profile?.experience ? parseInt(String(profile.experience), 10) || 0 : 0;
-        if (exp >= 3) {
-          score += Math.min(15, exp);
-          reasons.push(`Опыт: ${exp} лет`);
-        }
-        if (specs.length) reasons.push(`Специализация: ${specs.slice(0, 2).join(', ')}`);
-        if (!reasons.length) reasons.push('Верифицированный специалист платформы');
-        return {
-          id: psych.id,
-          name,
-          email: psych.email,
-          bio: profile?.bio || null,
-          specialization: specs,
-          experience: exp,
-          avatarUrl: profile?.avatarUrl || null,
-          verified: true,
-          score,
-          reasons: reasons.slice(0, 3),
-        };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-
-    res.json({ matches: scored, query: { topics, format, timePreference } });
+    const { matches, total } = await runPsychologistMatch(query);
+    res.json({ matches, total, query });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to match' });
   }

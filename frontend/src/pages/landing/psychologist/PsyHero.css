@@ -1,0 +1,129 @@
+.psy-hero {
+  position: relative;
+  padding: var(--section-y) 0;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.psy-hero__blob {
+  position: absolute;
+  pointer-events: none;
+}
+
+.psy-hero__blob--brand {
+  right: -8%;
+  top: 10%;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  opacity: 0.55;
+}
+
+.psy-hero__blob--peach {
+  left: -4%;
+  bottom: 5%;
+  width: 280px;
+  height: 200px;
+  border-radius: 50% 50% 40% 60%;
+  background: var(--peach-soft);
+  opacity: 0.7;
+}
+
+.psy-hero__grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 48px;
+  align-items: center;
+}
+
+.psy-hero__trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.psy-hero__stat {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.psy-hero__stat-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.psy-hero__trust-rkn {
+  flex: 1 1 180px;
+  min-width: 160px;
+}
+
+.psy-hero__mock-wrap {
+  position: relative;
+  min-height: 400px;
+}
+
+.psy-hero__mock {
+  padding: 10px;
+  transform: rotate(1.5deg);
+  box-shadow: var(--shadow-mock);
+  overflow: hidden;
+  background: var(--card);
+}
+
+.psy-hero__mock-img {
+  max-height: min(560px, 70vh);
+  object-fit: contain;
+  object-position: top center;
+  background: var(--paper-soft);
+  border-radius: 12px;
+}
+
+.psy-hero__chip {
+  position: absolute;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+  white-space: nowrap;
+  max-width: 90%;
+}
+
+.psy-hero__chip--1 {
+  top: 12px;
+  left: -8px;
+}
+
+.psy-hero__chip--2 {
+  top: 42%;
+  right: -12px;
+}
+
+.psy-hero__chip--3 {
+  bottom: 28px;
+  left: 24px;
+}
+
+@media (max-width: 900px) {
+  .psy-hero__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .psy-hero__chip--1 {
+    left: 8px;
+  }
+
+  .psy-hero__chip--2 {
+    right: 8px;
+  }
+}

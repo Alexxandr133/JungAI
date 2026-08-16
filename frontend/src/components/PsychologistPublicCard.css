@@ -1,0 +1,199 @@
+/* Публичная шапка профиля — токены .landing (§4 / §12). Кабинетные tokens.css не использовать. */
+
+.landing .psy-public-card,
+.psy-public-card {
+  --psy-accent: #3d6b5a;
+  border-radius: var(--radius-card, 20px);
+  overflow: hidden;
+  background: var(--card, #ffffff);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--card-border, #d8d2ee);
+  color: var(--ink, #211e2b);
+  transition: box-shadow 0.18s ease;
+}
+
+.landing a.psy-public-card:hover,
+a.psy-public-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.psy-public-card__cover {
+  position: relative;
+  height: 180px;
+  background: linear-gradient(135deg, var(--peach-soft, #fdebdd), var(--brand-soft, #efebfc));
+}
+
+.psy-public-card--compact .psy-public-card__cover {
+  height: 120px;
+}
+
+@media (max-width: 700px) {
+  .psy-public-card__cover {
+    height: 120px;
+  }
+}
+
+.psy-public-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.psy-public-card__body {
+  padding: 0 32px 28px;
+  position: relative;
+}
+
+@media (max-width: 700px) {
+  .psy-public-card__body {
+    padding: 0 20px 24px;
+  }
+}
+
+.psy-public-card__top {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.psy-public-card__avatar {
+  width: 96px;
+  height: 96px;
+  margin-top: -48px;
+  margin-left: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 4px solid var(--card, #ffffff);
+  background: var(--paper-soft, #ece9f8);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 600;
+  font-size: 36px;
+  color: var(--brand-deep, #5546b8);
+  box-shadow: 0 4px 16px rgba(38, 33, 66, 0.1);
+}
+
+.psy-public-card--compact .psy-public-card__avatar {
+  width: 80px;
+  height: 80px;
+  margin-top: -40px;
+  font-size: 28px;
+}
+
+.psy-public-card__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.psy-public-card__meta {
+  flex: 1;
+  min-width: 180px;
+  padding-top: 12px;
+}
+
+.psy-public-card__name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.psy-public-card__name {
+  margin: 0;
+  font-family: var(--font-display, Georgia, serif);
+  font-weight: 600;
+  font-size: clamp(28px, 3vw, 32px);
+  line-height: 1.2;
+  color: var(--ink, #23202b);
+}
+
+.psy-public-card__badge {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sage, #3e8a6e);
+  background: var(--sage-soft, #e3f1ea);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.psy-public-card__sub {
+  margin: 8px 0 0;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 15px;
+  color: var(--ink-soft, #565165);
+}
+
+.psy-public-card__price {
+  margin: 10px 0 0;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--psy-accent);
+}
+
+.psy-public-card__nearest {
+  margin: 6px 0 0;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--ink-soft, #565165);
+}
+
+.psy-public-card__cta-wrap {
+  padding-top: 12px;
+  margin-left: auto;
+  align-self: center;
+}
+
+.psy-public-card__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 22px;
+  border-radius: var(--radius-btn, 999px);
+  background: var(--psy-accent);
+  color: #fff !important;
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.psy-public-card__cta:hover {
+  filter: brightness(0.94);
+  color: #fff !important;
+}
+
+.psy-public-card__cta:focus-visible {
+  outline: 3px solid var(--brand-soft, #efebfc);
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .psy-public-card__top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .psy-public-card__cta-wrap {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .psy-public-card__cta {
+    width: 100%;
+  }
+
+  /* CTA в шапке на mobile скрыт — sticky-бар на странице */
+  .psy-public-card__cta-wrap--desktop-only {
+    display: none;
+  }
+}

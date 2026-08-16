@@ -1,0 +1,31 @@
+.cta-band {
+  padding: var(--section-y) 0;
+  background: var(--peach-soft);
+}
+
+.cta-band__inner {
+  max-width: 720px;
+  text-align: center;
+}
+
+.landing .cta-band .cta-band__title {
+  margin: 0 0 16px;
+}
+
+.landing .cta-band .cta-band__sub {
+  margin: 0 0 32px;
+}
+
+.cta-band__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  justify-content: center;
+  align-items: center;
+}
+
+.landing .cta-band a.landing-btn--primary,
+.landing .cta-band a.landing-btn--primary:hover,
+.landing .cta-band a.landing-btn--primary:visited {
+  color: #ffffff;
+}

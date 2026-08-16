@@ -1,8 +1,197 @@
+/* Профиль клиента — §17 DESIGN_BRIEF (mist tokens) */
+.client-profile {
+  --paper: #f5f3fb;
+  --paper-soft: #ece9f8;
+  --card: #ffffff;
+  --card-border: #d8d2ee;
+  --line: #e2dff0;
+  --ink: #1f1a33;
+  --ink-soft: #5c5678;
+  --ink-muted: #8a8496;
+  --brand: #6c5bd4;
+  --brand-deep: #5546b8;
+  --brand-soft: #efebfc;
+  --surface-2: #f3f1fa;
+  --shadow-card: 0 1px 2px rgba(38, 33, 66, 0.05), 0 10px 28px rgba(38, 33, 66, 0.1);
+  --shadow-card-hover: 0 2px 4px rgba(38, 33, 66, 0.06), 0 14px 34px rgba(38, 33, 66, 0.13);
+  --danger: #d4574e;
+  --font-display: 'Lora', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Golos Text', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.client-profile__main {
+  flex: 1;
+  padding: 24px clamp(16px, 5vw, 48px);
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.client-profile__h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.client-profile__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  text-decoration: none;
+  background: var(--brand);
+  color: #fff;
+}
+
+.client-profile__btn:hover {
+  background: var(--brand-deep);
+  color: #fff;
+}
+
+.client-profile__btn--secondary {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.client-profile__btn--secondary:hover {
+  background: var(--surface-2);
+}
+
+.client-profile__btn--ghost {
+  background: transparent;
+  color: var(--brand);
+  border-color: transparent;
+  padding-inline: 8px;
+}
+
+.client-profile__head {
+  margin-bottom: 24px;
+}
+
+.client-profile__head-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.client-profile__identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.client-profile__avatar,
+.client-profile__avatar-fallback {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--line);
+  flex-shrink: 0;
+}
+
+.client-profile__avatar-fallback {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 24px;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.client-profile__name {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+
+.client-profile__meta {
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.client-profile__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.client-profile__tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--brand-soft);
+  color: var(--brand-deep);
+  border: 1px solid var(--line);
+}
+
 .client-profile-tabs {
   display: flex;
   gap: 8px;
   margin-bottom: 24px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.client-profile-tabs__btn {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.client-profile-tabs__btn.is-active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.client-profile__panel {
+  padding: 24px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+}
+
+.client-profile__panel h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
 }
 
 .client-profile-overview-grid {
@@ -15,11 +204,39 @@
   padding: 14px 16px;
   border-radius: 12px;
   background: var(--surface-2);
-  border: 1px solid var(--navbar-edge);
+  border: 1px solid var(--line);
+}
+
+.client-profile-stat__label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.client-profile-stat__value {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.client-profile-stat__muted {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+.client-profile-block {
+  margin-top: 20px;
+}
+
+.client-profile-block__title {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+  font-weight: 600;
 }
 
 .client-profile-empty {
-  color: var(--text-muted);
+  color: var(--ink-muted);
   text-align: center;
   padding: 40px 16px;
   font-size: 14px;
@@ -36,9 +253,9 @@
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid var(--navbar-edge);
+  border: 1px solid var(--line);
   background: var(--surface-2);
-  color: var(--text);
+  color: var(--ink);
   font: inherit;
   resize: vertical;
 }
@@ -51,7 +268,7 @@
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--surface-2);
-  border: 1px solid var(--navbar-edge);
+  border: 1px solid var(--line);
 }
 
 .client-profile-list-item--stack {
@@ -67,7 +284,7 @@
   padding: 14px 16px;
   border-radius: 12px;
   background: var(--surface-2);
-  border: 1px solid var(--navbar-edge);
+  border: 1px solid var(--line);
 }
 
 .client-profile-timeline__meta {
@@ -83,5 +300,32 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-muted);
+  color: var(--ink-muted);
+}
+
+.client-profile__error {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #fbeae8;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.client-profile__loading {
+  text-align: center;
+  padding: 48px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+@media (max-width: 700px) {
+  .client-profile-tabs {
+    flex-wrap: nowrap;
+    margin-left: -4px;
+    margin-right: -4px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
 }

@@ -117,6 +117,7 @@ router.get('/users', async (req: AuthedRequest, res) => {
         aiTokenPlan: true,
         aiTokensUsed: true,
         aiTokensResetAt: true,
+        aiModel: true,
         isVerified: true,
         createdAt: true
       },
@@ -153,6 +154,7 @@ router.get('/users', async (req: AuthedRequest, res) => {
       aiTokenPlan: (u as any).aiTokenPlan ?? 'standard',
       aiTokensUsed: Number((u as any).aiTokensUsed ?? 0),
       aiTokensResetAt: ((u as any).aiTokensResetAt instanceof Date ? (u as any).aiTokensResetAt : new Date()).toISOString(),
+      aiModel: typeof (u as any).aiModel === 'string' && (u as any).aiModel.trim() ? (u as any).aiModel.trim() : null,
       isVerified: u.isVerified,
       createdAt: u.createdAt.toISOString(),
       profileName: profileMap.get(u.id) ?? null,
@@ -373,6 +375,34 @@ router.patch('/users/:id/ai-token-plan', async (req: AuthedRequest, res) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update AI token plan' });
+  }
+});
+
+/** Персональная модель ИИ для пользователя (null/пусто = платформенный default) */
+router.patch('/users/:id/ai-model', async (req: AuthedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const raw = req.body?.model;
+    const model =
+      raw === null || raw === undefined || String(raw).trim() === '' || String(raw).trim() === 'default'
+        ? null
+        : String(raw).trim();
+    if (model && !PLATFORM_AI_MODEL_OPTIONS.includes(model)) {
+      return res.status(400).json({ error: 'Недопустимая модель' });
+    }
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { aiModel: model },
+      select: { id: true, aiModel: true },
+    });
+    res.json({
+      success: true,
+      user: { id: updated.id, aiModel: updated.aiModel || null },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update user AI model' });
   }
 });
 

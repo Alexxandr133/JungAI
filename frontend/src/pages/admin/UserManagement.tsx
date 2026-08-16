@@ -46,6 +46,7 @@ type AdminUserRow = {
   aiTokenPlan: 'standard' | 'medium' | 'large';
   aiTokensUsed: number;
   aiTokensResetAt: string;
+  aiModel: string | null;
   isVerified: boolean;
   createdAt: string;
   profileName: string | null;
@@ -346,6 +347,24 @@ export default function AdminUserManagement() {
     }
   }
 
+  async function updateUserAiModel(u: AdminUserRow, model: string) {
+    if (!token) return;
+    setBusyId(u.id);
+    setError(null);
+    try {
+      await api(`/api/admin/users/${u.id}/ai-model`, {
+        method: 'PATCH',
+        token,
+        body: { model: model === 'default' ? null : model },
+      });
+      await refreshAll();
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Ошибка обновления модели ИИ');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function confirmDelete() {
     if (!token || !delUser) return;
     setError(null);
@@ -583,6 +602,7 @@ export default function AdminUserManagement() {
                     <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Вериф.</th>
                     <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Клиенты</th>
                     <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>AI план</th>
+                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>ИИ модель</th>
                     <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Действия</th>
                   </tr>
                 </thead>
@@ -641,6 +661,30 @@ export default function AdminUserManagement() {
                         <div className="small" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
                           {u.aiTokensUsed?.toLocaleString('ru-RU') || 0} ток.
                         </div>
+                      </td>
+                      <td style={{ padding: '10px 12px', minWidth: 200 }}>
+                        <select
+                          value={u.aiModel || 'default'}
+                          disabled={busyId === u.id || !platformAiOptions.length}
+                          onChange={(e) => void updateUserAiModel(u, e.target.value)}
+                          title="Персональная модель (пусто = платформенный default)"
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            borderRadius: 8,
+                            border: borderInput,
+                            background: 'var(--surface-2)',
+                            color: 'var(--text)',
+                            fontSize: 11,
+                          }}
+                        >
+                          <option value="default">Платформенная ({platformAiModel || 'default'})</option>
+                          {platformAiOptions.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

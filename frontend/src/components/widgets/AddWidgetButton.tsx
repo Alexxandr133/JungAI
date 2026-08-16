@@ -1,4 +1,3 @@
-
 interface AddWidgetButtonProps {
   onClick: () => void;
 }
@@ -11,39 +10,40 @@ export default function AddWidgetButton({ onClick }: AddWidgetButtonProps) {
         width: '100%',
         minHeight: 120,
         padding: 20,
-        background: 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(15,23,42,0.2))',
-        border: '1px dashed rgba(148,163,184,0.45)',
+        background: 'var(--card, var(--surface-2))',
+        border: '1px dashed var(--card-border, var(--line))',
         borderRadius: 14,
-        color: 'var(--text)',
+        color: 'var(--ink, var(--text))',
         cursor: 'pointer',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        transition: 'all 0.2s',
+        transition: 'border-color 0.15s ease, background 0.15s ease, box-shadow 0.18s ease',
         fontSize: 16,
-        fontWeight: 600
+        fontWeight: 600,
+        boxShadow: 'var(--shadow-card, none)',
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(59,130,246,0.2), rgba(15,23,42,0.24))';
-        e.currentTarget.style.borderColor = 'rgba(59,130,246,0.75)';
-        e.currentTarget.style.color = '#c7d2fe';
+        e.currentTarget.style.background = 'var(--surface-2)';
+        e.currentTarget.style.borderColor = 'var(--brand, var(--primary))';
+        e.currentTarget.style.boxShadow = 'var(--shadow-card-hover, var(--shadow-card))';
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'linear-gradient(180deg, rgba(59,130,246,0.12), rgba(15,23,42,0.2))';
-        e.currentTarget.style.borderColor = 'rgba(148,163,184,0.45)';
-        e.currentTarget.style.color = 'var(--text)';
+        e.currentTarget.style.background = 'var(--card, var(--surface-2))';
+        e.currentTarget.style.borderColor = 'var(--card-border, var(--line))';
+        e.currentTarget.style.boxShadow = 'var(--shadow-card, none)';
       }}
     >
-      <div style={{ fontSize: 32 }}>+</div>
+      <div style={{ fontSize: 32, color: 'var(--brand, var(--primary))' }}>+</div>
       <div>Добавить виджет</div>
       <div
         className="small"
         style={{
-          color: 'var(--text-muted)',
+          color: 'var(--ink-soft, var(--text-muted))',
           fontSize: 13,
-          marginTop: 4
+          marginTop: 4,
         }}
       >
         Нажмите, чтобы выбрать виджет для добавления

@@ -1,51 +1,275 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
+import { PROFILE_TAG_SUGGESTIONS, isProfileTag, searchProfileTags } from 'jungai-shared';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { api, resolvePublicFileUrl } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { clearVerificationCache } from '../../utils/verification';
 import { EmailChangeFlow } from '../../components/EmailChangeFlow';
+import {
+  PHONE_COUNTRIES,
+  composePhone,
+  digitsOnly,
+  formatNationalNumber,
+  isPhoneComplete,
+  parseStoredPhone,
+  type PhoneCountryCode,
+} from '../../lib/phoneFormat';
+import {
+  PsychologistPublicCard,
+  PROFILE_ACCENT_PRESETS,
+} from '../../components/PsychologistPublicCard';
+import { PsychologistPublicBody } from '../../components/PsychologistPublicBody';
+import '../../styles/landing-tokens.css';
+import './Profile.css';
+
+const BIO_MAX = 600;
+
+function normalizeAccent(value: string | null | undefined): string {
+  const v = String(value || '').trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(v) && (PROFILE_ACCENT_PRESETS as readonly string[]).includes(v)) {
+    return v;
+  }
+  return PROFILE_ACCENT_PRESETS[0];
+}
+
+function withCacheBust(url: string | null, rev: number): string | null {
+  if (!url) return null;
+  if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+  const base = resolvePublicFileUrl(url) || url;
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}v=${rev}`;
+}
+
+type EduDraft = {
+  id?: string;
+  kind: string;
+  institution: string;
+  title: string;
+  yearFrom: string;
+  yearTo: string;
+};
+
+type Snapshot = {
+  name: string;
+  phoneCountry: PhoneCountryCode;
+  phoneNational: string;
+  location: string;
+  bio: string;
+  specialization: string;
+  experience: string;
+  sessionPriceRub: string;
+  worksWith: string[];
+  audienceFormats: string[];
+  educations: EduDraft[];
+  accentColor: string;
+  avatarUrl: string | null;
+  coverUrl: string | null;
+};
+
+function emptyEdu(): EduDraft {
+  return {
+    kind: 'higher',
+    institution: '',
+    title: '',
+    yearFrom: String(new Date().getFullYear()),
+    yearTo: '',
+  };
+}
+
+function snapshotEqual(a: Snapshot, b: Snapshot): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 export default function PsychologistProfile() {
   const { token, refreshProfile, user } = useAuth();
-  
+
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState<PhoneCountryCode>('RU');
+  const [phoneNational, setPhoneNational] = useState('');
   const [location, setLocation] = useState('');
   const [bio, setBio] = useState('');
   const [specialization, setSpecialization] = useState('');
   const [experience, setExperience] = useState('');
+  const [sessionPriceRub, setSessionPriceRub] = useState('');
+  const [worksWithSelected, setWorksWithSelected] = useState<string[]>([]);
+  const [tagQuery, setTagQuery] = useState('');
+  const [audienceFormats, setAudienceFormats] = useState<string[]>(['self']);
+  const [educations, setEducations] = useState<EduDraft[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [accentColor, setAccentColor] = useState<string>(PROFILE_ACCENT_PRESETS[0]);
+  const [mediaRev, setMediaRev] = useState(0);
+  const [showPreview, setShowPreview] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [verificationStatus, setVerificationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
   const [verificationComment, setVerificationComment] = useState<string | null>(null);
   const [verificationDocument, setVerificationDocument] = useState<File | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState<Snapshot | null>(null);
 
+  const phoneCountryMeta = useMemo(
+    () => PHONE_COUNTRIES.find((c) => c.code === phoneCountry) || PHONE_COUNTRIES[0],
+    [phoneCountry]
+  );
+  const phoneDisplay = formatNationalNumber(phoneNational, phoneCountryMeta.nationalLength);
+  const phoneE164 = composePhone(phoneCountryMeta.dial, phoneNational);
+
+  const currentSnapshot = useMemo<Snapshot>(
+    () => ({
+      name,
+      phoneCountry,
+      phoneNational,
+      location,
+      bio,
+      specialization,
+      experience,
+      sessionPriceRub,
+      worksWith: [...worksWithSelected].sort(),
+      audienceFormats: [...audienceFormats].sort(),
+      educations,
+      accentColor: normalizeAccent(accentColor),
+      avatarUrl,
+      coverUrl: coverUrl?.startsWith('blob:') ? null : coverUrl,
+    }),
+    [
+      name,
+      phoneCountry,
+      phoneNational,
+      location,
+      bio,
+      specialization,
+      experience,
+      sessionPriceRub,
+      worksWithSelected,
+      audienceFormats,
+      educations,
+      accentColor,
+      avatarUrl,
+      coverUrl,
+    ]
+  );
+
+  const dirty = savedSnapshot != null && !snapshotEqual(currentSnapshot, savedSnapshot);
+
+  const completeness = useMemo(() => {
+    const items = [
+      { key: 'photo', label: 'Фото', done: Boolean(avatarUrl) },
+      { key: 'cover', label: 'Обложка', done: Boolean(coverUrl) },
+      { key: 'bio', label: 'О себе ≥ 200 символов', done: bio.trim().length >= 200 },
+      { key: 'tags', label: 'Теги ≥ 3', done: worksWithSelected.length >= 3 },
+      {
+        key: 'edu',
+        label: 'Образование ≥ 1',
+        done: educations.some((e) => e.title.trim() && e.institution.trim() && e.yearFrom.trim()),
+      },
+      {
+        key: 'price',
+        label: 'Стоимость > 0',
+        done: Number(sessionPriceRub) > 0,
+      },
+    ] as const;
+    const doneCount = items.filter((i) => i.done).length;
+    return { items, doneCount, total: items.length };
+  }, [avatarUrl, coverUrl, bio, worksWithSelected, educations, sessionPriceRub]);
+
+  const tagResults = useMemo(() => {
+    const q = tagQuery.trim();
+    if (q) return searchProfileTags(q, 20);
+    return PROFILE_TAG_SUGGESTIONS.filter((t) => !worksWithSelected.includes(t));
+  }, [tagQuery, worksWithSelected]);
 
   useEffect(() => {
     if (token) {
-      loadProfile();
-      loadVerificationStatus();
+      void loadProfile();
+      void loadVerificationStatus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  function applySnapshot(s: Snapshot, verified: boolean) {
+    setName(s.name);
+    setPhoneCountry(s.phoneCountry);
+    setPhoneNational(s.phoneNational);
+    setLocation(s.location);
+    setBio(s.bio);
+    setSpecialization(s.specialization);
+    setExperience(s.experience);
+    setSessionPriceRub(s.sessionPriceRub);
+    setWorksWithSelected(s.worksWith);
+    setAudienceFormats(s.audienceFormats.length ? s.audienceFormats : ['self']);
+    setEducations(s.educations);
+    setAccentColor(s.accentColor);
+    setAvatarUrl(s.avatarUrl);
+    setCoverUrl(s.coverUrl);
+    setIsVerified(verified);
+    setSavedSnapshot({
+      ...s,
+      worksWith: [...s.worksWith].sort(),
+      audienceFormats: [...s.audienceFormats].sort(),
+    });
+  }
 
   async function loadProfile() {
     if (!token) return;
     try {
-      const res = await api<{ name?: string; phone?: string; location?: string; bio?: string; specialization?: string; experience?: string; avatarUrl?: string | null; isVerified?: boolean }>('/api/psychologist/profile', { token });
-      setName(res.name || '');
-      setPhone(res.phone || '');
-      setLocation(res.location || '');
-      setBio(res.bio || '');
-      setSpecialization(res.specialization || '');
-      setExperience(res.experience || '');
-      setAvatarUrl(res.avatarUrl || null);
-      setIsVerified(res.isVerified || false);
-      console.log('Profile loaded, avatarUrl:', res.avatarUrl);
+      const res = await api<{
+        name?: string;
+        phone?: string;
+        location?: string;
+        bio?: string;
+        specialization?: string;
+        experience?: string;
+        sessionPriceRub?: number | null;
+        therapyMethod?: string;
+        worksWith?: string[];
+        audienceFormats?: string[];
+        educations?: Array<{
+          id: string;
+          kind: string;
+          institution: string;
+          title: string;
+          yearFrom: number;
+          yearTo: number | null;
+        }>;
+        avatarUrl?: string | null;
+        coverUrl?: string | null;
+        accentColor?: string | null;
+        isVerified?: boolean;
+      }>('/api/psychologist/profile', { token });
+
+      const parsed = parseStoredPhone(res.phone || '');
+      const knownTags = (res.worksWith || []).filter((t) => isProfileTag(t));
+      const snap: Snapshot = {
+        name: res.name || '',
+        phoneCountry: parsed.countryCode,
+        phoneNational: parsed.nationalDigits,
+        location: res.location || '',
+        bio: res.bio || '',
+        specialization: res.specialization || res.therapyMethod || '',
+        experience: res.experience || '',
+        sessionPriceRub: res.sessionPriceRub != null ? String(res.sessionPriceRub) : '',
+        worksWith: knownTags,
+        audienceFormats: res.audienceFormats?.length ? res.audienceFormats : ['self'],
+        educations: (res.educations || []).map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          institution: e.institution,
+          title: e.title,
+          yearFrom: String(e.yearFrom),
+          yearTo: e.yearTo != null ? String(e.yearTo) : '',
+        })),
+        accentColor: normalizeAccent(res.accentColor),
+        avatarUrl: res.avatarUrl || null,
+        coverUrl: res.coverUrl || null,
+      };
+      applySnapshot(snap, Boolean(res.isVerified));
+      setMediaRev((n) => n + 1);
     } catch (e) {
       console.error('Failed to load profile:', e);
     }
@@ -54,408 +278,898 @@ export default function PsychologistProfile() {
   async function loadVerificationStatus() {
     if (!token) return;
     try {
-      const res = await api<{ status: string; comment?: string | null }>('/api/psychologist/verification/status', { token });
-      setVerificationStatus(res.status as any || 'none');
+      const res = await api<{ status: string; comment?: string | null }>(
+        '/api/psychologist/verification/status',
+        { token }
+      );
+      setVerificationStatus((res.status as typeof verificationStatus) || 'none');
       setVerificationComment(res.comment || null);
-    } catch (e) {
-      // No verification request yet
+    } catch {
       setVerificationStatus('none');
     }
   }
 
-  async function saveProfile(e: React.FormEvent) {
-    e.preventDefault();
+  async function saveProfile() {
     if (!token) return;
+    if (
+      phoneNational.length > 0 &&
+      !isPhoneComplete(phoneCountryMeta.dial, phoneNational, phoneCountryMeta.nationalLength)
+    ) {
+      setError(`Укажите номер полностью: ${phoneCountryMeta.nationalLength} цифр после кода страны — или очистите поле`);
+      return;
+    }
     setSaving(true);
     setError(null);
     setStatus(null);
     try {
+      const accentToSave = normalizeAccent(accentColor);
       await api('/api/psychologist/profile', {
         method: 'PUT',
         token,
-        body: { name, phone, location, bio, specialization, experience }
+        body: {
+          name,
+          phone: phoneNational.length ? phoneE164 || null : null,
+          location,
+          bio: bio.slice(0, BIO_MAX),
+          specialization,
+          therapyMethod: specialization,
+          experience,
+          sessionPriceRub: sessionPriceRub === '' ? null : Number(sessionPriceRub),
+          worksWith: worksWithSelected,
+          audienceFormats,
+          accentColor: accentToSave,
+        },
       });
-      setStatus('Профиль сохранен');
-      // Обновляем профиль в контексте
+      await api('/api/psychologist/profile/educations', {
+        method: 'PUT',
+        token,
+        body: {
+          educations: educations.map((ed) => ({
+            kind: ed.kind,
+            institution: ed.institution,
+            title: ed.title,
+            yearFrom: Number(ed.yearFrom),
+            yearTo: ed.yearTo === '' ? null : Number(ed.yearTo),
+          })),
+        },
+      });
+      setAccentColor(accentToSave);
+      // Фиксируем снимок до перезагрузки, чтобы UI не «мигал» старыми значениями
+      setSavedSnapshot({
+        ...currentSnapshot,
+        accentColor: accentToSave,
+        worksWith: [...worksWithSelected].sort(),
+        audienceFormats: [...audienceFormats].sort(),
+        coverUrl: coverUrl?.startsWith('blob:') ? savedSnapshot?.coverUrl ?? null : coverUrl,
+      });
+      setStatus('Профиль сохранён');
       await refreshProfile();
+      await loadProfile();
       setTimeout(() => setStatus(null), 3000);
-    } catch (e: any) {
-      setError(e.message || 'Не удалось сохранить профиль');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить профиль');
     } finally {
       setSaving(false);
     }
+  }
+
+  function discardChanges() {
+    if (!savedSnapshot) return;
+    applySnapshot(savedSnapshot, isVerified);
+    setError(null);
+    setTagQuery('');
+  }
+
+  function toggleAudience(id: string) {
+    setAudienceFormats((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleWorkTopic(t: string) {
+    setWorksWithSelected((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+  }
+
+  function onPhoneCountryChange(code: PhoneCountryCode) {
+    const next = PHONE_COUNTRIES.find((c) => c.code === code) || PHONE_COUNTRIES[0];
+    setPhoneCountry(code);
+    setPhoneNational((prev) => digitsOnly(prev).slice(0, next.nationalLength));
+  }
+
+  function onPhoneNationalChange(raw: string) {
+    setPhoneNational(digitsOnly(raw).slice(0, phoneCountryMeta.nationalLength));
   }
 
   async function uploadAvatar(file: File) {
     if (!token) return;
     setUploadingAvatar(true);
     setError(null);
-    setStatus(null);
     try {
       const formData = new FormData();
       formData.append('avatar', file);
-      
       const res = await api<{ avatarUrl: string }>('/api/psychologist/profile/avatar', {
         method: 'POST',
         token,
-        body: formData
+        body: formData,
       });
-      
       setAvatarUrl(res.avatarUrl);
+      setMediaRev((n) => n + 1);
+      setSavedSnapshot((prev) => (prev ? { ...prev, avatarUrl: res.avatarUrl } : prev));
       setStatus('Аватар загружен');
-      // Обновляем профиль в контексте
       await refreshProfile();
-      // Перезагружаем профиль со страницы
-      await loadProfile();
       setTimeout(() => setStatus(null), 3000);
-    } catch (e: any) {
-      setError(e.message || 'Не удалось загрузить аватар');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить аватар');
     } finally {
       setUploadingAvatar(false);
     }
   }
 
-  async function uploadVerificationDocument(e: React.FormEvent) {
+  async function uploadCover(file: File) {
+    if (!token) return;
+    const localPreview = URL.createObjectURL(file);
+    setCoverUrl(localPreview);
+    setMediaRev((n) => n + 1);
+    setUploadingCover(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('cover', file);
+      const res = await api<{ coverUrl: string }>('/api/psychologist/profile/cover', {
+        method: 'POST',
+        token,
+        body: formData,
+      });
+      URL.revokeObjectURL(localPreview);
+      setCoverUrl(res.coverUrl);
+      setMediaRev((n) => n + 1);
+      setSavedSnapshot((prev) => (prev ? { ...prev, coverUrl: res.coverUrl } : prev));
+      setStatus('Обложка сохранена сразу — можно не жать «Сохранить»');
+      setTimeout(() => setStatus(null), 4000);
+    } catch (e: unknown) {
+      URL.revokeObjectURL(localPreview);
+      setCoverUrl(savedSnapshot?.coverUrl ?? null);
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить обложку');
+    } finally {
+      setUploadingCover(false);
+    }
+  }
+
+  async function removeCover() {
+    if (!token) return;
+    try {
+      await api('/api/psychologist/profile/cover', { method: 'DELETE', token });
+      setCoverUrl(null);
+      setMediaRev((n) => n + 1);
+      setSavedSnapshot((prev) => (prev ? { ...prev, coverUrl: null } : prev));
+      setStatus('Обложка удалена');
+      setTimeout(() => setStatus(null), 3000);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось удалить обложку');
+    }
+  }
+
+  async function uploadVerificationDocument(e: FormEvent) {
     e.preventDefault();
     if (!verificationDocument || !token) return;
     setUploading(true);
     setError(null);
-    setStatus(null);
     try {
       const formData = new FormData();
       formData.append('document', verificationDocument);
-      
       await api('/api/psychologist/verification/submit', {
         method: 'POST',
         token,
-        body: formData
+        body: formData,
       });
-      
       setStatus('Документ загружен и отправлен на проверку');
       setVerificationDocument(null);
       setVerificationStatus('pending');
-      // Очищаем кэш верификации, чтобы при следующей проверке загрузился новый статус
       clearVerificationCache();
       setTimeout(() => setStatus(null), 5000);
-    } catch (e: any) {
-      setError(e.message || 'Не удалось загрузить документ');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Не удалось загрузить документ');
     } finally {
       setUploading(false);
     }
   }
 
-  const getAvatarUrl = (url: string | null) => {
-    if (!url) return null;
-    if (url.startsWith('http')) return url;
-    const env = (import.meta as any).env || {};
-    let baseOrigin: string = env.VITE_API_ORIGIN || env.VITE_API_URL || '';
-    if (!baseOrigin && env.DEV && typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '4000') {
-      baseOrigin = 'http://localhost:4000';
-    }
-    if (!baseOrigin && typeof window !== 'undefined') {
-      baseOrigin = window.location.origin;
-    }
-    return `${baseOrigin}${url}`;
-  };
+  const avatarSrc = withCacheBust(avatarUrl, mediaRev);
+  const coverSrc = withCacheBust(coverUrl, mediaRev);
+  const accentNormalized = normalizeAccent(accentColor);
 
-  const getVerificationBadge = () => {
-    if (isVerified) {
-      return <span style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>✓ Верифицирован</span>;
+  const verificationBadge = (() => {
+    if (isVerified || verificationStatus === 'approved') {
+      return <span className="psy-profile-badge psy-profile-badge--ok">Верифицирован</span>;
     }
     if (verificationStatus === 'pending') {
-      return <span style={{ background: 'rgba(255, 193, 7, 0.2)', color: '#ffc107', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>⏳ На проверке</span>;
+      return <span className="psy-profile-badge psy-profile-badge--pending">На проверке</span>;
     }
     if (verificationStatus === 'rejected') {
-      return <span style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>✕ Отклонено</span>;
+      return <span className="psy-profile-badge psy-profile-badge--rej">Отклонено</span>;
     }
-    return <span style={{ background: 'rgba(156, 163, 175, 0.2)', color: '#9ca3af', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Не верифицирован</span>;
-  };
+    return <span className="psy-profile-badge psy-profile-badge--none">Не верифицирован</span>;
+  })();
+
+  const previewEducations = useMemo(
+    () =>
+      educations
+        .filter((e) => e.title.trim() && e.institution.trim() && e.yearFrom.trim())
+        .map((e, i) => ({
+          id: e.id || `draft-${i}`,
+          kind: e.kind,
+          institution: e.institution,
+          title: e.title,
+          yearFrom: Number(e.yearFrom) || 0,
+          yearTo: e.yearTo === '' ? null : Number(e.yearTo) || null,
+        })),
+    [educations]
+  );
+
+  const cardPreview = (
+    <div className="psy-profile-live-preview">
+      <PsychologistPublicCard
+        compact
+        showCta
+        onBookClick={() => undefined}
+        data={{
+          name: name || 'Без имени',
+          specialization: specialization ? [specialization] : [],
+          therapyMethod: specialization || null,
+          experience: experience ? parseInt(experience, 10) || 0 : 0,
+          avatarUrl: avatarSrc,
+          coverUrl: coverSrc,
+          accentColor: accentNormalized,
+          sessionPriceRub: sessionPriceRub === '' ? null : Number(sessionPriceRub),
+          verified: isVerified || verificationStatus === 'approved',
+        }}
+      />
+      <PsychologistPublicBody
+        compact
+        data={{
+          bio,
+          worksWith: worksWithSelected,
+          audienceFormats,
+          educations: previewEducations,
+        }}
+      />
+    </div>
+  );
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: '100%',
-          overflowX: 'hidden'
-        }}
-      >
-        {/* Header */}
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Профиль</h1>
-          <div className="small" style={{ color: 'var(--text-muted)' }}>Управление личной информацией и настройками аккаунта</div>
-        </div>
 
-        {/* Status messages */}
-        {status && (
-          <div className="card" style={{ padding: 12, background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', marginBottom: 20, borderRadius: 12 }}>
-            {status}
-          </div>
-        )}
-        {error && (
-          <div className="card" style={{ padding: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', marginBottom: 20, borderRadius: 12, color: '#ef4444' }}>
-            {error}
-          </div>
-        )}
+      <div className={`landing psy-profile-editor${dirty ? ' is-dirty' : ''}`}>
+        <h1 className="psy-profile-editor__title">Профиль</h1>
+        <p className="psy-profile-editor__lead">Публичная карточка для клиентов и настройки аккаунта</p>
 
-        {/* Main content: Two-column layout */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 320px) 1fr', gap: 32, alignItems: 'flex-start', marginBottom: 32 }}>
-          {/* Left column: Avatar and status */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, position: 'sticky', top: 100 }}>
-            <div className="card" style={{ padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-              {/* Avatar */}
-              <div style={{ marginBottom: 20, position: 'relative' }}>
-                {getAvatarUrl(avatarUrl) ? (
-                  <img
-                    src={getAvatarUrl(avatarUrl) || ''}
-                    alt={name || 'Аватар'}
-                    style={{
-                      width: 160,
-                      height: 160,
-                      borderRadius: '50%',
-                      objectFit: 'cover',
-                      border: '3px solid rgba(255,255,255,0.1)',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
-                    }}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                      const parent = target.parentElement;
-                      if (parent && !parent.querySelector('.avatar-fallback')) {
-                        const fallback = document.createElement('div');
-                        fallback.className = 'avatar-fallback';
-                        fallback.style.cssText = 'width: 160px; height: 160px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 800; font-size: 48px; border: 3px solid rgba(255,255,255,0.1);';
-                        fallback.textContent = (name || '?').trim().charAt(0).toUpperCase();
-                        parent.appendChild(fallback);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div style={{
-                    width: 160,
-                    height: 160,
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, var(--primary), var(--accent))',
-                    color: '#0b0f1a',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 800,
-                    fontSize: 48,
-                    border: '3px solid rgba(255,255,255,0.1)',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
-                  }}>
-                    {(name || '?').trim().charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
+        {status ? <div className="psy-profile-alert psy-profile-alert--ok">{status}</div> : null}
+        {error ? <div className="psy-profile-alert psy-profile-alert--err">{error}</div> : null}
 
-              {/* Avatar upload button */}
-              <div style={{ width: '100%', marginBottom: 20 }}>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) uploadAvatar(file);
-                  }}
-                  style={{ display: 'none' }}
-                  id="avatar-upload-input"
-                  disabled={uploadingAvatar}
-                />
-                <label
-                  htmlFor="avatar-upload-input"
-                  className="button secondary"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: '10px 16px',
-                    fontSize: 14,
-                    cursor: uploadingAvatar ? 'wait' : 'pointer',
-                    textAlign: 'center',
-                    opacity: uploadingAvatar ? 0.6 : 1
-                  }}
-                >
-                  {uploadingAvatar ? 'Загрузка...' : avatarUrl ? 'Изменить фото' : 'Загрузить фото'}
-                </label>
-                <div className="small" style={{ marginTop: 8, color: 'var(--text-muted)', textAlign: 'center' }}>
-                  JPG, PNG до 5 МБ
-                </div>
-              </div>
-
-              {/* Verification status */}
-              <div style={{ width: '100%', paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                <div className="small" style={{ marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Статус верификации</div>
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  {getVerificationBadge()}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right column: Form */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-            {/* Основная информация */}
-            <div className="card" style={{ padding: 32 }}>
-              <h2 style={{ margin: 0, marginBottom: 24, fontSize: 22, fontWeight: 700 }}>Основная информация</h2>
-              <div className="card" style={{ padding: 14, marginBottom: 20, background: 'var(--surface-2)' }}>
-                <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>Email аккаунта</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <strong>{user?.email || '—'}</strong>
-                  <EmailChangeFlow />
-                </div>
-              </div>
-              <form onSubmit={saveProfile} style={{ display: 'grid', gap: 20 }}>
-                <div>
-                  <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>ФИО</label>
-                  <input
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="Фамилия Имя Отчество"
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, transition: 'border-color 0.2s' }}
-                    onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-                    onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-                  <div>
-                    <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Телефон</label>
-                    <input
-                      value={phone}
-                      onChange={e => setPhone(e.target.value)}
-                      placeholder="+7 (999) 123-45-67"
-                      style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, transition: 'border-color 0.2s' }}
-                      onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-                      onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                    />
-                  </div>
-                  <div>
-                    <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Локация</label>
-                    <input
-                      value={location}
-                      onChange={e => setLocation(e.target.value)}
-                      placeholder="Город, страна"
-                      style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, transition: 'border-color 0.2s' }}
-                      onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-                      onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Специализация</label>
-                  <input
-                    value={specialization}
-                    onChange={e => setSpecialization(e.target.value)}
-                    placeholder="Например: Юнгианская аналитическая психология"
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, transition: 'border-color 0.2s' }}
-                    onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-                    onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                  />
-                </div>
-                <div>
-                  <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Опыт работы</label>
-                  <input
-                    value={experience}
-                    onChange={e => setExperience(e.target.value)}
-                    placeholder="Например: 10 лет практики"
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, transition: 'border-color 0.2s' }}
-                    onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-                    onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                  />
-                </div>
-                <div>
-                  <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>О себе</label>
-                  <textarea
-                    value={bio}
-                    onChange={e => setBio(e.target.value)}
-                    placeholder="Краткая информация о вас, вашем подходе к терапии..."
-                    rows={6}
-                    style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, fontFamily: 'inherit', resize: 'vertical', transition: 'border-color 0.2s' }}
-                    onFocus={(e) => e.target.style.borderColor = 'var(--primary)'}
-                    onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.12)'}
-                  />
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, paddingTop: 8 }}>
-                  <button type="submit" className="button" disabled={saving} style={{ padding: '12px 24px', fontSize: 15, fontWeight: 600, minWidth: 140 }}>
-                    {saving ? 'Сохранение...' : 'Сохранить изменения'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-
-        {/* Verification section - full width */}
-        <div className="card" style={{ padding: 32 }}>
-          <h2 style={{ margin: 0, marginBottom: 20, fontSize: 22, fontWeight: 700 }}>Верификация аккаунта</h2>
-          <div style={{ marginBottom: 24 }}>
-            <p style={{ margin: 0, marginBottom: 12, color: 'var(--text-muted)', lineHeight: 1.6, fontSize: 15 }}>
-              Для получения верифицированного аккаунта загрузите документ, подтверждающий вашу квалификацию (диплом, сертификат, лицензию и т.д.).
-              Документ будет проверен администратором.
+        {!isVerified && verificationStatus !== 'approved' ? (
+          <div className="psy-profile-verify">
+            <h2>Верификация аккаунта</h2>
+            <p>
+              Чтобы попасть в каталог и подбор клиентов, загрузите документ о квалификации (диплом,
+              сертификат, лицензию). Администратор проверит его и откроет доступ.
             </p>
-          </div>
-
-          {verificationStatus === 'pending' && (
-            <div className="card" style={{ padding: 20, background: 'rgba(255, 193, 7, 0.1)', border: '1px solid rgba(255, 193, 7, 0.3)', marginBottom: 24, borderRadius: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 15 }}>⏳ Запрос на проверке</div>
-              <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>Ваш документ отправлен на проверку. Ожидайте решения администратора.</div>
-            </div>
-          )}
-
-          {verificationStatus === 'rejected' && (
-            <div className="card" style={{ padding: 20, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', marginBottom: 24, borderRadius: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 8, color: '#ef4444', fontSize: 15 }}>✕ Запрос отклонен</div>
-              <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.6 }}>Ваш запрос на верификацию был отклонен. Вы можете загрузить новый документ.</div>
-              {verificationComment && (
-                <div style={{ marginTop: 12, padding: 16, background: 'rgba(0,0,0,0.2)', borderRadius: 10 }}>
-                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Комментарий администратора:</div>
-                  <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)' }}>{verificationComment}</div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {verificationStatus !== 'approved' && (
-            <form onSubmit={uploadVerificationDocument} style={{ display: 'grid', gap: 20 }}>
-              <div>
-                <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>Документ о квалификации</label>
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                  onChange={e => setVerificationDocument(e.target.files?.[0] || null)}
-                  style={{ width: '100%', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', fontSize: 15, cursor: 'pointer' }}
-                />
-                <div className="small" style={{ marginTop: 8, color: 'var(--text-muted)' }}>
-                  Поддерживаемые форматы: PDF, JPG, PNG, DOC, DOCX (макс. 10 МБ)
-                </div>
+            {verificationStatus === 'pending' ? (
+              <p className="landing-small">Документ на проверке — можно продолжать заполнять профиль.</p>
+            ) : null}
+            {verificationStatus === 'rejected' ? (
+              <div style={{ marginBottom: 12 }}>
+                <p className="landing-small" style={{ color: '#b42318' }}>
+                  Запрос отклонён. Загрузите новый документ.
+                </p>
+                {verificationComment ? (
+                  <p className="landing-small" style={{ marginTop: 6 }}>
+                    Комментарий: {verificationComment}
+                  </p>
+                ) : null}
               </div>
-              {verificationDocument && (
-                <div style={{ padding: 12, background: 'var(--surface-2)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div className="small" style={{ color: 'var(--text)', fontWeight: 600 }}>Выбран файл: {verificationDocument.name}</div>
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                <button type="submit" className="button" disabled={!verificationDocument || uploading} style={{ padding: '12px 24px', fontSize: 15, fontWeight: 600, minWidth: 180 }}>
-                  {uploading ? 'Загрузка...' : 'Отправить на проверку'}
+            ) : null}
+            <form onSubmit={uploadVerificationDocument} style={{ display: 'grid', gap: 12 }}>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                className="psy-profile-input"
+                onChange={(e) => setVerificationDocument(e.target.files?.[0] || null)}
+              />
+              <div>
+                <button
+                  type="submit"
+                  className="landing-btn landing-btn--primary"
+                  disabled={!verificationDocument || uploading}
+                >
+                  {uploading ? 'Загрузка…' : 'Отправить на проверку'}
                 </button>
               </div>
             </form>
-          )}
+          </div>
+        ) : null}
+
+        <div className="psy-profile-editor__layout">
+          <div className="psy-profile-editor__form-col">
+            <section className="psy-profile-zone" aria-labelledby="public-zone-title">
+              <div className="psy-profile-zone__head">
+                <div>
+                  <p className="psy-profile-zone__eyebrow">Это видят клиенты</p>
+                  <h2 id="public-zone-title" className="psy-profile-zone__title">
+                    Публичный профиль
+                  </h2>
+                  <p className="psy-profile-zone__subtitle">
+                    Данные ниже попадают в каталог и на страницу вашего профиля
+                  </p>
+                </div>
+                <div className="psy-profile-complete" aria-live="polite">
+                  <p className="psy-profile-complete__progress">
+                    Заполнено {completeness.doneCount} из {completeness.total}
+                  </p>
+                  <div className="psy-profile-complete__bar" aria-hidden>
+                    <span style={{ width: `${(completeness.doneCount / completeness.total) * 100}%` }} />
+                  </div>
+                  <ul className="psy-profile-complete__list">
+                    {completeness.items.map((item) => (
+                      <li key={item.key} className={item.done ? 'is-done' : undefined}>
+                        <span aria-hidden>{item.done ? '✓' : '○'}</span>
+                        {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="psy-profile-complete__hint">Заполненные профили получают больше записей</p>
+                </div>
+              </div>
+
+              <div className="psy-profile-section">
+                <h3 className="psy-profile-section__title">Карточка в каталоге</h3>
+                <p className="psy-profile-section__help">
+                  Фото, имя, метод, цена и теги — то, что клиент видит первым.
+                </p>
+
+                <div className="psy-profile-avatar-row" style={{ marginBottom: 18 }}>
+                  <div className="psy-profile-avatar">
+                    {avatarSrc ? (
+                      <img src={avatarSrc} alt="" />
+                    ) : (
+                      <span aria-hidden>{(name || '?').trim().charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="psy-profile-avatar-meta">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png"
+                      id="avatar-upload-input"
+                      style={{ display: 'none' }}
+                      disabled={uploadingAvatar}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void uploadAvatar(file);
+                        e.target.value = '';
+                      }}
+                    />
+                    <label
+                      htmlFor="avatar-upload-input"
+                      className={`psy-profile-file-btn${uploadingAvatar ? ' is-busy' : ''}`}
+                    >
+                      {uploadingAvatar ? 'Загрузка…' : avatarUrl ? 'Изменить фото' : 'Загрузить фото'}
+                    </label>
+                    <p className="psy-profile-section__help" style={{ margin: '10px 0 0' }}>
+                      Таким вас видят в каталоге
+                    </p>
+                    {verificationBadge}
+                  </div>
+                </div>
+
+                <div className="psy-profile-fields">
+                  <div className="psy-profile-field">
+                    <label htmlFor="psy-name">ФИО</label>
+                    <input
+                      id="psy-name"
+                      className="psy-profile-input"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Фамилия Имя Отчество"
+                      autoComplete="name"
+                    />
+                  </div>
+                  <div className="psy-profile-field">
+                    <label htmlFor="psy-method">Метод / подход</label>
+                    <input
+                      id="psy-method"
+                      className="psy-profile-input"
+                      value={specialization}
+                      onChange={(e) => setSpecialization(e.target.value)}
+                      placeholder="Например: юнгианская аналитическая психология"
+                    />
+                  </div>
+                  <div className="psy-profile-fields psy-profile-fields--2">
+                    <div className="psy-profile-field">
+                      <label htmlFor="psy-price">Стоимость сессии, ₽</label>
+                      <input
+                        id="psy-price"
+                        className="psy-profile-input"
+                        value={sessionPriceRub}
+                        onChange={(e) => setSessionPriceRub(e.target.value.replace(/[^\d]/g, ''))}
+                        placeholder="4500"
+                        inputMode="numeric"
+                      />
+                      <p className="psy-profile-section__help" style={{ marginTop: 6, marginBottom: 0 }}>
+                        Клиент видит цену до записи — в карточке и в профиле
+                      </p>
+                    </div>
+                    <div className="psy-profile-field">
+                      <label htmlFor="psy-exp">Опыт работы, лет</label>
+                      <input
+                        id="psy-exp"
+                        className="psy-profile-input"
+                        value={experience}
+                        onChange={(e) => setExperience(e.target.value.replace(/[^\d]/g, '').slice(0, 2))}
+                        placeholder="10"
+                        inputMode="numeric"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="psy-profile-field">
+                    <label htmlFor="psy-tag-search">С чем работаете</label>
+                    <p className="psy-profile-section__help">
+                      Большой словарь тем — ищите по слову и добавляйте. Выбранные видны сверху.
+                    </p>
+                    {worksWithSelected.length > 0 ? (
+                      <div className="psy-profile-tags psy-profile-tags--selected" role="list">
+                        {worksWithSelected.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            role="listitem"
+                            className="psy-profile-tag is-on"
+                            onClick={() => toggleWorkTopic(t)}
+                            aria-label={`Убрать «${t}»`}
+                          >
+                            {t}
+                            <span className="psy-profile-tag__x" aria-hidden>
+                              ×
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <input
+                      id="psy-tag-search"
+                      className="psy-profile-input psy-profile-tag-search"
+                      value={tagQuery}
+                      onChange={(e) => setTagQuery(e.target.value)}
+                      placeholder="Начните вводить тему: тревога, травма, пары…"
+                      autoComplete="off"
+                    />
+                    <div className="psy-profile-tags" role="list">
+                      {tagResults.length === 0 ? (
+                        <p className="landing-small" style={{ margin: 0 }}>
+                          {tagQuery.trim()
+                            ? 'Ничего не найдено — попробуйте другое слово'
+                            : 'Все популярные темы уже выбраны — ищите другие в поле выше'}
+                        </p>
+                      ) : (
+                        tagResults.map((t) => {
+                          const on = worksWithSelected.includes(t);
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              role="listitem"
+                              className={`psy-profile-tag${on ? ' is-on' : ''}`}
+                              onClick={() => {
+                                toggleWorkTopic(t);
+                                if (!on) setTagQuery('');
+                              }}
+                              aria-pressed={on}
+                            >
+                              {t}
+                              {on ? <span className="psy-profile-tag__x" aria-hidden>×</span> : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                    {!tagQuery.trim() ? (
+                      <p className="psy-profile-section__help" style={{ marginTop: 8, marginBottom: 0 }}>
+                        Показаны популярные темы. В словаре больше ста — начните поиск, чтобы найти нужную.
+                      </p>
+                    ) : null}
+                    <p className="psy-profile-section__help" style={{ marginTop: 8, marginBottom: 0 }}>
+                      Выбрано {worksWithSelected.length} · для полноты нужно минимум 3
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="psy-profile-section">
+                <h3 className="psy-profile-section__title">О себе и подходе</h3>
+                <div className="psy-profile-fields">
+                  <div className="psy-profile-field">
+                    <label htmlFor="psy-bio">О себе</label>
+                    <p className="psy-profile-section__help">
+                      2–4 предложения: ваш подход, с чем работаете, как проходит первая встреча. Это
+                      первый текст, который читает клиент после имени
+                    </p>
+                    <textarea
+                      id="psy-bio"
+                      className="psy-profile-textarea"
+                      value={bio}
+                      maxLength={BIO_MAX}
+                      onChange={(e) => setBio(e.target.value.slice(0, BIO_MAX))}
+                      rows={6}
+                      placeholder="Кратко о подходе и том, как проходит первая встреча"
+                    />
+                    <div className={`psy-profile-counter${bio.length >= BIO_MAX ? ' is-warn' : ''}`}>
+                      {bio.length}/{BIO_MAX}
+                    </div>
+                  </div>
+                  <div className="psy-profile-field">
+                    <label>С кем работаете</label>
+                    <p className="psy-profile-section__help">
+                      На публичной странице выводится как «Формат работы: индивидуально · с парами · с
+                      детьми»
+                    </p>
+                    <div className="psy-profile-audience">
+                      {(
+                        [
+                          ['self', 'Индивидуально'],
+                          ['couple', 'С парами'],
+                          ['child', 'С детьми'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`psy-profile-chip${audienceFormats.includes(id) ? ' is-on' : ''}`}
+                          onClick={() => toggleAudience(id)}
+                          aria-pressed={audienceFormats.includes(id)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="psy-profile-section">
+                <div className="psy-profile-edu-actions">
+                  <h3 className="psy-profile-section__title" style={{ margin: 0 }}>
+                    Образование и курсы
+                  </h3>
+                  <button
+                    type="button"
+                    className="landing-btn landing-btn--secondary"
+                    style={{ padding: '8px 14px', fontSize: 13 }}
+                    onClick={() => setEducations((prev) => [...prev, emptyEdu()])}
+                  >
+                    + Добавить
+                  </button>
+                </div>
+                <p className="psy-profile-section__help">
+                  Образование показывается клиентам — это маркер доверия
+                </p>
+                <div className="psy-profile-edu">
+                  {educations.map((ed, idx) => (
+                    <div key={ed.id || idx} className="psy-profile-edu-card">
+                      <div className="psy-profile-fields psy-profile-fields--2">
+                        <select
+                          className="psy-profile-select"
+                          value={ed.kind}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setEducations((prev) =>
+                              prev.map((x, i) => (i === idx ? { ...x, kind: v } : x))
+                            );
+                          }}
+                        >
+                          <option value="higher">Высшее</option>
+                          <option value="course">Курс</option>
+                          <option value="other">Другое</option>
+                        </select>
+                        <input
+                          className="psy-profile-input"
+                          value={ed.title}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setEducations((prev) =>
+                              prev.map((x, i) => (i === idx ? { ...x, title: v } : x))
+                            );
+                          }}
+                          placeholder="Название программы / специальности"
+                        />
+                      </div>
+                      <input
+                        className="psy-profile-input"
+                        value={ed.institution}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setEducations((prev) =>
+                            prev.map((x, i) => (i === idx ? { ...x, institution: v } : x))
+                          );
+                        }}
+                        placeholder="Учебное заведение / организатор"
+                      />
+                      <div className="psy-profile-fields psy-profile-fields--2">
+                        <input
+                          className="psy-profile-input"
+                          value={ed.yearFrom}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^\d]/g, '').slice(0, 4);
+                            setEducations((prev) =>
+                              prev.map((x, i) => (i === idx ? { ...x, yearFrom: v } : x))
+                            );
+                          }}
+                          placeholder="Год начала"
+                        />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input
+                            className="psy-profile-input"
+                            value={ed.yearTo}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/[^\d]/g, '').slice(0, 4);
+                              setEducations((prev) =>
+                                prev.map((x, i) => (i === idx ? { ...x, yearTo: v } : x))
+                              );
+                            }}
+                            placeholder="Год окончания (пусто = н.в.)"
+                          />
+                          <button
+                            type="button"
+                            className="landing-btn landing-btn--ghost"
+                            style={{ padding: '8px 12px', flexShrink: 0 }}
+                            onClick={() => setEducations((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {educations.length === 0 ? (
+                    <p className="landing-small">Пока нет записей — добавьте хотя бы одно образование.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="psy-profile-section">
+                <h3 className="psy-profile-section__title">Оформление</h3>
+                <div className="psy-profile-cover-preview">
+                  {coverSrc ? <img src={coverSrc} alt="" /> : null}
+                </div>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
+                  id="cover-upload-input"
+                  style={{ display: 'none' }}
+                  disabled={uploadingCover}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadCover(file);
+                    e.target.value = '';
+                  }}
+                />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                  <label
+                    htmlFor="cover-upload-input"
+                    className={`psy-profile-file-btn${uploadingCover ? ' is-busy' : ''}`}
+                  >
+                    {uploadingCover ? 'Загрузка…' : coverUrl ? 'Сменить обложку' : 'Загрузить обложку'}
+                  </label>
+                  {coverUrl ? (
+                    <button
+                      type="button"
+                      className="landing-btn landing-btn--ghost"
+                      style={{ padding: '10px 16px' }}
+                      onClick={() => void removeCover()}
+                    >
+                      Убрать обложку
+                    </button>
+                  ) : null}
+                </div>
+                <p className="psy-profile-section__help">
+                  Акцент — это кнопка «Записаться», выбранный слот и цена на вашей публичной странице
+                </p>
+                <div className="psy-profile-accents" role="radiogroup" aria-label="Акцентный цвет">
+                  {PROFILE_ACCENT_PRESETS.map((c) => {
+                    const on = accentNormalized === c;
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        role="radio"
+                        className={`psy-profile-accent${on ? ' is-on' : ''}`}
+                        style={{ ['--swatch' as string]: c, backgroundColor: c }}
+                        aria-label={`Акцент ${c}`}
+                        aria-checked={on}
+                        onClick={() => setAccentColor(c)}
+                      />
+                    );
+                  })}
+                </div>
+                <p className="psy-profile-section__help" style={{ marginTop: 10, marginBottom: 0 }}>
+                  В превью справа меняются цена и кнопка «Записаться». Не забудьте сохранить.
+                </p>
+              </div>
+            </section>
+
+            <section className="psy-profile-zone psy-profile-zone--account" aria-labelledby="account-zone-title">
+              <p className="psy-profile-zone__eyebrow">Только для вас</p>
+              <h2 id="account-zone-title" className="psy-profile-zone__title" style={{ fontSize: 20 }}>
+                Аккаунт
+              </h2>
+              <p className="psy-profile-zone__subtitle" style={{ marginBottom: 16 }}>
+                Контакты и доступ — не отображаются в каталоге
+              </p>
+
+              <div className="psy-profile-account-row">
+                <div>
+                  <div className="psy-profile-account-label">Email</div>
+                  <div className="psy-profile-account-value">{user?.email || '—'}</div>
+                </div>
+                <EmailChangeFlow />
+              </div>
+
+              <div className="psy-profile-account-row" style={{ alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div className="psy-profile-account-label">Телефон</div>
+                  <div className="psy-profile-phone">
+                    <select
+                      className="psy-profile-select"
+                      value={phoneCountry}
+                      onChange={(e) => onPhoneCountryChange(e.target.value as PhoneCountryCode)}
+                      aria-label="Код страны"
+                    >
+                      {PHONE_COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.flag} {c.code}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="psy-profile-phone__national">
+                      <span className="psy-profile-phone__dial">{phoneCountryMeta.dial}</span>
+                      <input
+                        value={phoneDisplay}
+                        onChange={(e) => onPhoneNationalChange(e.target.value)}
+                        placeholder={
+                          phoneCountryMeta.nationalLength >= 10
+                            ? '(900) 000-00-00'
+                            : phoneCountryMeta.nationalLength === 9
+                              ? '(90) 000-00-00'
+                              : '(90) 000-000'
+                        }
+                        inputMode="tel"
+                        autoComplete="tel-national"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="psy-profile-account-row">
+                <div>
+                  <div className="psy-profile-account-label">Локация</div>
+                  <input
+                    className="psy-profile-input"
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Город, страна"
+                    style={{ marginTop: 4, maxWidth: 360 }}
+                  />
+                </div>
+              </div>
+
+              <div className="psy-profile-account-row">
+                <div>
+                  <div className="psy-profile-account-label">Пароль</div>
+                  <p className="psy-profile-account-note">
+                    Смена пароля — через «Забыли пароль?» на{' '}
+                    <Link to="/login" className="landing-btn landing-btn--tertiary" style={{ padding: 0 }}>
+                      странице входа
+                    </Link>
+                    .
+                  </p>
+                </div>
+              </div>
+
+              <div className="psy-profile-account-row">
+                <div>
+                  <div className="psy-profile-account-label">Уведомления</div>
+                  <p className="psy-profile-account-note">
+                    Заявки и сообщения приходят в колокольчик в шапке кабинета.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <aside className="psy-profile-editor__preview" aria-label="Предпросмотр">
+            <p className="psy-profile-editor__preview-label">Так видит клиент</p>
+            {cardPreview}
+            {user?.id ? (
+              <a
+                href={`/psychologists/${user.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="landing-btn landing-btn--tertiary psy-profile-editor__preview-link"
+              >
+                Открыть публичную страницу →
+              </a>
+            ) : null}
+          </aside>
         </div>
-      </main>
-      <style>{`
-        @media (max-width: 768px) {
-          main > div:has(> div[style*="position: sticky"]) {
-            grid-template-columns: 1fr !important;
-            gap: 24px !important;
-          }
-          main > div > div[style*="position: sticky"] {
-            position: static !important;
-          }
-        }
-      `}</style>
+
+        {showPreview ? (
+          <div
+            className="psy-profile-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Предпросмотр профиля"
+            onClick={() => setShowPreview(false)}
+          >
+            <div className="psy-profile-sheet__panel" onClick={(e) => e.stopPropagation()}>
+              <div className="psy-profile-sheet__head">
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--ink)' }}>Так профиль видит клиент</div>
+                  <div className="landing-small">Live-превью по текущим полям формы</div>
+                </div>
+                <button
+                  type="button"
+                  className="landing-btn landing-btn--ghost"
+                  onClick={() => setShowPreview(false)}
+                >
+                  Закрыть
+                </button>
+              </div>
+              {cardPreview}
+              {user?.id ? (
+                <a
+                  href={`/psychologists/${user.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="landing-btn landing-btn--tertiary"
+                  style={{ display: 'inline-flex', marginTop: 14 }}
+                >
+                  Открыть публичную страницу →
+                </a>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {dirty ? (
+          <div className="psy-profile-savebar" data-sticky-save>
+            <div className="psy-profile-savebar__msg">Есть несохранённые изменения</div>
+            <div className="psy-profile-savebar__actions">
+              <button
+                type="button"
+                className="landing-btn landing-btn--ghost"
+                onClick={discardChanges}
+                disabled={saving}
+              >
+                Отменить
+              </button>
+              <button
+                type="button"
+                className="landing-btn landing-btn--primary"
+                onClick={() => void saveProfile()}
+                disabled={saving}
+              >
+                {saving ? 'Сохранение…' : 'Сохранить изменения'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        className={`psy-profile-fab${dirty ? ' psy-profile-fab--raised' : ''}`}
+        onClick={() => setShowPreview(true)}
+      >
+        Предпросмотр
+      </button>
     </div>
   );
 }
-

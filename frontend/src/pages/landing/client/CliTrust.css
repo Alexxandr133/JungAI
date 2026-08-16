@@ -1,0 +1,39 @@
+.cli-trust {
+  padding: var(--section-y) 0;
+  background: var(--paper-soft);
+}
+
+.landing .cli-trust .cli-trust__title {
+  text-align: center;
+  margin: 0 auto 40px;
+  max-width: 640px;
+}
+
+.cli-trust__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.cli-trust__card {
+  padding: 24px;
+  margin: 0;
+}
+
+.landing .cli-trust .cli-trust__card-title {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.landing .cli-trust .cli-trust__card-body {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .cli-trust__grid {
+    grid-template-columns: 1fr;
+  }
+}

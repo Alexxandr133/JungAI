@@ -142,7 +142,7 @@ export default function ClientTasks() {
       icon: 'messages',
       title: 'Чат с психологом',
       count: sync?.therapistMessagesCount ?? 0,
-      to: '/chat',
+      to: '/messages',
       action: 'Открыть чат'
     },
     {

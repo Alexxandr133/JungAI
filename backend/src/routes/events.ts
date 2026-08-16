@@ -9,8 +9,36 @@ import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { AccessToken } from 'livekit-server-sdk';
 import { config } from '../config';
 import { sendPublicBookingAcceptedEmail, sendPublicBookingDeclinedEmail, isEmailTransportConfigured } from '../utils/email';
+import { mergeCalendarPrefs } from '../utils/calendarSlots';
 
 const router = Router();
+
+let firstMeetingSchemaReady: Promise<void> | null = null;
+
+async function ensureFirstMeetingColumns() {
+  if (!firstMeetingSchemaReady) {
+    firstMeetingSchemaReady = (async () => {
+      const cols = async (table: string, col: string, ddl: string) => {
+        try {
+          const rows = (await prisma.$queryRawUnsafe<any[]>(`PRAGMA table_info("${table}")`)) as any[];
+          if (!rows.some((r) => r.name === col)) {
+            await prisma.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN ${ddl}`);
+          }
+        } catch (e) {
+          console.warn(`[events] ensure column ${table}.${col}:`, (e as Error)?.message || e);
+        }
+      };
+      await cols('Event', 'isFirstMeeting', '"isFirstMeeting" BOOLEAN NOT NULL DEFAULT 0');
+      await cols('Event', 'guestName', '"guestName" TEXT');
+      await cols('Event', 'guestEmail', '"guestEmail" TEXT');
+      await cols('Event', 'guestPhone', '"guestPhone" TEXT');
+      await cols('Event', 'guestQuestionnaire', '"guestQuestionnaire" TEXT');
+      await cols('CalendarPublicBookingRequest', 'questionnaire', '"questionnaire" TEXT');
+      await cols('CalendarPublicBookingRequest', 'source', `"source" TEXT NOT NULL DEFAULT 'slot'`);
+    })();
+  }
+  await firstMeetingSchemaReady;
+}
 
 // Agora App ID и App Certificate
 const AGORA_APP_ID = config.agoraAppId;
@@ -23,7 +51,8 @@ function generateRoomId(): string {
 
 // Функция для генерации URL комнаты
 function generateRoomUrl(roomId: string): string {
-  return `${config.frontendUrl}/room/${roomId}`;
+  // Relative path only — clients assemble absolute URL from window.location.origin
+  return `/room/${roomId}`;
 }
 
 function eventEffectiveEnd(startsAt: Date, endsAt: Date | null | undefined): Date {
@@ -93,23 +122,82 @@ async function canUserAccessEvent(event: any, user: { id: string; role: string; 
 
 const CAL_SHARE_TOKEN_EXPIRES_IN = '30d';
 
+function calendarPrefsNonEmpty(raw: unknown): boolean {
+  return Boolean(raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw as object).length > 0);
+}
+
+async function loadMergedCalendarPrefs(userId: string, jwtFallback?: unknown) {
+  const profile = await prisma.profile.findUnique({
+    where: { userId },
+    select: { calendarPrefs: true }
+  });
+  const stored = profile?.calendarPrefs;
+  if (calendarPrefsNonEmpty(stored)) return mergeCalendarPrefs(stored);
+  if (calendarPrefsNonEmpty(jwtFallback)) return mergeCalendarPrefs(jwtFallback);
+  return mergeCalendarPrefs(stored ?? jwtFallback ?? null);
+}
+
+async function persistCalendarPrefs(userId: string, prefsRaw: unknown) {
+  const prefs = mergeCalendarPrefs(prefsRaw);
+  await prisma.profile.upsert({
+    where: { userId },
+    update: { calendarPrefs: prefs as any },
+    create: { userId, interests: [], calendarPrefs: prefs as any }
+  });
+  return prefs;
+}
+
+
 router.post('/events/calendar-share', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    const prefs = req.body?.prefs;
+    const bodyPrefs = req.body?.prefs;
+    // Persist prefs when provided; slot calc on public-calendar prefers Profile
+    if (bodyPrefs && typeof bodyPrefs === 'object') {
+      try {
+        await persistCalendarPrefs(req.user!.id, bodyPrefs);
+      } catch (e) {
+        console.warn('Failed to persist calendarPrefs', e);
+      }
+    }
     const shareToken = jwt.sign(
       {
         typ: 'cal_share_v1',
-        pid: req.user!.id,
-        prefs: prefs && typeof prefs === 'object' ? prefs : {}
+        pid: req.user!.id
+        // prefs omitted from JWT; Profile.calendarPrefs is source of truth
       },
       config.jwtSecret,
       { expiresIn: CAL_SHARE_TOKEN_EXPIRES_IN }
     );
     const base = String(config.frontendUrl || '').replace(/\/$/, '');
-    const url = `${base}/book/calendar?t=${encodeURIComponent(shareToken)}`;
-    res.json({ token: shareToken, url });
+    // Return token only for clients to assemble URL from their origin; url kept for backwards compat
+    res.json({
+      token: shareToken,
+      url: `${base}/book/calendar?t=${encodeURIComponent(shareToken)}`
+    });
   } catch (e: any) {
     res.status(500).json({ error: e?.message || 'Failed to create link' });
+  }
+});
+
+router.get('/events/calendar-prefs', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const prefs = await loadMergedCalendarPrefs(req.user!.id);
+    res.json({ prefs });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Failed to load calendar prefs' });
+  }
+});
+
+router.put('/events/calendar-prefs', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const bodyPrefs = req.body?.prefs;
+    if (bodyPrefs === undefined || bodyPrefs === null || typeof bodyPrefs !== 'object' || Array.isArray(bodyPrefs)) {
+      return res.status(400).json({ error: 'prefs object required' });
+    }
+    const prefs = await persistCalendarPrefs(req.user!.id, bodyPrefs);
+    res.json({ prefs });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Failed to save calendar prefs' });
   }
 });
 
@@ -133,9 +221,41 @@ router.get('/events/public-calendar', async (req, res) => {
         endsAt: true
       }
     });
+    const prefs = await loadMergedCalendarPrefs(decoded.pid, decoded.prefs);
+    if (!prefs.bookingByLinkEnabled) {
+      return res.status(403).json({
+        error: 'Запись по ссылке временно отключена специалистом',
+        bookingByLinkEnabled: false,
+        prefs,
+      });
+    }
+    const hostUser = await prisma.user.findUnique({
+      where: { id: decoded.pid },
+      select: {
+        isVerified: true,
+        profile: {
+          select: {
+            name: true,
+            avatarUrl: true,
+            therapyMethod: true,
+            sessionPriceRub: true
+          }
+        }
+      }
+    });
+    const hostName =
+      hostUser?.profile?.name ||
+      null;
     res.json({
       items,
-      prefs: decoded.prefs && typeof decoded.prefs === 'object' ? decoded.prefs : {}
+      prefs,
+      host: {
+        name: hostName || 'Специалист',
+        avatarUrl: hostUser?.profile?.avatarUrl || null,
+        therapyMethod: hostUser?.profile?.therapyMethod || null,
+        sessionPriceRub: hostUser?.profile?.sessionPriceRub ?? null,
+        isVerified: Boolean(hostUser?.isVerified)
+      }
     });
   } catch {
     return res.status(403).json({ error: 'Invalid or expired calendar link' });
@@ -154,6 +274,10 @@ router.post('/events/public-calendar/book', async (req, res) => {
     const decoded = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload & { typ?: string; pid?: string };
     if (decoded.typ !== 'cal_share_v1' || !decoded.pid || typeof decoded.pid !== 'string') {
       return res.status(403).json({ error: 'Invalid calendar link' });
+    }
+    const prefs = await loadMergedCalendarPrefs(decoded.pid);
+    if (!prefs.bookingByLinkEnabled) {
+      return res.status(403).json({ error: 'Запись по ссылке временно отключена специалистом' });
     }
     const parsedStart = parseEventDateInput(slotStart);
     if (!parsedStart) return res.status(400).json({ error: 'Invalid slotStart' });
@@ -205,9 +329,10 @@ router.get('/events/psychologist-calendar-for-client', requireAuth, requireRole(
         endsAt: true
       }
     });
+    const prefs = await loadMergedCalendarPrefs(psychologist.id);
     res.json({
       items,
-      prefs: {},
+      prefs,
       psychologistName: psychologist.profile?.name || psychologist.email?.split('@')[0] || 'Специалист'
     });
   } catch (e: any) {
@@ -316,12 +441,173 @@ router.post('/events/client-book-session-slot', requireAuth, requireRole(['clien
 });
 
 router.get('/events/calendar-booking-requests', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
+  await ensureFirstMeetingColumns();
   const items = await prisma.calendarPublicBookingRequest.findMany({
     where: { psychologistId: req.user!.id, status: 'pending' },
     orderBy: { createdAt: 'asc' }
   });
-  res.json({ items });
+  const mapped = items.map((row: any) => {
+    let questionnaire = row.questionnaire ?? null;
+    if (typeof questionnaire === 'string') {
+      try {
+        questionnaire = JSON.parse(questionnaire);
+      } catch {
+        questionnaire = null;
+      }
+    }
+    const source = row.source === 'match' || questionnaire ? 'match' : 'slot';
+    return {
+      ...row,
+      questionnaire,
+      source,
+      kind: source === 'match' ? 'match' : 'slot',
+      canWrite: false
+    };
+  });
+  res.json({ items: mapped });
 });
+
+/** Единый список заявок: слот календаря + legacy SupportRequest из подбора */
+router.get('/events/incoming-requests', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    await ensureFirstMeetingColumns();
+    const bookings = await prisma.calendarPublicBookingRequest.findMany({
+      where: { psychologistId: req.user!.id, status: 'pending' },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    const bookingEmails = new Set(bookings.map((b) => b.contactEmail.toLowerCase()));
+
+    const supportRows = await prisma.supportRequest.findMany({
+      where: {
+        psychologistId: req.user!.id,
+        clientId: { not: null },
+        status: 'open'
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        client: { select: { id: true, name: true, email: true, phone: true } }
+      }
+    });
+
+    const bookingItems = bookings.map((row: any) => {
+      let questionnaire = row.questionnaire ?? null;
+      if (typeof questionnaire === 'string') {
+        try {
+          questionnaire = JSON.parse(questionnaire);
+        } catch {
+          questionnaire = null;
+        }
+      }
+      const source = row.source === 'match' || Boolean(questionnaire) ? 'match' : 'slot';
+      return {
+        id: `booking:${row.id}`,
+        bookingId: row.id,
+        supportRequestId: null as string | null,
+        kind: source === 'match' ? 'match' : 'slot',
+        source,
+        contactName: row.contactName,
+        contactEmail: row.contactEmail,
+        contactPhone: row.contactPhone,
+        slotStart: row.slotStart,
+        slotEnd: row.slotEnd,
+        message: row.message,
+        questionnaire,
+        createdAt: row.createdAt,
+        canWrite: false,
+        clientId: null as string | null
+      };
+    });
+
+    const supportItems = [];
+    for (const r of supportRows) {
+      const email = (r.client?.email || '').toLowerCase();
+      if (email && bookingEmails.has(email)) continue; // уже в calendar booking
+
+      let questionnaire: any = (r as any).questionnaire ?? null;
+      if (!questionnaire) {
+        try {
+          const rows = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT "questionnaire" FROM "SupportRequest" WHERE "id" = ? LIMIT 1`,
+            r.id
+          );
+          const raw = rows?.[0]?.questionnaire;
+          if (raw) questionnaire = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch {
+          /* ignore */
+        }
+      } else if (typeof questionnaire === 'string') {
+        try {
+          questionnaire = JSON.parse(questionnaire);
+        } catch {
+          /* keep */
+        }
+      }
+
+      const slotStart =
+        questionnaire?.slotStart || questionnaire?.preferredSlotStart || r.createdAt;
+      const slotEnd = questionnaire?.slotEnd || questionnaire?.preferredSlotEnd || null;
+
+      supportItems.push({
+        id: `support:${r.id}`,
+        bookingId: null as string | null,
+        supportRequestId: r.id,
+        kind: 'match' as const,
+        source: 'match',
+        contactName: r.client?.name || questionnaire?.contactName || 'Клиент',
+        contactEmail: r.client?.email || questionnaire?.contactEmail || '',
+        contactPhone: r.client?.phone || questionnaire?.contactPhone || null,
+        slotStart,
+        slotEnd,
+        message: r.description,
+        questionnaire,
+        createdAt: r.createdAt,
+        canWrite: Boolean(r.clientId),
+        clientId: r.clientId
+      });
+    }
+
+    const items = [...bookingItems, ...supportItems].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    res.json({ items, total: items.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message || 'Не удалось загрузить заявки' });
+  }
+});
+
+router.post(
+  '/events/:id/attach-client',
+  requireAuth,
+  requireRole(['psychologist', 'admin']),
+  requireVerification,
+  async (req: AuthedRequest, res) => {
+    await ensureFirstMeetingColumns();
+    const eventId = String(req.params.id);
+    const clientId = typeof req.body?.clientId === 'string' ? req.body.clientId.trim() : '';
+    if (!clientId) return res.status(400).json({ error: 'Укажите clientId' });
+
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, createdBy: req.user!.id }
+    });
+    if (!event) return res.status(404).json({ error: 'Событие не найдено' });
+
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, psychologistId: req.user!.id }
+    });
+    if (!client) return res.status(404).json({ error: 'Клиент не найден' });
+
+    const updated = await prisma.event.update({
+      where: { id: eventId },
+      data: {
+        clientId: client.id,
+        isFirstMeeting: false
+      } as any,
+      include: { voiceRoom: true }
+    });
+    res.json(updated);
+  }
+);
 
 router.post(
   '/events/calendar-booking-requests/:id/accept',
@@ -329,6 +615,7 @@ router.post(
   requireRole(['psychologist', 'researcher', 'admin']),
   requireVerification,
   async (req: AuthedRequest, res) => {
+    await ensureFirstMeetingColumns();
     const id = String(req.params.id);
     const reqRow = await prisma.calendarPublicBookingRequest.findFirst({
       where: { id, psychologistId: req.user!.id, status: 'pending' }
@@ -338,7 +625,17 @@ router.post(
     const roomId = generateRoomId();
     const roomUrl = generateRoomUrl(roomId);
     const title = `Встреча: ${reqRow.contactName}`;
-    const description = [reqRow.message, reqRow.contactPhone ? `Тел: ${reqRow.contactPhone}` : null].filter(Boolean).join('\n');
+    let questionnaire: any = (reqRow as any).questionnaire ?? null;
+    if (typeof questionnaire === 'string') {
+      try {
+        questionnaire = JSON.parse(questionnaire);
+      } catch {
+        questionnaire = null;
+      }
+    }
+    const description = [reqRow.message, reqRow.contactPhone ? `Тел: ${reqRow.contactPhone}` : null]
+      .filter(Boolean)
+      .join('\n');
     try {
       const event = await prisma.event.create({
         data: {
@@ -350,6 +647,11 @@ router.post(
           createdBy: req.user!.id,
           clientId: null,
           sessionStatus: null,
+          isFirstMeeting: true,
+          guestName: reqRow.contactName,
+          guestEmail: reqRow.contactEmail,
+          guestPhone: reqRow.contactPhone || null,
+          guestQuestionnaire: questionnaire || undefined,
           voiceRoom: {
             create: {
               roomId,
@@ -370,6 +672,25 @@ router.post(
           declineReason: null
         }
       });
+      // Закрыть связанные open SupportRequest по тому же email (legacy match flow)
+      try {
+        const linked = await prisma.supportRequest.findMany({
+          where: {
+            psychologistId: req.user!.id,
+            status: 'open',
+            client: { email: reqRow.contactEmail }
+          },
+          select: { id: true }
+        });
+        if (linked.length) {
+          await prisma.supportRequest.updateMany({
+            where: { id: { in: linked.map((x) => x.id) } },
+            data: { status: 'resolved', adminResponse: 'Принято как первая встреча', respondedAt: new Date() }
+          });
+        }
+      } catch {
+        /* ignore */
+      }
       const psych = await prisma.user.findUnique({
         where: { id: req.user!.id },
         include: { profile: true }
@@ -380,8 +701,8 @@ router.post(
         dateStyle: 'long',
         timeStyle: 'short'
       });
-      const vr = event.voiceRoom;
-      const guestJoinUrl = vr ? `${vr.roomUrl}${String(vr.roomUrl).includes('?') ? '&' : '?'}guest=1` : '';
+      const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
+      const guestJoinUrl = `${frontendBase}/room/${roomId}?guest=1`;
       let emailSent = false;
       try {
         if (guestJoinUrl && isEmailTransportConfigured()) {
@@ -449,6 +770,7 @@ router.post(
 );
 
 router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
+  await ensureFirstMeetingColumns();
   const where: any = {};
   if (req.user?.role === 'psychologist' || req.user?.role === 'researcher') {
     where.createdBy = req.user.id;
@@ -504,9 +826,9 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
     return res.status(400).json({ error: 'Invalid endsAt format' });
   }
   
-  // Если это сессия с клиентом, проверяем клиента заранее
+  // Если указан клиент — проверяем доступ (для любого типа встречи)
   let client = null;
-  if (type === 'session' && clientId) {
+  if (clientId) {
     client = await prisma.client.findUnique({ where: { id: clientId } });
     if (!client) {
       return res.status(404).json({ error: 'Client not found' });
@@ -529,8 +851,8 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
       startsAt: parsedStartsAt,
       endsAt: parsedEndsAt,
       createdBy: req.user!.id,
-      clientId: type === 'session' ? clientId : null,
-      sessionStatus: type === 'session' && clientId ? 'pending' : null,
+      clientId: clientId || null,
+      sessionStatus: clientId ? 'pending' : null,
       voiceRoom: {
         create: {
           roomId,
@@ -544,8 +866,9 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
   });
 
   // Если это сессия с клиентом, создаем TherapySession и уведомление
-  if (type === 'session' && clientId && client) {
+  if (clientId && client) {
     try {
+      if (type === 'session') {
       // Создаем сессию
       await prisma.therapySession.create({
         data: {
@@ -556,7 +879,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
           eventId: event.id
         }
       });
-
+      }
       // Получаем информацию о психологе для уведомления
       const psychologist = await prisma.user.findUnique({
         where: { id: req.user!.id },
@@ -774,6 +1097,18 @@ router.put('/events/:id/session-status', requireAuth, async (req: AuthedRequest,
 });
 
 // Получить событие по roomId
+async function eventWithHostMeta(event: any) {
+  const creator = await prisma.user.findUnique({
+    where: { id: event.createdBy },
+    include: { profile: { select: { name: true } } }
+  });
+  const hostName =
+    creator?.profile?.name ||
+    (creator?.email ? String(creator.email).split('@')[0] : null) ||
+    null;
+  return { ...event, hostName };
+}
+
 router.get('/events/by-room/:roomId', requireAuth, async (req: AuthedRequest, res) => {
   const roomId = String(req.params.roomId);
   
@@ -792,7 +1127,7 @@ router.get('/events/by-room/:roomId', requireAuth, async (req: AuthedRequest, re
     const allowed = await canUserAccessEvent(voiceRoom.event as any, req.user!);
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
-    res.json({ event: voiceRoom.event, voiceRoom });
+    res.json({ event: await eventWithHostMeta(voiceRoom.event), voiceRoom });
   } catch (e: any) {
     console.error('Error getting event by roomId:', e);
     res.status(500).json({ error: e.message || 'Failed to get event' });
@@ -813,7 +1148,7 @@ router.get('/events/public-room/:roomId', async (req, res) => {
       return res.status(403).json({ error: 'Guest access is allowed only for video meetings' });
     }
     res.json({
-      event: voiceRoom.event,
+      event: await eventWithHostMeta(voiceRoom.event),
       voiceRoom
     });
   } catch (e: any) {
@@ -1074,6 +1409,116 @@ function getUid(id: string): number {
   }
   return Math.abs(hash);
 }
+
+router.put('/events/:id', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
+  const id = String(req.params.id);
+  try {
+    const existing = await prisma.event.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    if (req.user!.role !== 'admin' && existing.createdBy !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { title, type, description, startsAt, endsAt, clientId } = req.body ?? {};
+    const data: Record<string, unknown> = {};
+
+    if (title !== undefined) {
+      if (typeof title !== 'string' || !title.trim()) return res.status(400).json({ error: 'Invalid title' });
+      data.title = title.trim();
+    }
+    if (type !== undefined) {
+      if (typeof type !== 'string' || !type.trim()) return res.status(400).json({ error: 'Invalid type' });
+      data.type = type.trim();
+    }
+    if (description !== undefined) {
+      data.description = description === null ? null : String(description);
+    }
+    if (startsAt !== undefined) {
+      const parsedStartsAt = parseEventDateInput(startsAt);
+      if (!parsedStartsAt) return res.status(400).json({ error: 'Invalid startsAt format' });
+      data.startsAt = parsedStartsAt;
+    }
+    if (endsAt !== undefined) {
+      if (endsAt === null || endsAt === '') {
+        data.endsAt = null;
+      } else {
+        const parsedEndsAt = parseEventDateInput(endsAt);
+        if (!parsedEndsAt) return res.status(400).json({ error: 'Invalid endsAt format' });
+        data.endsAt = parsedEndsAt;
+      }
+    }
+    if (clientId !== undefined) {
+      const nextType = (data.type as string | undefined) ?? existing.type;
+      if (clientId === null || clientId === '') {
+        data.clientId = null;
+      } else {
+        const client = await prisma.client.findUnique({ where: { id: String(clientId) } });
+        if (!client) return res.status(404).json({ error: 'Client not found' });
+        if (req.user!.role !== 'admin' && client.psychologistId !== req.user!.id) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+        data.clientId = client.id;
+      }
+      if (nextType !== 'session') {
+        data.clientId = null;
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    const event = await prisma.event.update({
+      where: { id },
+      data: data as any,
+      include: { voiceRoom: true }
+    });
+
+    // Keep linked TherapySession date in sync when rescheduling a session
+    const eventClientId = (event as any).clientId as string | null | undefined;
+    if (event.type === 'session' && eventClientId && data.startsAt instanceof Date) {
+      try {
+        let sessions: Array<{ id: string }> = [];
+        try {
+          sessions = await prisma.therapySession.findMany({
+            where: { clientId: eventClientId, eventId: event.id }
+          });
+        } catch {
+          const prevDate = new Date(existing.startsAt);
+          const oneMinute = 60 * 1000;
+          sessions = await prisma.therapySession.findMany({
+            where: {
+              clientId: eventClientId,
+              date: {
+                gte: new Date(prevDate.getTime() - oneMinute),
+                lte: new Date(prevDate.getTime() + oneMinute)
+              }
+            }
+          });
+        }
+        for (const session of sessions) {
+          const summaryUpdate: Record<string, unknown> = { date: event.startsAt };
+          if (typeof data.description === 'string' || data.description === null) {
+            summaryUpdate.summary = (data.description as string | null) || (typeof data.title === 'string' ? data.title : event.title);
+          } else if (typeof data.title === 'string') {
+            summaryUpdate.summary = data.title;
+          }
+          await prisma.therapySession.update({
+            where: { id: session.id },
+            data: summaryUpdate as any
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to sync TherapySession on event reschedule', e);
+      }
+    }
+
+    res.json(event);
+  } catch (e: any) {
+    console.error('Error updating event:', e);
+    res.status(500).json({ error: e?.message || 'Failed to update event' });
+  }
+});
 
 router.delete('/events/:id', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   const id = String(req.params.id);

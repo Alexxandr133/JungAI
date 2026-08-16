@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
@@ -27,16 +28,34 @@ import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatform
 import { PSYCHOLOGIST_AI_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 import { checkVerification } from '../../utils/verification';
-import { Paperclip, Mic, ChevronLeft } from 'lucide-react';
+import {
+  Paperclip,
+  Mic,
+  ChevronLeft,
+  Send,
+  Folder,
+  FolderOpen,
+  ChevronRight,
+  MessageSquare,
+  FolderInput,
+  Plus,
+  X,
+  MoreHorizontal,
+  Bot,
+} from 'lucide-react';
 import { AITranscriptionPanel } from './AITranscriptionPanel';
 import { getActiveSttJobIds, removeActiveSttJob } from './transcriptionStorage';
-import { AiContextRing } from '../../components/AiContextRing';
-import { deriveDisplayContextUsage, type ContextUsage } from '../../lib/aiContextTypes';
+import './AIChatShell.css';
 
 type Message = {
   role: 'user' | 'assistant';
   content: string;
   isAnalysis?: boolean;
+  isError?: boolean;
+  /** Текст пользователя для «Повторить» */
+  retryUserMessage?: string;
+  /** ISO time for messenger-style meta on user bubbles */
+  at?: string;
 };
 
 type Chat = {
@@ -151,27 +170,27 @@ export default function PsychologistAIChat() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [settingsPanelCollapsed, setSettingsPanelCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem('psychologist_ai_settings_panel_collapsed') === '1';
-    } catch {
-      return false;
-    }
-  });
-  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [creatingFolderInline, setCreatingFolderInline] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [moveMenuChatId, setMoveMenuChatId] = useState<string | null>(null);
+  const [folderActionsId, setFolderActionsId] = useState<string | null>(null);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const selectedClientIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedClientIdRef.current = selectedClientId;
+  }, [selectedClientId]);
+  /** Режим клиента следует из выбора (§25.1) */
+  const clientModeEnabled = Boolean(selectedClientId);
   const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string; avatarUrl?: string }>>([]);
   const [loadingClients, setLoadingClients] = useState(false);
-  const [clientModeEnabled, setClientModeEnabled] = useState(true); // Тумблер для работы с клиентами
-  const clientModeEnabledRef = useRef(clientModeEnabled);
-  useEffect(() => {
-    clientModeEnabledRef.current = clientModeEnabled;
-  }, [clientModeEnabled]);
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [draftFolderId, setDraftFolderId] = useState<string | null>(null);
+  const [workAreaContextTabs, setWorkAreaContextTabs] = useState<string[]>([]);
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
   const [isSending, setIsSending] = useState(false); // Дополнительная блокировка отправки
   const [isMobileView, setIsMobileView] = useState(false);
@@ -186,13 +205,38 @@ export default function PsychologistAIChat() {
   const [aiSettings, setAiSettings] = useState<PsychologistAiSettings>(() => ({ ...DEFAULT_PSYCHOLOGIST_AI_SETTINGS }));
   const [aiDraft, setAiDraft] = useState<PsychologistAiSettings>(() => ({ ...DEFAULT_PSYCHOLOGIST_AI_SETTINGS }));
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [aiScreen, setAiScreen] = useState<'chat' | 'transcription'>('chat');
+  const [searchParams] = useSearchParams();
+  const [aiScreen, setAiScreen] = useState<'chat' | 'transcription'>(() =>
+    searchParams.get('screen') === 'transcription' ? 'transcription' : 'chat'
+  );
+
+  // Deep-link из рабочей области: ?client=&tabs=a|b|c
+  useEffect(() => {
+    const client = searchParams.get('client');
+    const tabsRaw = searchParams.get('tabs');
+    if (client) {
+      setSelectedClientId(client);
+      setAiSettings((prev) => {
+        const next = normalizeSettings({ ...prev, includeDreamsInContext: true });
+        savePsychologistAiSettings(next);
+        return next;
+      });
+    }
+    if (tabsRaw) {
+      try {
+        const decoded = decodeURIComponent(tabsRaw);
+        const list = decoded.split('|').map((s) => s.trim()).filter(Boolean);
+        setWorkAreaContextTabs(list);
+      } catch {
+        setWorkAreaContextTabs([]);
+      }
+    }
+  }, [searchParams]);
   const [sttBusy, setSttBusy] = useState(() => getActiveSttJobIds().length > 0);
   const [personalityText, setPersonalityText] = useState('');
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
   const [aiQuota, setAiQuota] = useState<AiQuota | null>(null);
-  const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [showDreamScopeModal, setShowDreamScopeModal] = useState(false);
   const [pendingDreamMessage, setPendingDreamMessage] = useState('');
   const [dreamScopePreview, setDreamScopePreview] = useState<DreamScopePreview | null>(null);
@@ -265,11 +309,8 @@ export default function PsychologistAIChat() {
     loadChats();
     loadFolders();
     loadShortcuts();
-    // Загружаем клиентов только если режим работы с клиентами включен
-    if (clientModeEnabled) {
-      loadClients();
-    }
-  }, [clientModeEnabled, user?.id]);
+    loadClients();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!token) return;
@@ -329,20 +370,28 @@ export default function PsychologistAIChat() {
     }
   }
 
-  // Close clients dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      const dropdown = document.querySelector('[data-clients-dropdown]');
-      if (dropdown && !dropdown.contains(target)) {
-        setShowClientsDropdown(false);
+    setExpandedFolders((prev) => {
+      const next = { ...prev };
+      for (const f of folders) {
+        if (!(f.id in next)) next[f.id] = true;
       }
+      return next;
+    });
+  }, [folders]);
+
+  useEffect(() => {
+    if (!moveMenuChatId && !folderActionsId) return;
+    const onDoc = (event: MouseEvent) => {
+      const t = event.target as HTMLElement | null;
+      if (t?.closest('[data-ai-sidebar-menu]')) return;
+      if (t?.closest('[data-ai-move-btn]') || t?.closest('[data-ai-folder-more]')) return;
+      setMoveMenuChatId(null);
+      setFolderActionsId(null);
     };
-    if (showClientsDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showClientsDropdown]);
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [moveMenuChatId, folderActionsId]);
 
   useEffect(() => {
     if (currentChatId) {
@@ -364,10 +413,6 @@ export default function PsychologistAIChat() {
       setLoading(false);
     }
   }, [currentChatId, chats]);
-
-  useEffect(() => {
-    setContextUsage(null);
-  }, [currentChatId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -699,18 +744,15 @@ export default function PsychologistAIChat() {
   }
 
   function createNewChat(folderId: string | null = null) {
-    const newChat: Chat = {
-      id: `chat-${Date.now()}-${Math.random()}`,
-      title: 'Новый чат',
-      messages: [],
-      folderId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    const newChats = [newChat, ...chats];
-    saveChats(newChats);
-    setCurrentChatId(newChat.id);
+    // §25.2: пустой чат не попадает в список, пока нет первого сообщения
+    setDraftFolderId(folderId);
+    setCurrentChatId(null);
     setMessages([]);
+    setInput('');
+    setPendingAttachments([]);
+    setAttachmentError(null);
+    if (isMobileView) setSidebarOpen(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   function createFolder() {
@@ -723,7 +765,24 @@ export default function PsychologistAIChat() {
     const newFolders = [...folders, newFolder];
     saveFolders(newFolders, newFolder.id);
     setNewFolderName('');
-    setShowNewFolderModal(false);
+    setCreatingFolderInline(false);
+    setExpandedFolders((prev) => ({ ...prev, [newFolder.id]: true }));
+  }
+
+  function selectClientForContext(clientId: string | null) {
+    setSelectedClientId(clientId);
+    setShowClientsDropdown(false);
+    setClientSearchQuery('');
+  }
+
+  function toggleDreamsInContext() {
+    const next = normalizeSettings({
+      ...aiSettings,
+      includeDreamsInContext: !aiSettings.includeDreamsInContext,
+    });
+    setAiSettings(next);
+    savePsychologistAiSettings(next);
+    setAiDraft(next);
   }
 
   async function deleteChat(chatId: string) {
@@ -749,7 +808,7 @@ export default function PsychologistAIChat() {
   }
 
   async function deleteFolder(folderId: string) {
-    if (!window.confirm('Удалить эту папку? Все чаты в ней будут перемещены в корень.')) return;
+    if (!window.confirm('Удалить эту папку? Чаты не удалятся — они перейдут в «Без папки».')) return;
     if (token) {
       try {
         await api(`/api/ai/psychologist/folders/${folderId}`, { method: 'DELETE', token });
@@ -827,9 +886,9 @@ export default function PsychologistAIChat() {
         method: 'POST',
         token,
         body: {
-          clientModeEnabled: clientModeEnabledRef.current,
-          clientId: clientModeEnabledRef.current ? (selectedClientId || undefined) : undefined,
-          includeDreamsInContext: aiSettings.includeDreamsInContext
+          clientModeEnabled: Boolean(selectedClientIdRef.current),
+          clientId: selectedClientIdRef.current || undefined,
+          includeDreamsInContext: aiSettings.includeDreamsInContext,
         }
       });
       setDreamScopePreview(res);
@@ -927,7 +986,10 @@ export default function PsychologistAIChat() {
     // Используем текущие сообщения для истории (без нового пользовательского сообщения)
     // так как оно передается отдельно как `message`
     const conversationHistory = messages;
-    const newMessages = [...messages, { role: 'user' as const, content: userBubbleText }];
+    const newMessages = [
+      ...messages,
+      { role: 'user' as const, content: userBubbleText, at: new Date().toISOString() },
+    ];
     setMessages(newMessages);
     setLoading(true);
     const chatsSnapshot = chatsRef.current;
@@ -950,20 +1012,21 @@ export default function PsychologistAIChat() {
         await saveChats(newChats);
       }
     } else {
-      // Создаем новый чат
+      // Создаем новый чат только при первом сообщении
       const newChat: Chat = {
         id: `chat-${Date.now()}-${Math.random()}`,
         title: userMessage.substring(0, 50) + (userMessage.length > 50 ? '...' : ''),
         messages: newMessages,
-        folderId: null,
+        folderId: draftFolderId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        isLoading: true // Сохраняем состояние загрузки
+        isLoading: true
       } as Chat;
       const newChats = [newChat, ...chatsSnapshot];
       await saveChats(newChats);
       activeChatId = newChat.id;
       setCurrentChatId(newChat.id);
+      setDraftFolderId(null);
     }
 
     try {
@@ -971,7 +1034,6 @@ export default function PsychologistAIChat() {
         message: string;
         conversationHistory: Message[];
         quota?: AiQuota;
-        contextUsage?: ContextUsage;
         analysisMemory?: string;
         analysisMemoryUpdated?: boolean;
       }>(
@@ -981,9 +1043,9 @@ export default function PsychologistAIChat() {
           token,
           body: {
             message: userMessage,
-            conversationHistory: conversationHistory, // Используем правильную историю
-            clientId: clientModeEnabledRef.current ? (selectedClientId || undefined) : undefined,
-            clientModeEnabled: clientModeEnabledRef.current === true,
+            conversationHistory: conversationHistory,
+            clientId: selectedClientIdRef.current || undefined,
+            clientModeEnabled: Boolean(selectedClientIdRef.current),
             modality: aiSettings.modality,
             temperature: aiSettings.temperature,
             responseStyle: aiSettings.responseStyle,
@@ -1007,7 +1069,6 @@ export default function PsychologistAIChat() {
       }
       setMessages(finalMessages);
       if (response.quota) setAiQuota(response.quota);
-      if (response.contextUsage) setContextUsage(response.contextUsage);
 
       // Обновляем чат с финальными сообщениями и убираем флаг загрузки
       if (activeChatId) {
@@ -1024,12 +1085,15 @@ export default function PsychologistAIChat() {
         );
         await saveChats(newChats);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Chat error:', error);
-      const errText = String(error?.message || 'Не удалось отправить сообщение');
+      const raw = String((error as { message?: string })?.message || 'Не удалось отправить сообщение');
       const errorMessage: Message = {
         role: 'assistant',
-        content: errText.startsWith('Ошибка') ? errText : `Ошибка: ${errText}`
+        content:
+          'Не удалось получить ответ. Проверьте соединение и попробуйте ещё раз. Если ошибка повторяется — напишите в поддержку.',
+        isError: true,
+        retryUserMessage: userMessage,
       };
       const errorMessages = [...newMessages, errorMessage];
       setMessages(errorMessages);
@@ -1042,6 +1106,7 @@ export default function PsychologistAIChat() {
         );
         await saveChats(newChats);
       }
+      void raw; // raw уже в console.error
     } finally {
       setLoading(false);
       setIsSending(false);
@@ -1071,10 +1136,152 @@ export default function PsychologistAIChat() {
 
   const rootChats = chats.filter(c => !c.folderId);
 
-  const displayContextUsage = useMemo(
-    () => deriveDisplayContextUsage(contextUsage, messages, input),
-    [contextUsage, messages, input]
-  );
+  const selectedClient = clients.find((c) => c.id === selectedClientId) || null;
+  const modalityLabel =
+    MODALITY_OPTIONS.find((m) => m.id === aiSettings.modality)?.label ?? aiSettings.modality;
+
+  function formatQuotaUnderInput(q: AiQuota): string {
+    const remaining = q.remaining.toLocaleString('ru-RU');
+    const reset = new Date(q.resetAt).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    return `Доступно ${remaining} токенов · сброс ${reset}`;
+  }
+
+  const filteredClientsForPicker = clients.filter((c) => {
+    const q = clientSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q)
+    );
+  });
+
+  function formatBubbleTime(iso?: string): string {
+    if (!iso) return '';
+    try {
+      return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  }
+
+  function renderChatRow(chat: Chat) {
+    const active = currentChatId === chat.id;
+    const menuOpen = moveMenuChatId === chat.id;
+    return (
+      <div
+        key={chat.id}
+        className={`ai-chat-row${active ? ' is-active' : ''}${menuOpen ? ' is-menu-open' : ''}`}
+        onClick={() => {
+          setDraftFolderId(null);
+          setCurrentChatId(chat.id);
+          setMoveMenuChatId(null);
+          if (isMobileView) setSidebarOpen(false);
+        }}
+      >
+        <span className="ai-chat-row__icon" aria-hidden>
+          <MessageSquare size={16} />
+        </span>
+        {editingChatId === chat.id ? (
+          <input
+            value={editingChatTitle}
+            onChange={(e) => setEditingChatTitle(e.target.value)}
+            onBlur={() => updateChatTitle(chat.id, editingChatTitle)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') updateChatTitle(chat.id, editingChatTitle);
+              else if (e.key === 'Escape') {
+                setEditingChatId(null);
+                setEditingChatTitle('');
+              }
+            }}
+            onClick={(e) => e.stopPropagation()}
+            autoFocus
+            style={{
+              flex: 1,
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: '1px solid var(--primary)',
+              background: 'var(--surface)',
+              color: 'var(--text)',
+              fontSize: 13,
+            }}
+          />
+        ) : (
+          <>
+            <span
+              className="ai-chat-row__title"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setEditingChatId(chat.id);
+                setEditingChatTitle(chat.title);
+              }}
+              title="Двойной клик для переименования"
+            >
+              {chat.title}
+            </span>
+            <div className="ai-chat-row__actions" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="ai-chat-row__icon-btn"
+                data-ai-move-btn
+                title="В папку…"
+                aria-label="В папку…"
+                onClick={() => {
+                  setFolderActionsId(null);
+                  setMoveMenuChatId((id) => (id === chat.id ? null : chat.id));
+                }}
+              >
+                <FolderInput size={16} />
+              </button>
+              <button
+                type="button"
+                className="ai-chat-row__icon-btn is-danger"
+                title="Удалить чат"
+                aria-label="Удалить чат"
+                onClick={() => void deleteChat(chat.id)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {menuOpen && (
+              <ul className="ai-sidebar-menu" data-ai-sidebar-menu role="menu">
+                <li>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      moveChatToFolder(chat.id, null);
+                      setMoveMenuChatId(null);
+                    }}
+                  >
+                    Без папки
+                  </button>
+                </li>
+                {folders.map((f) => (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        moveChatToFolder(chat.id, f.id);
+                        setMoveMenuChatId(null);
+                        setExpandedFolders((prev) => ({ ...prev, [f.id]: true }));
+                      }}
+                    >
+                      {f.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1117,727 +1324,197 @@ export default function PsychologistAIChat() {
           {sidebarOpen && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
               {/* Header */}
-              <div style={{ padding: 16, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                <button
-                  className="button"
-                  onClick={() => createNewChat()}
-                  style={{ width: '100%', padding: '12px', fontSize: isMobileView ? 12 : 14, fontWeight: 600 }}
-                >
-                  + Новый чат
+              <div className="ai-sidebar-actions">
+                <button type="button" className="ai-sidebar-new-chat" onClick={() => createNewChat()}>
+                  Новый чат
                 </button>
                 <button
-                  className="button secondary"
-                  onClick={() => setShowNewFolderModal(true)}
-                  style={{ width: '100%', padding: '10px', marginTop: 8, fontSize: isMobileView ? 11 : 13 }}
+                  type="button"
+                  className="button secondary ai-sidebar-new-folder"
+                  onClick={() => {
+                    setCreatingFolderInline(true);
+                    setNewFolderName('');
+                  }}
                 >
-                  + Новая папка
+                  + Папка
                 </button>
               </div>
 
+              {creatingFolderInline && (
+                <div className="ai-sidebar-inline-folder">
+                  <input
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') createFolder();
+                      else if (e.key === 'Escape') {
+                        setCreatingFolderInline(false);
+                        setNewFolderName('');
+                      }
+                    }}
+                    placeholder="Название папки"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={!newFolderName.trim()}
+                    onClick={createFolder}
+                    style={{ padding: '8px 12px', fontSize: 12 }}
+                  >
+                    OK
+                  </button>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => {
+                      setCreatingFolderInline(false);
+                      setNewFolderName('');
+                    }}
+                    style={{ padding: '8px 10px', fontSize: 12 }}
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
               {/* Chats list */}
               <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
-                {/* Root chats */}
-                {rootChats.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    {rootChats.map(chat => (
+                {rootChats.map((chat) => renderChatRow(chat))}
+
+                {/* Folders */}
+                {chatsByFolder.map(({ folder, chats: folderChats }) => {
+                  const open = expandedFolders[folder.id] !== false;
+                  const moreOpen = folderActionsId === folder.id;
+                  return (
+                    <div key={folder.id} style={{ marginBottom: 4 }}>
                       <div
-                        key={chat.id}
-                        style={{
-                          padding: '10px 14px',
-                          borderRadius: 10,
-                          marginBottom: 8,
-                          background: currentChatId === chat.id ? 'rgba(91, 124, 250, 0.15)' : 'var(--surface)',
-                          border: currentChatId === chat.id 
-                            ? '2px solid var(--primary)' 
-                            : '1px solid rgba(255,255,255,0.08)',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          position: 'relative',
-                          transition: 'all 0.2s ease',
-                          boxShadow: currentChatId === chat.id 
-                            ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
-                            : '0 1px 3px rgba(0,0,0,0.1)'
-                        }}
-                        onClick={() => {
-                          setCurrentChatId(chat.id);
-                          if (isMobileView) {
-                            setSidebarOpen(false);
-                          }
-                        }}
-                        onMouseEnter={(e) => {
-                          if (currentChatId !== chat.id) {
-                            e.currentTarget.style.background = 'var(--surface-2)';
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
-                            e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-                          }
-                          // Показываем подсказку о переименовании
-                          const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
-                          if (hint) hint.style.display = 'inline';
-                        }}
-                        onMouseLeave={(e) => {
-                          if (currentChatId !== chat.id) {
-                            e.currentTarget.style.background = 'var(--surface)';
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
-                            e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
-                          }
-                          // Скрываем подсказку
-                          const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
-                          if (hint) hint.style.display = 'none';
-                        }}
+                        className={`ai-folder-row${moreOpen ? ' is-menu-open' : ''}`}
+                        onClick={() =>
+                          setExpandedFolders((prev) => ({
+                            ...prev,
+                            [folder.id]: !(prev[folder.id] !== false),
+                          }))
+                        }
                       >
-                        <span style={{ fontSize: isMobileView ? 14 : 16 }}>💬</span>
-                        {editingChatId === chat.id ? (
+                        <span className={`ai-folder-row__chevron${open ? ' is-open' : ''}`} aria-hidden>
+                          <ChevronRight size={16} />
+                        </span>
+                        <span className="ai-folder-row__icon" aria-hidden>
+                          {open ? <FolderOpen size={16} /> : <Folder size={16} />}
+                        </span>
+                        {editingFolderId === folder.id ? (
                           <input
-                            value={editingChatTitle}
-                            onChange={e => setEditingChatTitle(e.target.value)}
-                            onBlur={() => updateChatTitle(chat.id, editingChatTitle)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                updateChatTitle(chat.id, editingChatTitle);
-                              } else if (e.key === 'Escape') {
-                                setEditingChatId(null);
-                                setEditingChatTitle('');
+                            value={editingFolderName}
+                            onChange={(e) => setEditingFolderName(e.target.value)}
+                            onBlur={() => updateFolderName(folder.id, editingFolderName)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') updateFolderName(folder.id, editingFolderName);
+                              else if (e.key === 'Escape') {
+                                setEditingFolderId(null);
+                                setEditingFolderName('');
                               }
                             }}
+                            onClick={(e) => e.stopPropagation()}
                             autoFocus
                             style={{
                               flex: 1,
                               padding: '4px 8px',
-                              borderRadius: 4,
+                              borderRadius: 6,
                               border: '1px solid var(--primary)',
                               background: 'var(--surface)',
                               color: 'var(--text)',
-                              fontSize: 13
+                              fontSize: 13,
                             }}
                           />
                         ) : (
                           <>
                             <span
-                              style={{
-                                flex: 1,
-                                fontSize: isMobileView ? 11 : 13,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                fontWeight: currentChatId === chat.id ? 600 : 400,
-                                color: currentChatId === chat.id ? 'var(--primary)' : 'var(--text)',
-                                position: 'relative'
-                              }}
-                              onDoubleClick={() => {
-                                setEditingChatId(chat.id);
-                                setEditingChatTitle(chat.title);
-                              }}
-                              title="Двойной клик для переименования"
-                            >
-                              {chat.title}
-                            </span>
-                            <span 
-                              style={{ 
-                                fontSize: 10, 
-                                opacity: 0.5, 
-                                color: 'var(--text-muted)',
-                                marginLeft: 4,
-                                display: 'none'
-                              }}
-                              className="rename-hint"
-                            >
-                              ✏️
-                            </span>
-                            {folders.length > 0 && (
-                              <select
-                                onChange={e => {
-                                  if (e.target.value) {
-                                    moveChatToFolder(chat.id, e.target.value === 'root' ? null : e.target.value);
-                                    e.target.value = '';
-                                  }
-                                }}
-                                onClick={e => e.stopPropagation()}
-                                style={{
-                                  padding: '2px 6px',
-                                  fontSize: isMobileView ? 10 : 11,
-                                  borderRadius: 4,
-                                  border: '1px solid rgba(255,255,255,0.12)',
-                                  background: 'var(--surface-2)',
-                                  color: 'var(--text)',
-                                  cursor: 'pointer',
-                                  marginRight: 4
-                                }}
-                                defaultValue=""
-                              >
-                                <option value="">📁</option>
-                                {folders.map(f => (
-                                  <option key={f.id} value={f.id}>
-                                    {f.name}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                            <button
-                              onClick={(e) => {
+                              className="ai-folder-row__name"
+                              onDoubleClick={(e) => {
                                 e.stopPropagation();
-                                deleteChat(chat.id);
-                              }}
-                              style={{
-                                padding: '4px 6px',
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--text-muted)',
-                                cursor: 'pointer',
-                                fontSize: isMobileView ? 10 : 12,
-                                opacity: 0.6
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.opacity = '1';
-                                e.currentTarget.style.color = '#ef4444';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = '0.6';
-                                e.currentTarget.style.color = 'var(--text-muted)';
+                                setEditingFolderId(folder.id);
+                                setEditingFolderName(folder.name);
                               }}
                             >
-                              ×
-                            </button>
+                              {folder.name}
+                            </span>
+                            <span className="ai-folder-row__count">{folderChats.length}</span>
+                            <div
+                              className="ai-folder-row__actions"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ position: 'relative' }}
+                            >
+                              <button
+                                type="button"
+                                className="ai-chat-row__icon-btn"
+                                title="Чат в эту папку"
+                                aria-label="Чат в эту папку"
+                                onClick={() => createNewChat(folder.id)}
+                              >
+                                <Plus size={16} />
+                              </button>
+                              <button
+                                type="button"
+                                className="ai-chat-row__icon-btn"
+                                data-ai-folder-more
+                                title="Ещё"
+                                aria-label="Ещё"
+                                onClick={() => {
+                                  setMoveMenuChatId(null);
+                                  setFolderActionsId((id) => (id === folder.id ? null : folder.id));
+                                }}
+                              >
+                                <MoreHorizontal size={16} />
+                              </button>
+                              {moreOpen && (
+                                <ul className="ai-sidebar-menu" data-ai-sidebar-menu role="menu">
+                                  <li>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setEditingFolderId(folder.id);
+                                        setEditingFolderName(folder.name);
+                                        setFolderActionsId(null);
+                                      }}
+                                    >
+                                      Переименовать
+                                    </button>
+                                  </li>
+                                  <li>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      className="is-danger"
+                                      onClick={() => {
+                                        setFolderActionsId(null);
+                                        void deleteFolder(folder.id);
+                                      }}
+                                    >
+                                      Удалить
+                                    </button>
+                                  </li>
+                                </ul>
+                              )}
+                            </div>
                           </>
                         )}
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Folders */}
-                {chatsByFolder.map(({ folder, chats: folderChats }) => (
-                  <div key={folder.id} style={{ marginBottom: 16 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        marginBottom: 4
-                      }}
-                    >
-                      <span style={{ fontSize: isMobileView ? 12 : 14 }}>📁</span>
-                      {editingFolderId === folder.id ? (
-                        <input
-                          value={editingFolderName}
-                          onChange={e => setEditingFolderName(e.target.value)}
-                          onBlur={() => updateFolderName(folder.id, editingFolderName)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              updateFolderName(folder.id, editingFolderName);
-                            } else if (e.key === 'Escape') {
-                              setEditingFolderId(null);
-                              setEditingFolderName('');
-                            }
-                          }}
-                          autoFocus
-                          style={{
-                            flex: 1,
-                            padding: '4px 8px',
-                            borderRadius: 4,
-                            border: '1px solid var(--primary)',
-                            background: 'var(--surface)',
-                            color: 'var(--text)',
-                            fontSize: 13
-                          }}
-                        />
-                      ) : (
-                        <>
-                          <span
-                            style={{
-                              flex: 1,
-                              fontSize: isMobileView ? 11 : 13,
-                              fontWeight: 600,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}
-                            onDoubleClick={() => {
-                              setEditingFolderId(folder.id);
-                              setEditingFolderName(folder.name);
-                            }}
-                          >
-                            {folder.name}
-                          </span>
-                          <button
-                            onClick={() => deleteFolder(folder.id)}
-                            style={{
-                              padding: '4px 6px',
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--text-muted)',
-                              cursor: 'pointer',
-                              fontSize: isMobileView ? 10 : 12,
-                              opacity: 0.6
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.opacity = '1';
-                              e.currentTarget.style.color = '#ef4444';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.opacity = '0.6';
-                              e.currentTarget.style.color = 'var(--text-muted)';
-                            }}
-                          >
-                            ×
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    <div style={{ paddingLeft: 20 }}>
-                      {folderChats.map(chat => (
-                        <div
-                          key={chat.id}
-                          style={{
-                            padding: '10px 14px',
-                            borderRadius: 10,
-                            marginBottom: 8,
-                            background: currentChatId === chat.id ? 'rgba(91, 124, 250, 0.15)' : 'var(--surface)',
-                            border: currentChatId === chat.id 
-                              ? '2px solid var(--primary)' 
-                              : '1px solid rgba(255,255,255,0.08)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 10,
-                            transition: 'all 0.2s ease',
-                            boxShadow: currentChatId === chat.id 
-                              ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
-                              : '0 1px 3px rgba(0,0,0,0.1)'
-                          }}
-                          onClick={() => {
-                          setCurrentChatId(chat.id);
-                          if (isMobileView) {
-                            setSidebarOpen(false);
-                          }
-                        }}
-                          onMouseEnter={(e) => {
-                            if (currentChatId !== chat.id) {
-                              e.currentTarget.style.background = 'var(--surface-2)';
-                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
-                              e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.15)';
-                            }
-                            // Показываем подсказку о переименовании
-                            const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
-                            if (hint) hint.style.display = 'inline';
-                          }}
-                          onMouseLeave={(e) => {
-                            if (currentChatId !== chat.id) {
-                              e.currentTarget.style.background = 'var(--surface)';
-                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
-                              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
-                            }
-                            // Скрываем подсказку
-                            const hint = e.currentTarget.querySelector('.rename-hint') as HTMLElement;
-                            if (hint) hint.style.display = 'none';
-                          }}
-                        >
-                          <span style={{ fontSize: isMobileView ? 12 : 14 }}>💬</span>
-                          {editingChatId === chat.id ? (
-                            <input
-                              value={editingChatTitle}
-                              onChange={e => setEditingChatTitle(e.target.value)}
-                              onBlur={() => updateChatTitle(chat.id, editingChatTitle)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                  updateChatTitle(chat.id, editingChatTitle);
-                                } else if (e.key === 'Escape') {
-                                  setEditingChatId(null);
-                                  setEditingChatTitle('');
-                                }
-                              }}
-                              autoFocus
-                              style={{
-                                flex: 1,
-                                padding: '4px 8px',
-                                borderRadius: 4,
-                                border: '1px solid var(--primary)',
-                                background: 'var(--surface)',
-                                color: 'var(--text)',
-                                fontSize: 13
-                              }}
-                            />
+                      {open && (
+                        <div className="ai-folder-children">
+                          {folderChats.length === 0 ? (
+                            <div className="ai-folder-empty">Нет чатов</div>
                           ) : (
-                            <>
-                              <span
-                                style={{
-                                  flex: 1,
-                                  fontSize: isMobileView ? 11 : 13,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                  fontWeight: currentChatId === chat.id ? 600 : 400,
-                                  color: currentChatId === chat.id ? 'var(--primary)' : 'var(--text)',
-                                  position: 'relative'
-                                }}
-                                onDoubleClick={() => {
-                                  setEditingChatId(chat.id);
-                                  setEditingChatTitle(chat.title);
-                                }}
-                                title="Двойной клик для переименования"
-                              >
-                                {chat.title}
-                              </span>
-                              <span 
-                                style={{ 
-                                  fontSize: isMobileView ? 9 : 10, 
-                                  opacity: 0.5, 
-                                  color: 'var(--text-muted)',
-                                  marginLeft: 4,
-                                  display: 'none'
-                                }}
-                                className="rename-hint"
-                              >
-                                ✏️
-                              </span>
-                              {folders.length > 0 && (
-                                <select
-                                  onChange={e => {
-                                    if (e.target.value) {
-                                      moveChatToFolder(chat.id, e.target.value === 'root' ? null : e.target.value);
-                                      e.target.value = '';
-                                    }
-                                  }}
-                                  onClick={e => e.stopPropagation()}
-                                  style={{
-                                    padding: '2px 6px',
-                                    fontSize: isMobileView ? 10 : 11,
-                                    borderRadius: 4,
-                                    border: '1px solid rgba(255,255,255,0.12)',
-                                    background: 'var(--surface-2)',
-                                    color: 'var(--text)',
-                                    cursor: 'pointer',
-                                    marginRight: 4
-                                  }}
-                                  defaultValue=""
-                                >
-                                  <option value="">📁</option>
-                                  <option value="root">Корень</option>
-                                  {folders.filter(f => f.id !== folder.id).map(f => (
-                                    <option key={f.id} value={f.id}>
-                                      {f.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteChat(chat.id);
-                                }}
-                                style={{
-                                  padding: '4px 6px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  color: 'var(--text-muted)',
-                                  cursor: 'pointer',
-                                  fontSize: isMobileView ? 10 : 12,
-                                  opacity: 0.6
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.opacity = '1';
-                                  e.currentTarget.style.color = '#ef4444';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.opacity = '0.6';
-                                  e.currentTarget.style.color = 'var(--text-muted)';
-                                }}
-                              >
-                                ×
-                              </button>
-                            </>
+                            folderChats.map((chat) => renderChatRow(chat))
                           )}
                         </div>
-                      ))}
-                      <button
-                        className="button secondary"
-                        onClick={() => createNewChat(folder.id)}
-                        style={{
-                          width: '100%',
-                          padding: '6px 12px',
-                          marginTop: 4,
-                          fontSize: isMobileView ? 10 : 12
-                        }}
-                      >
-                        + Чат в папке
-                      </button>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
-              {/* Client Mode Toggle and Client Selector - внизу сайдбара */}
-              <div style={{
-                borderTop: '1px solid rgba(255,255,255,0.08)',
-                background: 'var(--surface-2)',
-                marginTop: 'auto',
-                flexShrink: 0
-              }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSettingsPanelCollapsed(prev => {
-                      const next = !prev;
-                      try {
-                        localStorage.setItem('psychologist_ai_settings_panel_collapsed', next ? '1' : '0');
-                      } catch {
-                        // ignore
-                      }
-                      return next;
-                    });
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                    border: 'none',
-                    background: 'transparent',
-                    color: 'var(--text-muted)',
-                    cursor: 'pointer',
-                    fontSize: isMobileView ? 10 : 12,
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}
-                  title={settingsPanelCollapsed ? 'Показать настройки режимов' : 'Скрыть настройки режимов'}
-                >
-                  <span>Настройки режимов</span>
-                  <span style={{ fontSize: 14, lineHeight: 1, opacity: 0.85 }}>
-                    {settingsPanelCollapsed ? '▾' : '▴'}
-                  </span>
-                </button>
-
-                {!settingsPanelCollapsed && (
-                <div style={{ padding: '0 16px 16px' }}>
-                <div
-                  style={{
-                    marginBottom: 12,
-                    padding: '12px',
-                    background: 'var(--surface)',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.08)'
-                  }}
-                >
-                  <label
-                    style={{
-                      fontSize: isMobileView ? 11 : 13,
-                      color: 'var(--text)',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10
-                    }}
-                  >
-                    <span>Работа со снами в контексте ИИ</span>
-                    <span
-                      style={{
-                        position: 'relative',
-                        width: 42,
-                        height: 24,
-                        background: aiSettings.includeDreamsInContext ? 'var(--primary)' : 'rgba(255,255,255,0.25)',
-                        borderRadius: 999,
-                        transition: 'background .2s ease',
-                        flexShrink: 0
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={aiSettings.includeDreamsInContext}
-                        onChange={e => {
-                          const next = normalizeSettings({
-                            ...aiSettings,
-                            includeDreamsInContext: e.target.checked
-                          });
-                          setAiSettings(next);
-                          savePsychologistAiSettings(next);
-                          setAiDraft(next);
-                        }}
-                        style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
-                      />
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: 3,
-                          left: aiSettings.includeDreamsInContext ? 21 : 3,
-                          width: 18,
-                          height: 18,
-                          borderRadius: '50%',
-                          background: '#fff',
-                          transition: 'left .2s ease'
-                        }}
-                      />
-                    </span>
-                  </label>
-                </div>
-
-                {/* Client selector - показываем только если режим работы с клиентами включен */}
-                {clientModeEnabled && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                    <label style={{ fontSize: isMobileView ? 10 : 12, color: 'var(--text-muted)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Выбор клиента
-                    </label>
-                    {selectedClientId ? (
-                      <div style={{ position: 'relative' }} data-clients-dropdown>
-                        <button
-                          onClick={() => setShowClientsDropdown(!showClientsDropdown)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '10px 16px',
-                            borderRadius: 10,
-                            border: 'none',
-                            background: 'var(--surface)',
-                            color: 'var(--text)',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            width: '100%'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = 'var(--surface-2)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'var(--surface)';
-                          }}
-                        >
-                          {(() => {
-                            const currentClient = clients.find(c => c.id === selectedClientId);
-                            if (!currentClient) return null;
-                            const avatarUrl = currentClient.avatarUrl;
-                            return avatarUrl ? (
-                              <img
-                                src={avatarUrl}
-                                alt={currentClient.name || 'Аватар'}
-                                style={{
-                                  width: 40,
-                                  height: 40,
-                                  borderRadius: '50%',
-                                  objectFit: 'cover',
-                                  border: '2px solid rgba(255,255,255,0.1)',
-                                  flexShrink: 0
-                                }}
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.style.display = 'none';
-                                  const parent = target.parentElement;
-                                  if (parent && !parent.querySelector('.avatar-fallback')) {
-                                    const fallback = document.createElement('div');
-                                    fallback.className = 'avatar-fallback';
-                                    fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
-                                    fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
-                                    parent.appendChild(fallback);
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
-                                {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
-                              </div>
-                            );
-                          })()}
-                          <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                              {clients.find(c => c.id === selectedClientId)?.name || 'Клиент'}
-                            </div>
-                            <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                              {clients.find(c => c.id === selectedClientId)?.email || '—'}
-                            </div>
-                          </div>
-                          <span style={{ fontSize: 12, opacity: 0.6, flexShrink: 0 }}>▼</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowClientsDropdown(true)}
-                        disabled={loadingClients}
-                        style={{
-                          width: '100%',
-                          padding: '10px 16px',
-                          borderRadius: 10,
-                          border: '1px solid rgba(255,255,255,0.12)',
-                          background: 'var(--surface)',
-                          color: 'var(--text-muted)',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          fontSize: isMobileView ? 11 : 13,
-                          textAlign: 'left'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
-                          e.currentTarget.style.background = 'var(--surface-2)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
-                          e.currentTarget.style.background = 'var(--surface)';
-                        }}
-                      >
-                        {loadingClients ? 'Загрузка...' : 'Выберите клиента'}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Toggle for client mode */}
-                <div style={{ 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  gap: 12, 
-                  padding: '12px', 
-                  background: 'var(--surface)', 
-                  borderRadius: 10, 
-                  border: '1px solid rgba(255,255,255,0.08)'
-                }}>
-                  <label style={{ 
-                    fontSize: isMobileView ? 11 : 13, 
-                    color: 'var(--text)', 
-                    fontWeight: 600, 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 10 
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={clientModeEnabled}
-                      onChange={(e) => {
-                        setClientModeEnabled(e.target.checked);
-                        if (!e.target.checked) {
-                          setSelectedClientId(null);
-                        }
-                      }}
-                      style={{
-                        width: 20,
-                        height: 20,
-                        cursor: 'pointer',
-                        accentColor: 'var(--primary)'
-                      }}
-                    />
-                    <span>Режим работы с клиентами</span>
-                  </label>
-                  <div
-                    className="small"
-                    style={{
-                      fontSize: isMobileView ? 11 : 12,
-                      color: 'var(--text-muted)',
-                      paddingLeft: 30,
-                      lineHeight: 1.45,
-                      fontWeight: 600
-                    }}
-                  >
-                    {clientModeEnabled ? 'включен' : 'выключен'}
-                  </div>
-                </div>
-                </div>
-                )}
-              </div>
             </div>
           )}
         </div>
@@ -1885,15 +1562,57 @@ export default function PsychologistAIChat() {
               minHeight: 48
             }}
           >
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: isMobileView ? 14 : 15, color: 'var(--text)' }}>
                 {aiScreen === 'transcription' ? 'Транскрибация' : 'AI Ассистент'}
               </div>
-              <div className="small" style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {aiScreen === 'transcription'
-                  ? 'Загрузите запись — получите текст расшифровки'
-                  : (MODALITY_OPTIONS.find(m => m.id === aiSettings.modality)?.label ?? aiSettings.modality)}
-              </div>
+              {aiScreen === 'transcription' ? (
+                <div className="small" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  Загрузите запись — получите текст расшифровки
+                </div>
+              ) : (
+                <div className="ai-context-chips" style={{ marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="ai-context-chip"
+                    onClick={() => {
+                      setAiDraft(aiSettings);
+                      setSettingsOpen(true);
+                    }}
+                    title="Модальность"
+                  >
+                    {modalityLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="ai-context-chip"
+                    onClick={() => setShowClientsDropdown(true)}
+                    disabled={loadingClients}
+                    title="Клиент"
+                  >
+                    {selectedClient
+                      ? `Клиент: ${selectedClient.name || '—'}`
+                      : 'Обобщённый режим'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ai-context-chip"
+                    title={
+                      selectedClientId
+                        ? 'Сны выбранного клиента в контексте'
+                        : 'В обобщённом режиме — сны всех клиентов'
+                    }
+                    onClick={() => toggleDreamsInContext()}
+                  >
+                    Сны: {aiSettings.includeDreamsInContext ? 'вкл' : 'выкл'}
+                  </button>
+                  {workAreaContextTabs.map((tab) => (
+                    <span key={tab} className="ai-context-chip ai-context-chip--static">
+                      {tab}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               {aiScreen === 'chat' && (
@@ -2114,46 +1833,6 @@ export default function PsychologistAIChat() {
               </div>
             </div>
           )}
-          {!currentChatId && messages.length === 0 ? (
-            <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 48 }}>
-              <div style={{ textAlign: 'center', maxWidth: 600 }}>
-                <div
-                  style={{
-                    margin: '0 auto 24px',
-                    width: 88,
-                    height: 88,
-                    borderRadius: 24,
-                    display: 'grid',
-                    placeItems: 'center',
-                    background: 'linear-gradient(145deg, rgba(124,92,255,0.2), rgba(34,211,238,0.12))',
-                    border: '1px solid rgba(124,92,255,0.35)',
-                    color: 'var(--primary)'
-                  }}
-                >
-                  <PlatformIcon name="bot" size={44} strokeWidth={1.35} />
-                </div>
-                <h2 style={{ fontSize: isMobileView ? 20 : 28, fontWeight: 700, marginBottom: 12 }}>AI Ассистент психолога</h2>
-                <p style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 13 : 16, lineHeight: 1.6, marginBottom: 32 }}>
-                  {clientModeEnabled
-                    ? aiSettings.includeDreamsInContext
-                      ? 'Задавайте вопросы о клиентах, их снах, заметках, сессиях. Акценты задаёт выбранная модальность.'
-                      : 'Задавайте вопросы о клиентах, заметках, сессиях и документах. Сны в контекст не передаются — тумблер «работа со снами» выключен.'
-                    : aiSettings.includeDreamsInContext
-                      ? 'Задавайте общие вопросы по психологии и работе с клиентами. Я помогу как обобщённый ассистент без доступа к данным конкретных клиентов.'
-                      : 'Задавайте общие вопросы по психологии. Сны в запрос не включаются, пока не включите «работу со снами» в боковой панели.'
-                  }
-                </p>
-                <button
-                  className="button"
-                  onClick={() => createNewChat()}
-                  style={{ padding: '12px 24px', fontSize: isMobileView ? 13 : 15 }}
-                >
-                  Начать новый чат
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
               {/* Messages area - scrollable */}
               <div 
                 style={{ 
@@ -2178,101 +1857,46 @@ export default function PsychologistAIChat() {
                           Начните диалог с AI ассистентом
                         </h3>
                         <p style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 12 : 15, lineHeight: 1.6, marginBottom: 24 }}>
-                          {clientModeEnabled
+                          {selectedClientId
                             ? aiSettings.includeDreamsInContext
-                              ? 'Задавайте вопросы о клиентах, снах, заметках и сессиях — в рамках выбранной модальности.'
-                              : 'Сны отключены в настройках: спрашивайте про заметки, сессии, документы и карточку клиента без сновиденческого материала.'
+                              ? 'Задавайте вопросы о клиенте, снах, заметках и сессиях — в рамках выбранной модальности.'
+                              : 'Сны отключены: спрашивайте про заметки, сессии и карточку клиента.'
                             : aiSettings.includeDreamsInContext
-                              ? 'Общие вопросы по психологии без доступа к данным клиентов.'
-                              : 'Общие вопросы по психологии. Сны в контекст запроса не входят, пока вы не включите «работу со снами».'
-                          }
+                              ? 'Обобщённый режим: общие вопросы и сны всех клиентов в контексте. Выберите клиента в шапке для карточки и сессий.'
+                              : 'Обобщённый режим без снов. Включите «Сны» в шапке или выберите клиента.'}
                         </p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
                           <div style={{ fontSize: isMobileView ? 11 : 13, color: 'var(--text-muted)', marginBottom: 8 }}>
                             Попробуйте спросить:
                           </div>
-                          <div style={{ 
-                            display: 'flex', 
-                            flexDirection: 'column', 
-                            gap: 6, 
-                            width: '100%',
-                            maxWidth: 400
-                          }}>
-                            {clientModeEnabled ? (
-                              <>
-                                <div style={{ 
-                                  padding: '10px 14px', 
-                                  background: 'var(--surface-2)', 
-                                  borderRadius: 8, 
-                                  fontSize: isMobileView ? 11 : 13,
-                                  color: 'var(--text-muted)',
-                                  textAlign: 'left',
-                                  border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                  "Дай сводку по клиенту..."
-                                </div>
-                                {aiSettings.includeDreamsInContext && (
-                                <div style={{ 
-                                  padding: '10px 14px', 
-                                  background: 'var(--surface-2)', 
-                                  borderRadius: 8, 
-                                  fontSize: isMobileView ? 11 : 13,
-                                  color: 'var(--text-muted)',
-                                  textAlign: 'left',
-                                  border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                  "Проанализируй последние сны..."
-                                </div>
-                                )}
-                                <div style={{ 
-                                  padding: '10px 14px', 
-                                  background: 'var(--surface-2)', 
-                                  borderRadius: 8, 
-                                  fontSize: isMobileView ? 11 : 13,
-                                  color: 'var(--text-muted)',
-                                  textAlign: 'left',
-                                  border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                  "Составь план следующей сессии..."
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div style={{ 
-                                  padding: '10px 14px', 
-                                  background: 'var(--surface-2)', 
-                                  borderRadius: 8, 
-                                  fontSize: isMobileView ? 11 : 13,
-                                  color: 'var(--text-muted)',
-                                  textAlign: 'left',
-                                  border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                  "Объясни концепцию архетипов Юнга..."
-                                </div>
-                                <div style={{ 
-                                  padding: '10px 14px', 
-                                  background: 'var(--surface-2)', 
-                                  borderRadius: 8, 
-                                  fontSize: isMobileView ? 11 : 13,
-                                  color: 'var(--text-muted)',
-                                  textAlign: 'left',
-                                  border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                  "Как работать с символами в сновидениях?"
-                                </div>
-                                <div style={{ 
-                                  padding: '10px 14px', 
-                                  background: 'var(--surface-2)', 
-                                  borderRadius: 8, 
-                                  fontSize: isMobileView ? 11 : 13,
-                                  color: 'var(--text-muted)',
-                                  textAlign: 'left',
-                                  border: '1px solid rgba(255,255,255,0.05)'
-                                }}>
-                                  "Какие техники амплификации можно использовать?"
-                                </div>
-                              </>
-                            )}
+                          <div className="ai-chat-tip-chips">
+                            {(selectedClientId
+                              ? [
+                                  'Дай сводку по клиенту…',
+                                  ...(aiSettings.includeDreamsInContext ? ['Проанализируй последние сны…'] : []),
+                                  'Составь план следующей сессии…',
+                                ]
+                              : [
+                                  ...(aiSettings.includeDreamsInContext
+                                    ? ['Проанализируй последние сны по всем клиентам…']
+                                    : []),
+                                  'Объясни концепцию архетипов Юнга…',
+                                  'Как работать с символами в сновидениях?',
+                                  'Какие техники амплификации можно использовать?',
+                                ]
+                            ).map((tip) => (
+                              <button
+                                key={tip}
+                                type="button"
+                                className="ai-chat-tip-chip"
+                                onClick={() => {
+                                  setInput(tip.replace(/…$/, ''));
+                                  inputRef.current?.focus();
+                                }}
+                              >
+                                {tip}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       </div>
@@ -2282,32 +1906,19 @@ export default function PsychologistAIChat() {
                       {messages.map((msg, idx) => (
                         <div
                           key={idx}
-                          style={{
-                            display: 'flex',
-                            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                            marginBottom: 32,
-                            alignItems: 'flex-start'
-                          }}
+                          className={`ai-chat-bubble-row ${msg.role === 'user' ? 'is-mine' : 'is-theirs'}`}
                         >
+                          {msg.role === 'assistant' && (
+                            <div className="ai-chat-bot-icon" aria-hidden>
+                              <Bot size={14} strokeWidth={2} />
+                            </div>
+                          )}
                           <div
-                            style={{
-                              maxWidth: msg.role === 'assistant' ? (isMobileView ? '92%' : '92%') : '85%',
-                              padding: '16px 20px',
-                              borderRadius: 18,
-                              background: msg.role === 'user'
-                                ? 'linear-gradient(135deg, var(--primary), var(--accent))'
-                                : 'var(--surface-2)',
-                              color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
-                              lineHeight: 1.6,
-                              whiteSpace: msg.role === 'user' ? 'pre-wrap' : 'normal',
-                              wordBreak: msg.role === 'user' ? 'break-word' : 'normal',
-                              overflowWrap: 'anywhere',
-                              fontSize: isMobileView ? 13 : 15,
-                              boxShadow: msg.role === 'user' 
-                                ? '0 2px 8px rgba(91, 124, 250, 0.2)' 
-                                : '0 2px 8px rgba(0, 0, 0, 0.1)'
-                            }}
-                            onCopy={msg.role === 'assistant' ? (e) => handleAssistantCopy(e, msg.content) : undefined}
+                            className={`ai-chat-bubble ${
+                              msg.role === 'user' ? 'is-mine' : msg.isError ? 'is-error' : 'is-theirs'
+                            }`}
+                            style={{ fontSize: isMobileView ? 13 : 15 }}
+                            onCopy={msg.role === 'assistant' && !msg.isError ? (e) => handleAssistantCopy(e, msg.content) : undefined}
                           >
                             {msg.role === 'assistant' && msg.isAnalysis && (
                               <div
@@ -2318,36 +1929,60 @@ export default function PsychologistAIChat() {
                                   borderRadius: 999,
                                   fontSize: 11,
                                   fontWeight: 700,
-                                  background: 'rgba(91,124,250,0.18)',
-                                  border: '1px solid rgba(91,124,250,0.4)',
-                                  color: 'var(--text)'
+                                  background: 'var(--brand-soft, rgba(91,124,250,0.18))',
+                                  border: '1px solid color-mix(in srgb, var(--primary) 40%, transparent)',
+                                  color: 'var(--text)',
                                 }}
                               >
                                 Анализ
                               </div>
                             )}
-                            {msg.role === 'assistant' ? renderAssistantMarkdown(msg.content) : msg.content}
+                            {msg.role === 'assistant' ? (
+                              msg.isError ? (
+                                <div>
+                                  <div style={{ marginBottom: 10 }}>{msg.content}</div>
+                                  {msg.retryUserMessage && (
+                                    <button
+                                      type="button"
+                                      className="button secondary"
+                                      disabled={loading || isSending}
+                                      onClick={() => {
+                                        void sendMessage({
+                                          forcedMessage: msg.retryUserMessage,
+                                          skipDreamScopePrompt: true,
+                                        });
+                                      }}
+                                      style={{ padding: '8px 14px', fontSize: 13, fontWeight: 600 }}
+                                    >
+                                      Повторить
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                renderAssistantMarkdown(msg.content)
+                              )
+                            ) : (
+                              <>
+                                {msg.content}
+                                <div className="ai-chat-bubble-meta">
+                                  {formatBubbleTime(msg.at) ? <span>{formatBubbleTime(msg.at)}</span> : null}
+                                  <span className="ai-chat-bubble-ticks" aria-hidden>✓</span>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
                       ))}
                       {loading && (
-                    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 32 }}>
-                      <div
-                        style={{
-                          padding: '16px 20px',
-                          borderRadius: 18,
-                          background: 'var(--surface-2)',
-                          color: 'var(--text-muted)',
-                          fontSize: isMobileView ? 13 : 15,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8
-                        }}
-                      >
-                        <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>●</span>
-                        <span>Думаю...</span>
-                      </div>
-                    </div>
+                        <div className="ai-chat-bubble-row is-theirs">
+                          <div className="ai-chat-bot-icon" aria-hidden>
+                            <Bot size={14} strokeWidth={2} />
+                          </div>
+                          <div className="ai-chat-bubble is-theirs" style={{ color: 'var(--text-muted)', fontSize: isMobileView ? 13 : 15 }}>
+                            <span style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>●</span>
+                            {' '}Думаю…
+                          </div>
+                        </div>
                       )}
                       <div ref={messagesEndRef} />
                     </>
@@ -2372,7 +2007,7 @@ export default function PsychologistAIChat() {
                       flexWrap: 'wrap',
                       marginBottom: 16,
                       padding: '14px 16px',
-                      background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.08), rgba(139, 92, 246, 0.08))',
+                      background: 'var(--surface-2)',
                       borderRadius: 12,
                       border: '1px solid rgba(91, 124, 250, 0.15)',
                       boxShadow: '0 2px 8px rgba(91, 124, 250, 0.05)'
@@ -2426,7 +2061,7 @@ export default function PsychologistAIChat() {
                             style={{
                               padding: '10px 16px',
                               fontSize: isMobileView ? 11 : 13,
-                              background: 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))',
+                              background: 'var(--brand-soft, rgba(91, 124, 250, 0.12))',
                               border: '1px solid rgba(91, 124, 250, 0.3)',
                               borderRadius: 8,
                               color: 'var(--primary)',
@@ -2442,14 +2077,14 @@ export default function PsychologistAIChat() {
                             }}
                             onMouseEnter={(e) => {
                               if (!loading && !isSending) {
-                                e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.2), rgba(139, 92, 246, 0.2))';
+                                e.currentTarget.style.background = 'var(--brand-soft, rgba(91, 124, 250, 0.18))';
                                 e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.4)';
                                 e.currentTarget.style.transform = 'translateY(-1px)';
                                 e.currentTarget.style.boxShadow = '0 4px 8px rgba(91, 124, 250, 0.15)';
                               }
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(91, 124, 250, 0.15), rgba(139, 92, 246, 0.15))';
+                              e.currentTarget.style.background = 'var(--brand-soft, rgba(91, 124, 250, 0.12))';
                               e.currentTarget.style.borderColor = 'rgba(91, 124, 250, 0.3)';
                               e.currentTarget.style.transform = 'translateY(0)';
                               e.currentTarget.style.boxShadow = '0 2px 4px rgba(91, 124, 250, 0.1)';
@@ -2509,7 +2144,7 @@ export default function PsychologistAIChat() {
                   )}
 
                   {/* Input field */}
-                  <div className="ai-chat-input-row">
+                  <div className="ai-chat-composer">
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -2520,7 +2155,7 @@ export default function PsychologistAIChat() {
                     />
                     <button
                       type="button"
-                      className="ai-chat-attach-btn"
+                      className="ai-chat-composer__attach"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={
                         loading ||
@@ -2529,91 +2164,78 @@ export default function PsychologistAIChat() {
                         pendingAttachments.length >= AI_CHAT_MAX_ATTACHMENTS
                       }
                       title="Прикрепить PDF, Word, изображение (до 5 файлов, 8 МБ)"
+                      aria-label="Прикрепить файл"
                     >
                       {uploadingAttachments ? (
-                        <span className="ai-chat-attach-btn__loading">…</span>
+                        <span aria-hidden>…</span>
                       ) : (
-                        <Paperclip size={22} strokeWidth={2} aria-hidden />
+                        <Paperclip size={20} strokeWidth={2} aria-hidden />
                       )}
                     </button>
-                    <div className="ai-chat-input-field">
-                      <textarea
-                        ref={inputRef}
-                        className="ai-chat-input-textarea"
-                        value={input}
-                        onChange={e => {
-                          setInput(e.target.value);
-                          const target = e.target as HTMLTextAreaElement;
-                          target.style.height = 'auto';
-                          target.style.height = `${Math.max(48, Math.min(target.scrollHeight, 200))}px`;
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            if (!loading && !isSending) {
-                              void sendMessage();
-                            }
+                    <textarea
+                      ref={inputRef}
+                      className="ai-chat-composer__input"
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value);
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = 'auto';
+                        target.style.height = `${Math.max(40, Math.min(target.scrollHeight, 200))}px`;
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (!loading && !isSending) {
+                            void sendMessage();
                           }
-                        }}
-                        placeholder="Напишите сообщение..."
-                        disabled={loading || isSending}
-                        onPaste={(e) => {
-                          const items = e.clipboardData?.items;
-                          if (!items?.length) return;
-                          const imageFiles: File[] = [];
-                          for (let i = 0; i < items.length; i++) {
-                            const item = items[i];
-                            if (item.kind === 'file' && item.type.startsWith('image/')) {
-                              const f = item.getAsFile();
-                              if (f) imageFiles.push(f);
-                            }
+                        }
+                      }}
+                      placeholder="Спросите о клиенте, сне, сессии…"
+                      disabled={loading || isSending}
+                      onPaste={(e) => {
+                        const items = e.clipboardData?.items;
+                        if (!items?.length) return;
+                        const imageFiles: File[] = [];
+                        for (let i = 0; i < items.length; i++) {
+                          const item = items[i];
+                          if (item.kind === 'file' && item.type.startsWith('image/')) {
+                            const f = item.getAsFile();
+                            if (f) imageFiles.push(f);
                           }
-                          if (imageFiles.length) {
-                            e.preventDefault();
-                            const dt = new DataTransfer();
-                            imageFiles.forEach((f) => dt.items.add(f));
-                            void handleAttachmentFiles(dt.files);
-                          }
-                        }}
-                        style={{ fontSize: isMobileView ? 13 : 15 }}
-                        rows={1}
-                        onFocus={(e) => {
-                          e.currentTarget.classList.add('ai-chat-input-textarea--focused');
-                        }}
-                        onBlur={(e) => {
-                          e.currentTarget.classList.remove('ai-chat-input-textarea--focused');
-                        }}
-                      />
-                    </div>
-                    <AiContextRing
-                      usage={displayContextUsage}
-                      loading={loading || isSending}
-                      size={48}
+                        }
+                        if (imageFiles.length) {
+                          e.preventDefault();
+                          const dt = new DataTransfer();
+                          imageFiles.forEach((f) => dt.items.add(f));
+                          void handleAttachmentFiles(dt.files);
+                        }
+                      }}
+                      style={{ fontSize: isMobileView ? 13 : 15 }}
+                      rows={1}
                     />
                     <button
-                      className="button"
+                      type="button"
+                      className="ai-chat-composer__send"
                       onClick={() => {
                         void sendMessage();
                       }}
                       disabled={(!input.trim() && !pendingAttachments.length) || loading || isSending}
-                      style={{
-                        padding: '12px 20px',
-                        fontSize: 15,
-                        fontWeight: 600,
-                        whiteSpace: 'nowrap',
-                        opacity: ((!input.trim() && !pendingAttachments.length) || loading || isSending) ? 0.5 : 1,
-                        cursor: ((!input.trim() && !pendingAttachments.length) || loading || isSending) ? 'not-allowed' : 'pointer',
-                        minWidth: 100,
-                        height: 48
-                      }}
+                      aria-label="Отправить"
+                      title="Отправить"
                     >
-                      {loading || isSending ? '...' : 'Отправить'}
+                      {loading || isSending ? (
+                        <span aria-hidden>…</span>
+                      ) : (
+                        <Send size={18} strokeWidth={2.25} aria-hidden />
+                      )}
                     </button>
                   </div>
+                  {aiQuota && (
+                    <div className="ai-chat-quota">{formatQuotaUnderInput(aiQuota)}</div>
+                  )}
                 </div>
               </div>
-            </>
-          )}
+
           </>
           )}
         </div>
@@ -2723,78 +2345,6 @@ export default function PsychologistAIChat() {
                 disabled={loadingDreamScopePreview || !dreamScopePreview || dreamScopeStep !== 'ready'}
               >
                 Продолжить анализ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* New folder modal */}
-      {showNewFolderModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'grid',
-            placeItems: 'center',
-            zIndex: 2000
-          }}
-          onClick={() => setShowNewFolderModal(false)}
-        >
-          <div
-            className="card"
-            style={{
-              padding: 24,
-              minWidth: 320,
-              background: 'var(--surface)',
-              border: '1px solid rgba(255,255,255,0.12)'
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 700 }}>Новая папка</h3>
-            <input
-              value={newFolderName}
-              onChange={e => setNewFolderName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  createFolder();
-                } else if (e.key === 'Escape') {
-                  setShowNewFolderModal(false);
-                  setNewFolderName('');
-                }
-              }}
-              placeholder="Название папки"
-              autoFocus
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                fontSize: 14,
-                marginBottom: 16
-              }}
-            />
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                className="button secondary"
-                onClick={() => {
-                  setShowNewFolderModal(false);
-                  setNewFolderName('');
-                }}
-                style={{ padding: '10px 20px' }}
-              >
-                Отмена
-              </button>
-              <button
-                className="button"
-                onClick={createFolder}
-                disabled={!newFolderName.trim()}
-                style={{ padding: '10px 20px' }}
-              >
-                Создать
               </button>
             </div>
           </div>
@@ -3203,212 +2753,95 @@ export default function PsychologistAIChat() {
         }
       `}</style>
 
-      {/* Bottom sheet for client selection */}
-      {showClientsDropdown && clientModeEnabled && createPortal(
+      {/* Client picker — listbox with search (§25.7) */}
+      {showClientsDropdown && createPortal(
         <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 10000,
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            animation: 'fadeIn 0.2s ease'
+          className="ai-client-picker-backdrop"
+          data-clients-panel
+          onClick={() => {
+            setShowClientsDropdown(false);
+            setClientSearchQuery('');
           }}
-          onClick={() => setShowClientsDropdown(false)}
         >
           <div
-            style={{
-              background: 'var(--surface)',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              width: '100%',
-              maxWidth: 600,
-              maxHeight: '80vh',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              animation: 'slideUp 0.3s ease',
-              boxShadow: '0 -8px 32px rgba(0,0,0,0.3)'
-            }}
+            className="ai-client-picker"
+            role="dialog"
+            aria-label="Выберите клиента"
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{
-              padding: '20px',
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>Выберите клиента</h3>
+            <div className="ai-client-picker__head">
+              <h3>Выберите клиента</h3>
               <button
-                onClick={() => setShowClientsDropdown(false)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                  cursor: 'pointer',
-                  fontSize: 20,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                  e.currentTarget.style.color = 'var(--text)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'var(--text-muted)';
+                type="button"
+                className="ai-chat-row__icon-btn"
+                aria-label="Закрыть"
+                onClick={() => {
+                  setShowClientsDropdown(false);
+                  setClientSearchQuery('');
                 }}
               >
-                ×
+                <X size={18} />
               </button>
             </div>
-            <div style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '8px'
-            }}>
+            <div className="ai-client-picker__search">
+              <input
+                value={clientSearchQuery}
+                onChange={(e) => setClientSearchQuery(e.target.value)}
+                placeholder="Найти клиента"
+                autoFocus
+              />
+            </div>
+            <div className="ai-client-picker__body" role="listbox" aria-label="Клиенты">
               <button
-                onClick={() => {
-                  setSelectedClientId(null);
-                  setShowClientsDropdown(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '12px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: !selectedClientId ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
-                  color: 'var(--text)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  width: '100%',
-                  transition: 'background 0.2s',
-                  marginBottom: 4
-                }}
-                onMouseEnter={(e) => {
-                  if (selectedClientId) {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (selectedClientId) {
-                    e.currentTarget.style.background = 'transparent';
-                  }
-                }}
+                type="button"
+                role="option"
+                aria-selected={!selectedClientId}
+                className={`ai-client-picker__row${!selectedClientId ? ' is-active' : ''}`}
+                onClick={() => selectClientForContext(null)}
               >
-                <div style={{ width: 40, height: 40, borderRadius: 999, background: 'var(--surface-2)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: 20 }}>👥</span>
+                <div className="ai-client-picker__avatar" aria-hidden>
+                  —
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>Все клиенты</div>
-                  <div style={{ fontSize: 12, opacity: 0.7, color: 'var(--text-muted)' }}>Обобщенный режим</div>
+                <div className="ai-client-picker__meta">
+                  <div className="ai-client-picker__name">Обобщённый режим</div>
+                  <div className="ai-client-picker__sub">Без привязки к клиенту</div>
                 </div>
               </button>
-              {clients.map(client => {
+              {filteredClientsForPicker.map((client) => {
                 const active = client.id === selectedClientId;
                 return (
                   <button
                     key={client.id}
-                    onClick={() => {
-                      setSelectedClientId(client.id);
-                      setShowClientsDropdown(false);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '12px',
-                      borderRadius: 8,
-                      border: 'none',
-                      background: active ? 'rgba(91, 124, 250, 0.15)' : 'transparent',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      width: '100%',
-                      transition: 'background 0.2s',
-                      marginBottom: 4
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!active) {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!active) {
-                        e.currentTarget.style.background = 'transparent';
-                      }
-                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={`ai-client-picker__row${active ? ' is-active' : ''}`}
+                    onClick={() => selectClientForContext(client.id)}
                   >
                     {client.avatarUrl ? (
                       <img
+                        className="ai-client-picker__avatar"
                         src={client.avatarUrl}
-                        alt={client.name || 'Аватар'}
-                        style={{
-                          width: 40,
-                          height: 40,
-                          borderRadius: '50%',
-                          objectFit: 'cover',
-                          border: '2px solid rgba(255,255,255,0.1)',
-                          flexShrink: 0
-                        }}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent && !parent.querySelector('.avatar-fallback')) {
-                            const fallback = document.createElement('div');
-                            fallback.className = 'avatar-fallback';
-                            fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
-                            fallback.textContent = (client.name || '?').trim().charAt(0).toUpperCase();
-                            parent.appendChild(fallback);
-                          }
-                        }}
+                        alt=""
                       />
                     ) : (
-                      <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                      <div className="ai-client-picker__avatar" aria-hidden>
                         {(client.name || '?').trim().charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
-                        {client.name || 'Клиент'}
-                      </div>
-                      <div style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                        {client.email || '—'}
-                      </div>
+                    <div className="ai-client-picker__meta">
+                      <div className="ai-client-picker__name">{client.name || 'Клиент'}</div>
+                      <div className="ai-client-picker__sub">{client.email || '—'}</div>
                     </div>
-                    {active && (
-                      <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <span style={{ color: '#0b0f1a', fontSize: 12, fontWeight: 700 }}>✓</span>
-                      </div>
-                    )}
+                    {active ? <span aria-hidden>✓</span> : null}
                   </button>
                 );
               })}
+              {!filteredClientsForPicker.length ? (
+                <div className="ai-client-picker__empty">Клиенты не найдены</div>
+              ) : null}
             </div>
           </div>
-          <style>{`
-            @keyframes fadeIn {
-              from { opacity: 0; }
-              to { opacity: 1; }
-            }
-            @keyframes slideUp {
-              from { transform: translateY(100%); }
-              to { transform: translateY(0); }
-            }
-          `}</style>
         </div>,
         document.body
       )}

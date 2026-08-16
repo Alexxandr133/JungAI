@@ -1,0 +1,41 @@
+.res-bridge {
+  padding: calc(var(--section-y) + 16px) 0;
+  background: var(--paper-soft);
+  scroll-margin-top: 80px;
+}
+
+.res-bridge__inner {
+  max-width: 720px;
+}
+
+.landing .res-bridge .res-bridge__title {
+  margin: 0 0 36px;
+}
+
+.res-bridge__bullets {
+  margin: 0 0 32px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.res-bridge__bullets li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.res-bridge__bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+}

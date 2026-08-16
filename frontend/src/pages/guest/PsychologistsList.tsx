@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
+import { yearsWord } from '../../lib/ruPlural';
 import { GuestNavbar } from '../../components/GuestNavbar';
 import '../../styles/tokens.css';
 
@@ -309,7 +310,7 @@ export default function PsychologistsList() {
                     </div>
                     {psych.experience && (
                       <div style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 4 }}>
-                        Опыт: {psych.experience} лет
+                        Опыт: {psych.experience} {yearsWord(psych.experience)}
                       </div>
                     )}
                   </div>

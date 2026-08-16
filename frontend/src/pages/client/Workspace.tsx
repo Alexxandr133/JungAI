@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
 import { PlatformIcon, type PlatformIconName } from '../../components/icons';
@@ -68,6 +69,7 @@ function useWideLayout(breakpoint = 900) {
 
 export default function ClientWorkspace() {
   const { token, user } = useAuth();
+  const { openMessenger } = useMessengerUi();
   const navigate = useNavigate();
   const wideLayout = useWideLayout(900);
 
@@ -592,13 +594,14 @@ export default function ClientWorkspace() {
                 >
                   Дневник
                 </Link>
-                <Link
-                  to="/chat"
+                <button
+                  type="button"
                   className="button secondary"
-                  style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
+                  style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600 }}
+                  onClick={() => openMessenger()}
                 >
                   Сообщения
-                </Link>
+                </button>
               </div>
             </div>
             <p style={{ margin: 0, lineHeight: 1.65, color: 'var(--text)', fontSize: 15 }}>{insight}</p>

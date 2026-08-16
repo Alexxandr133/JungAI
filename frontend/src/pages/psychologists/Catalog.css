@@ -1,0 +1,130 @@
+.psy-catalog-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--paper);
+  background-image: none;
+}
+
+.psy-catalog {
+  flex: 1;
+  padding: 32px 0 72px;
+}
+
+.psy-catalog__head {
+  margin-bottom: 28px;
+}
+
+.psy-catalog__head .landing-h1 {
+  margin: 0;
+}
+
+.psy-catalog__head .landing-lead {
+  margin: 8px 0 0;
+  font-size: 17px;
+}
+
+.psy-catalog__toolbar {
+  display: grid;
+  grid-template-columns: 1.4fr auto;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 800px) {
+  .psy-catalog__toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.psy-catalog__search,
+.psy-catalog__select,
+.psy-catalog__tag-search {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+}
+
+.psy-catalog__search:focus,
+.psy-catalog__select:focus,
+.psy-catalog__tag-search:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-soft);
+  border-color: var(--brand);
+}
+
+.psy-catalog__selects {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.psy-catalog__select {
+  min-width: 160px;
+}
+
+.psy-catalog__tags-wrap {
+  margin-bottom: 12px;
+}
+
+.psy-catalog__tag-search {
+  margin-bottom: 10px;
+  max-width: 280px;
+}
+
+.psy-catalog__tags {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.psy-catalog__tag {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.psy-catalog__tag.is-on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+.psy-catalog__reset {
+  margin-bottom: 16px;
+}
+
+.psy-catalog__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+@media (max-width: 1000px) {
+  .psy-catalog__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .psy-catalog__grid {
+    grid-template-columns: 1fr;
+  }
+}

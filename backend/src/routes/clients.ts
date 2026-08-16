@@ -5,7 +5,6 @@ import fs from 'fs';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../db/prisma';
-import { config } from '../config';
 import { getUploadsRoot } from '../utils/uploadsRoot';
 
 const router = Router();
@@ -366,9 +365,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     let items = await Promise.all(
       deduped.map(async (client) => {
         const regTok = client.registrationToken as string | null | undefined;
-        const { registrationToken: _drop, ...restSafe } = client;
         const registrationPending = Boolean(regTok);
-        const registrationLink = regTok ? `${config.frontendUrl}/register-client?token=${regTok}` : null;
 
         let profile = null as any;
         let avatarUrl = null as string | null;
@@ -400,11 +397,11 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
         });
 
         return {
-          ...restSafe,
+          ...client,
           profile,
           avatarUrl,
           registrationPending,
-          registrationLink,
+          registrationToken: regTok ?? null,
           platformRegistered,
           registrationStatus,
           nextSessionAt: next?.startsAt ?? null,
@@ -497,7 +494,8 @@ router.post('/clients', requireAuth, requireRole(['psychologist', 'admin']), req
 
   res.status(201).json({
     ...c,
-    registrationLink: `${config.frontendUrl}/register-client?token=${registrationToken}`
+    registrationToken,
+    registrationPending: true,
   });
 });
 
@@ -542,16 +540,41 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
     
     const regTok = client.registrationToken;
     const { registrationToken: _reg, ...clientSafe } = client as any;
+
+    let lastMoodCheckIn: {
+      mood: number;
+      energy: number;
+      anxiety: number;
+      note: string | null;
+      createdAt: Date;
+    } | null = null;
+    try {
+      lastMoodCheckIn = await (prisma as any).moodCheckIn.findFirst({
+        where: { clientId: id },
+        orderBy: { createdAt: 'desc' },
+        select: { mood: true, energy: true, anxiety: true, note: true, createdAt: true },
+      });
+    } catch {
+      lastMoodCheckIn = null;
+    }
+
+    const discussDreams = await (prisma as any).dream.findMany({
+      where: { clientId: id, discussOnSession: true },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+      select: { id: true, title: true, createdAt: true, discussOnSession: true },
+    });
+
     res.json({
       ...clientSafe,
       profile: user?.profile || null,
       userId: user?.id || null,
       avatarUrl: user?.profile?.avatarUrl || null,
       registrationPending: Boolean(regTok),
-      registrationLink: regTok
-        ? `${config.frontendUrl}/register-client?token=${regTok}`
-        : null,
-      platformRegistered: Boolean(user)
+      registrationToken: regTok ?? null,
+      platformRegistered: Boolean(user),
+      lastMoodCheckIn,
+      discussOnSessionDreams: discussDreams,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to get client' });
@@ -804,8 +827,9 @@ router.post('/clients/:id/refresh-registration-token', requireAuth, requireRole(
 
     res.json({
       ok: true,
-      registrationLink: `${config.frontendUrl}/register-client?token=${registrationToken}`,
+      registrationToken,
       tokenExpiresAt: tokenExpiresAt.toISOString(),
+      registrationPending: true,
       client: updated,
     });
   } catch (error: any) {

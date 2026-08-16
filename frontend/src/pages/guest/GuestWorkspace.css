@@ -1,9 +1,4 @@
-.guest-home .button:not(.secondary):not(.danger) {
-  background: var(--primary-600);
-  box-shadow: none;
-  text-shadow: none;
-}
-
-.guest-home .button:not(.secondary):not(.danger):hover {
-  background: var(--primary);
+/* Hub uses shared .landing tokens; keep file for route-specific tweaks if needed */
+.guest-home {
+  /* legacy class removed from markup; reserved */
 }

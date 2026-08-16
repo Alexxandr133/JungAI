@@ -1,7 +1,6 @@
-import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+﻿import { type CSSProperties, type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useAppearance } from '../../context/AppearanceContext';
 import { api, getApiBaseUrl, resolvePublicFileUrl } from '../../lib/api';
 import '@livekit/components-styles';
 import './VoiceRoom.css';
@@ -20,7 +19,7 @@ import {
 } from '@livekit/components-react';
 import { DisconnectReason, Room, Track } from 'livekit-client';
 import { PlatformIcon } from '../../components/icons';
-import { CalendarClock, Check, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip, PhoneOff, SendHorizontal, Users, Video, VideoOff } from 'lucide-react';
+import { Check, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip, PhoneOff, SendHorizontal, Users, Video, VideoOff } from 'lucide-react';
 
 interface EventData {
   id: string;
@@ -29,6 +28,7 @@ interface EventData {
   startsAt: string;
   endsAt?: string;
   type: string;
+  hostName?: string | null;
 }
 
 interface LiveKitTokenResponse {
@@ -653,9 +653,7 @@ export default function VoiceRoom() {
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();
   const { token, user, profile } = useAuth();
-  const { appearance } = useAppearance();
   const navigate = useNavigate();
-  const isLight = appearance.colorMode === 'light';
 
   const guestForced = searchParams.get('guest') === '1';
   const [authFallbackGuest, setAuthFallbackGuest] = useState(false);
@@ -671,6 +669,129 @@ export default function VoiceRoom() {
   const [guestDisplayName, setGuestDisplayName] = useState('');
   const [joinedAsName, setJoinedAsName] = useState('');
   const [reconnectHint, setReconnectHint] = useState<string | null>(null);
+  const [preCameraOn, setPreCameraOn] = useState(true);
+  const [preMicOn, setPreMicOn] = useState(true);
+  const [joinWithCamera, setJoinWithCamera] = useState(true);
+  const [joinWithMic, setJoinWithMic] = useState(true);
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [videoDeviceId, setVideoDeviceId] = useState('');
+  const [audioDeviceId, setAudioDeviceId] = useState('');
+  const [joining, setJoining] = useState(false);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewStreamRef = useRef<MediaStream | null>(null);
+
+  const displayNameForPreview =
+    (isGuestMode ? guestDisplayName.trim() : '') ||
+    profile?.name ||
+    user?.name ||
+    user?.email?.split('@')[0] ||
+    'Вы';
+  const avatarUrlForPreview = isGuestMode
+    ? null
+    : resolvePublicFileUrl(profile?.avatarUrl || user?.avatarUrl);
+
+  useEffect(() => {
+    if (!isGuestMode && (profile?.name || user?.name) && !guestDisplayName) {
+      setGuestDisplayName(String(profile?.name || user?.name || ''));
+    }
+  }, [isGuestMode, profile?.name, user?.name, guestDisplayName]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDevices() {
+      try {
+        if (!navigator.mediaDevices?.enumerateDevices) return;
+        const all = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const vids = all.filter((d) => d.kind === 'videoinput');
+        const auds = all.filter((d) => d.kind === 'audioinput');
+        setVideoDevices(vids);
+        setAudioDevices(auds);
+        setVideoDeviceId((prev) => prev || vids[0]?.deviceId || '');
+        setAudioDeviceId((prev) => prev || auds[0]?.deviceId || '');
+      } catch {
+        /* ignore */
+      }
+    }
+    void loadDevices();
+    const md = navigator.mediaDevices;
+    md?.addEventListener?.('devicechange', loadDevices);
+    return () => {
+      cancelled = true;
+      md?.removeEventListener?.('devicechange', loadDevices);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (joined) {
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    async function startPreview() {
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+      if (!preCameraOn) {
+        if (previewVideoRef.current) previewVideoRef.current.srcObject = null;
+        return;
+      }
+      try {
+        const constraints: MediaStreamConstraints = {
+          video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
+          audio: false,
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        previewStreamRef.current = stream;
+        if (previewVideoRef.current) {
+          previewVideoRef.current.srcObject = stream;
+          void previewVideoRef.current.play().catch(() => undefined);
+        }
+        // refresh labels after permission
+        const all = await navigator.mediaDevices.enumerateDevices();
+        setVideoDevices(all.filter((d) => d.kind === 'videoinput'));
+        setAudioDevices(all.filter((d) => d.kind === 'audioinput'));
+      } catch {
+        setPreCameraOn(false);
+      }
+    }
+    void startPreview();
+    return () => {
+      cancelled = true;
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+    };
+  }, [joined, preCameraOn, videoDeviceId]);
+
+  function formatMeetingLine(ev: EventData): string {
+    const start = new Date(ev.startsAt);
+    const now = new Date();
+    const sameDay =
+      start.getFullYear() === now.getFullYear() &&
+      start.getMonth() === now.getMonth() &&
+      start.getDate() === now.getDate();
+    const time = start.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const when = sameDay
+      ? `сегодня, ${time}`
+      : start.toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
+    const typeLabel =
+      ev.type === 'session'
+        ? 'Сессия'
+        : ev.type === 'video' || ev.type === 'call'
+          ? 'Видеовстреча'
+          : ev.type === 'supervision'
+            ? 'Супервизия'
+            : ev.type === 'webinar'
+              ? 'Вебинар'
+              : (ev.title?.trim() || 'Встреча');
+    const name = (ev.hostName || '').trim() || 'специалист';
+    return `${typeLabel} · ${name} · ${when}`;
+  }
 
   const loadEventData = useCallback(async () => {
     if (!roomId) return;
@@ -713,12 +834,16 @@ export default function VoiceRoom() {
     void loadEventData();
   }, [roomId, loadEventData]);
 
-  async function handleJoin() {
+  async function handleJoin(opts?: { camera?: boolean; mic?: boolean }) {
     if (!roomId) return;
+    const wantCamera = opts?.camera ?? preCameraOn;
+    const wantMic = opts?.mic ?? preMicOn;
     if (isGuestMode && !guestDisplayName.trim()) {
       setError('Введите имя для входа в комнату');
       return;
     }
+    setJoining(true);
+    setError(null);
     try {
       let res: LiveKitTokenResponse;
       if (isGuestMode) {
@@ -745,6 +870,10 @@ export default function VoiceRoom() {
           });
         }
       }
+      previewStreamRef.current?.getTracks().forEach((t) => t.stop());
+      previewStreamRef.current = null;
+      setJoinWithCamera(wantCamera);
+      setJoinWithMic(wantMic);
       setLivekitToken(res.token);
       setLivekitUrl(res.url);
       setJoinedAsName(res.name || '');
@@ -753,6 +882,8 @@ export default function VoiceRoom() {
       setError(null);
     } catch (e: any) {
       setError(e?.message || 'Не удалось подключиться к видеокомнате');
+    } finally {
+      setJoining(false);
     }
   }
 
@@ -777,23 +908,24 @@ export default function VoiceRoom() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: isLight ? '#f8fafc' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
-          <div>Загрузка комнаты...</div>
-        </div>
+      <div className="voice-room-prejoin" style={{ placeItems: 'center', display: 'grid' }}>
+        <div style={{ textAlign: 'center', opacity: 0.75 }}>Загрузка комнаты…</div>
       </div>
     );
   }
 
-  if (error || !event) {
+  if ((error && !event) || !event) {
     return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: isLight ? '#f8fafc' : '#0b0f1a', color: isLight ? '#0f172a' : '#fff' }}>
-        <div style={{ textAlign: 'center', padding: 48 }}>
-          <div style={{ fontSize: 64, marginBottom: 24 }}>⚠️</div>
-          <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 12 }}>Ошибка</div>
-          <div style={{ color: '#888', marginBottom: 24 }}>{error || 'Комната не найдена'}</div>
-          <button className="button" onClick={() => navigate(isGuestMode ? '/' : user?.role === 'researcher' ? '/researcher/calls' : '/events')} style={{ padding: '12px 24px' }}>
+      <div className="voice-room-prejoin" style={{ placeItems: 'center', display: 'grid' }}>
+        <div style={{ textAlign: 'center', padding: 48, maxWidth: 420 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>Ошибка</div>
+          <div style={{ color: 'rgba(245,245,245,0.6)', marginBottom: 24 }}>{error || 'Комната не найдена'}</div>
+          <button
+            type="button"
+            className="voice-room-prejoin__join"
+            style={{ width: 'auto', paddingInline: 24 }}
+            onClick={() => navigate(isGuestMode ? '/' : user?.role === 'researcher' ? '/researcher/calls' : '/events')}
+          >
             {isGuestMode ? 'На главную' : 'Вернуться к событиям'}
           </button>
         </div>
@@ -802,113 +934,157 @@ export default function VoiceRoom() {
   }
 
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: joined ? '#121212' : (isLight ? 'linear-gradient(180deg, #e2e8f0 0%, #cbd5e1 100%)' : '#0b0f1a'), color: joined ? '#f5f5f5' : (isLight ? '#0f172a' : '#fff'), overflow: 'hidden' }}>
-      {!joined && (
-      <div style={{ padding: '16px 24px', borderBottom: isLight ? '1px solid rgba(15,23,42,0.12)' : '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{event.title}</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {event.type === 'session' && (
-            <span style={{ padding: '4px 12px', background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6', borderRadius: 999, fontSize: 12 }}>
-              Сессия
-            </span>
-          )}
-        </div>
-      </div>
-      )}
-
+    <div
+      style={{
+        height: '100dvh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: '#121212',
+        color: '#f5f5f5',
+        overflow: 'hidden',
+      }}
+    >
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
         {!joined ? (
-          <div style={{ width: 'min(720px, 94vw)', margin: 'auto', padding: 24 }}>
-            <div className="card" style={{ borderRadius: 20, padding: 24, border: isLight ? '1px solid rgba(15,23,42,0.2)' : '1px solid rgba(255,255,255,0.1)', background: isLight ? 'rgba(248,250,252,0.98)' : 'rgba(15,23,42,0.6)', boxShadow: isLight ? '0 24px 56px rgba(15,23,42,0.16)' : undefined }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-                <div style={{ width: 42, height: 42, borderRadius: 12, background: isLight ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.22)', display: 'grid', placeItems: 'center', color: '#3b82f6' }}>
-                  <Video size={20} />
+          <div className="voice-room-prejoin" style={{ width: '100%' }}>
+            <div className="voice-room-prejoin__top">{formatMeetingLine(event)}</div>
+            <div className="voice-room-prejoin__body">
+              <div className="voice-room-prejoin__card">
+                <div className="voice-room-prejoin__self">
+                  {preCameraOn ? (
+                    <video
+                      ref={previewVideoRef}
+                      className="voice-room-prejoin__video"
+                      playsInline
+                      muted
+                      autoPlay
+                    />
+                  ) : (
+                    <div className="voice-room-prejoin__avatar">
+                      {avatarUrlForPreview ? (
+                        <img
+                          className="voice-room-prejoin__avatar-img"
+                          src={avatarUrlForPreview}
+                          alt=""
+                        />
+                      ) : (
+                        <div className="voice-room-prejoin__avatar-fallback">
+                          {displayNameForPreview.slice(0, 1).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="voice-room-prejoin__toggles">
+                    <button
+                      type="button"
+                      className={`voice-room-prejoin__toggle${preMicOn ? '' : ' is-off'}`}
+                      title={preMicOn ? 'Выключить микрофон' : 'Включить микрофон'}
+                      aria-pressed={preMicOn}
+                      onClick={() => setPreMicOn((v) => !v)}
+                    >
+                      {preMicOn ? <Mic size={20} strokeWidth={2} aria-hidden /> : <MicOff size={20} strokeWidth={2} aria-hidden />}
+                    </button>
+                    <button
+                      type="button"
+                      className={`voice-room-prejoin__toggle${preCameraOn ? '' : ' is-off'}`}
+                      title={preCameraOn ? 'Выключить камеру' : 'Включить камеру'}
+                      aria-pressed={preCameraOn}
+                      onClick={() => setPreCameraOn((v) => !v)}
+                    >
+                      {preCameraOn ? <Video size={20} strokeWidth={2} aria-hidden /> : <VideoOff size={20} strokeWidth={2} aria-hidden />}
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 800 }}>Готовы присоединиться?</div>
-                  <div className="small" style={{ color: 'var(--text-muted)' }}>Проверьте детали встречи и нажмите кнопку входа</div>
+
+                <div className="voice-room-prejoin__devices">
+                  <div className="voice-room-prejoin__device-row">
+                    <Video size={18} strokeWidth={2} aria-hidden />
+                    <select
+                      value={videoDeviceId}
+                      onChange={(e) => setVideoDeviceId(e.target.value)}
+                      aria-label="Камера"
+                    >
+                      {videoDevices.length === 0 && <option value="">Камера по умолчанию</option>}
+                      {videoDevices.map((d) => (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          {d.label || 'Камера'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="voice-room-prejoin__device-row">
+                    <Mic size={18} strokeWidth={2} aria-hidden />
+                    <select
+                      value={audioDeviceId}
+                      onChange={(e) => setAudioDeviceId(e.target.value)}
+                      aria-label="Микрофон"
+                    >
+                      {audioDevices.length === 0 && <option value="">Микрофон по умолчанию</option>}
+                      {audioDevices.map((d) => (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          {d.label || 'Микрофон'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
-              <div style={{ marginTop: 14, borderRadius: 12, padding: 14, background: isLight ? '#ffffff' : 'rgba(2,6,23,0.55)', border: isLight ? '1px solid rgba(15,23,42,0.16)' : '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{event.title}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: isLight ? '#334155' : 'var(--text-muted)', marginBottom: event.description ? 8 : 0 }}>
-                  <CalendarClock size={15} />
-                  {new Date(event.startsAt).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' })}
-                </div>
-                {event.description && (
-                  <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.5 }}>{event.description}</div>
+
+                {(isGuestMode || authFallbackGuest) && (
+                  <div className="voice-room-prejoin__field">
+                    <label htmlFor="voice-prejoin-name">Ваше имя</label>
+                    <input
+                      id="voice-prejoin-name"
+                      value={guestDisplayName}
+                      onChange={(e) => setGuestDisplayName(e.target.value)}
+                      placeholder="Как вас представить в комнате"
+                      autoComplete="name"
+                    />
+                  </div>
                 )}
-              </div>
-              {reconnectHint && (
-                <div
-                  style={{
-                    marginTop: 14,
-                    padding: 12,
-                    borderRadius: 12,
-                    border: isLight ? '1px solid rgba(234,179,8,0.45)' : '1px solid rgba(234,179,8,0.35)',
-                    background: isLight ? 'rgba(254,252,232,0.95)' : 'rgba(66,32,6,0.55)',
-                    color: isLight ? '#713f12' : '#fde68a',
-                    fontSize: 14,
-                    lineHeight: 1.45
-                  }}
-                >
-                  {reconnectHint}
+
+                {!isGuestMode && (
+                  <div className="voice-room-prejoin__field">
+                    <label>Вы входите как</label>
+                    <input value={displayNameForPreview} readOnly />
+                  </div>
+                )}
+
+                <p className="voice-room-prejoin__trust">
+                  Встреча проходит на платформе JungAI, без сторонних сервисов. Камеру и микрофон
+                  можно выключить в любой момент.
+                </p>
+
+                {reconnectHint && <div className="voice-room-prejoin__hint">{reconnectHint}</div>}
+                {error && <div className="voice-room-prejoin__error">{error}</div>}
+                {guestForced && token && user?.email && (
+                  <div className="voice-room-prejoin__trust" style={{ textAlign: 'left' }}>
+                    Вы вошли как <b>{user.email}</b>, но по этой ссылке вход выполняется как гость —
+                    аккаунт не используется.
+                  </div>
+                )}
+
+                <div className="voice-room-prejoin__actions">
+                  <button
+                    type="button"
+                    className="voice-room-prejoin__join"
+                    disabled={joining || (isGuestMode && !guestDisplayName.trim())}
+                    onClick={() => void handleJoin({ camera: preCameraOn, mic: preMicOn })}
+                  >
+                    <Video size={18} strokeWidth={2} aria-hidden />
+                    {joining ? 'Подключение…' : 'Подключиться'}
+                  </button>
+                  <button
+                    type="button"
+                    className="voice-room-prejoin__no-cam"
+                    disabled={joining || (isGuestMode && !guestDisplayName.trim())}
+                    onClick={() => {
+                      setPreCameraOn(false);
+                      void handleJoin({ camera: false, mic: preMicOn });
+                    }}
+                  >
+                    Без камеры
+                  </button>
                 </div>
-              )}
-              {guestForced && token && user?.email && (
-                <div
-                  className="small"
-                  style={{
-                    marginTop: 14,
-                    padding: 12,
-                    borderRadius: 12,
-                    border: isLight ? '1px solid rgba(59,130,246,0.35)' : '1px solid rgba(59,130,246,0.4)',
-                    background: isLight ? 'rgba(239,246,255,0.95)' : 'rgba(30,58,138,0.35)',
-                    color: isLight ? '#1e3a8a' : '#bfdbfe',
-                    lineHeight: 1.45,
-                  }}
-                >
-                  Вы вошли как <b>{user.email}</b>, но по этой ссылке вход выполняется как гость — аккаунт не используется.
-                </div>
-              )}
-              {isGuestMode && (
-                <div style={{ marginTop: 14 }}>
-                  <label className="small" style={{ display: 'block', marginBottom: 6, color: 'var(--text-muted)' }}>
-                    {authFallbackGuest && token ? 'Сессия истекла — войдите как гость' : 'Как вас записать в комнате'}
-                  </label>
-                  <input
-                    value={guestDisplayName}
-                    onChange={(e) => setGuestDisplayName(e.target.value)}
-                    placeholder="Введите ваше имя"
-                    style={{ width: '100%', padding: '12px 12px', borderRadius: 10, border: isLight ? '1px solid rgba(15,23,42,0.18)' : '1px solid rgba(255,255,255,0.16)', background: isLight ? '#fff' : 'rgba(15,23,42,0.7)', color: 'inherit' }}
-                  />
-                </div>
-              )}
-              <div style={{ marginTop: 20 }}>
-                <button
-                  className="button"
-                  onClick={handleJoin}
-                  style={{
-                    width: '100%',
-                    padding: '14px 22px',
-                    fontSize: 16,
-                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                    borderRadius: 12,
-                    border: 'none',
-                    color: '#fff',
-                    cursor: 'pointer',
-                    fontWeight: 700,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8
-                  }}
-                >
-                  <Video size={18} />
-                  Присоединиться к встрече
-                </button>
               </div>
             </div>
           </div>
@@ -918,9 +1094,15 @@ export default function VoiceRoom() {
               token={livekitToken}
               serverUrl={livekitUrl}
               connect={joined}
-              video={false}
-              audio={false}
-              options={{ disconnectOnPageLeave: false, adaptiveStream: true, dynacast: true }}
+              video={joinWithCamera}
+              audio={joinWithMic}
+              options={{
+                disconnectOnPageLeave: false,
+                adaptiveStream: true,
+                dynacast: true,
+                videoCaptureDefaults: videoDeviceId ? { deviceId: videoDeviceId } : undefined,
+                audioCaptureDefaults: audioDeviceId ? { deviceId: audioDeviceId } : undefined,
+              }}
               onDisconnected={(reason) => {
                 if (reason === DisconnectReason.CLIENT_INITIATED) {
                   handleLeave();
@@ -928,7 +1110,7 @@ export default function VoiceRoom() {
                 }
                 setJoined(false);
                 setLivekitToken('');
-                setReconnectHint('Связь с комнатой прервалась. Нажмите «Присоединиться к встрече» ещё раз.');
+                setReconnectHint('Связь с комнатой прервалась. Нажмите «Подключиться» ещё раз.');
               }}
               style={{ height: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
             >
@@ -950,7 +1132,6 @@ export default function VoiceRoom() {
           </div>
         )}
       </div>
-
     </div>
   );
 }

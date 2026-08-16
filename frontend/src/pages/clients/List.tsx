@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { VerificationRequired } from '../../components/VerificationRequired';
@@ -10,8 +11,29 @@ import { readableTextOnBackground } from '../../lib/colorContrast';
 import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
 import { PSYCHOLOGIST_CLIENTS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
-import { ClientCard } from './ClientCard';
+import { ClientCard, buildInviteLink } from './ClientCard';
 import './ClientsList.css';
+
+const TAG_COLOR_PALETTE = ['#6C5BD4', '#D4574E', '#B97F2E', '#3A9B7A', '#4A7FD4', '#C45B9B', '#5C5678', '#1F1A33'];
+
+function ColorDotPalette({ value, onChange }: { value: string; onChange: (color: string) => void }) {
+  return (
+    <div className="clients-color-palette" role="group" aria-label="Цвет тега">
+      {TAG_COLOR_PALETTE.map((color) => (
+        <button
+          key={color}
+          type="button"
+          className={`clients-color-palette__dot${value.toLowerCase() === color.toLowerCase() ? ' is-selected' : ''}`}
+          style={{ background: color }}
+          title={color}
+          aria-label={color}
+          aria-pressed={value.toLowerCase() === color.toLowerCase()}
+          onClick={() => onChange(color)}
+        />
+      ))}
+    </div>
+  );
+}
 
 const fieldBorder = '1px solid var(--navbar-edge)';
 
@@ -21,6 +43,7 @@ function isValidEmail(s: string) {
 
 export default function ClientsList() {
   const { token, user } = useAuth();
+  const { openMessenger } = useMessengerUi();
   const [items, setItems] = useState<any[]>([]);
   const [isMobile, setIsMobile] = useState(false);
   const [isNarrow, setIsNarrow] = useState(false);
@@ -50,7 +73,7 @@ export default function ClientsList() {
   const [city, setCity] = useState<string>('');
   const [tags, setTags] = useState<{ label: string; color: string }[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [tagColor, setTagColor] = useState('#7c5cff');
+  const [tagColor, setTagColor] = useState(TAG_COLOR_PALETTE[0]);
   const [showModal, setShowModal] = useState(false);
   const [clientView, setClientView] = useState<'active' | 'archive'>('active');
   const [crmFilter, setCrmFilter] = useState<'all' | 'needs_attention' | 'no_upcoming' | 'expired_invite' | 'has_tasks'>('all');
@@ -61,11 +84,11 @@ export default function ClientsList() {
   const [editCity, setEditCity] = useState('');
   const [editTags, setEditTags] = useState<{ label: string; color: string }[]>([]);
   const [editTagInput, setEditTagInput] = useState('');
-  const [editTagColor, setEditTagColor] = useState('#7c5cff');
+  const [editTagColor, setEditTagColor] = useState(TAG_COLOR_PALETTE[0]);
   const [savingEdit, setSavingEdit] = useState(false);
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [createdClientLink, setCreatedClientLink] = useState<string | null>(null);
+  const [createdClientToken, setCreatedClientToken] = useState<string | null>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [refreshingLinkId, setRefreshingLinkId] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
@@ -139,6 +162,29 @@ export default function ClientsList() {
     return Boolean(c.therapyEndedAt);
   }
 
+  function matchesCrmFilter(c: any, filter: typeof crmFilter): boolean {
+    if (filter === 'all') return true;
+    if (filter === 'needs_attention') {
+      const expired =
+        c.registrationStatus === 'expired' ||
+        (c.registrationPending && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now());
+      return Boolean(expired || (!c.nextSessionAt && !c.therapyEndedAt) || (c.openTasksCount || 0) > 0);
+    }
+    if (filter === 'no_upcoming') return !c.nextSessionAt && !c.therapyEndedAt;
+    if (filter === 'expired_invite') {
+      return (
+        c.registrationStatus === 'expired' ||
+        (c.registrationPending && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now())
+      );
+    }
+    if (filter === 'has_tasks') return (c.openTasksCount || 0) > 0;
+    return true;
+  }
+
+  function countCrmFilter(filter: typeof crmFilter): number {
+    return items.filter((c) => matchesCrmFilter(c, filter)).length;
+  }
+
   async function load(
     view: 'active' | 'archive' = clientView,
     filter: typeof crmFilter = crmFilter,
@@ -163,7 +209,6 @@ export default function ClientsList() {
     try {
       const params = new URLSearchParams();
       params.set('status', view);
-      if (filter !== 'all') params.set('filter', filter);
       if (tags.length) params.set('tags', tags.join(','));
       const q = search.trim();
       if (q) params.set('q', q);
@@ -345,7 +390,7 @@ export default function ClientsList() {
         id: serverId,
         email: created?.email ?? email,
         registrationPending: Boolean(created?.registrationToken),
-        registrationLink: created?.registrationLink ?? null,
+        registrationToken: created?.registrationToken ?? null,
         platformRegistered: false
       };
       setItems(prev => { const next = [clientFinal, ...prev.filter(c => c.id !== serverId)]; saveItemsToStorage(next); return next; });
@@ -358,9 +403,8 @@ export default function ClientsList() {
       setName(''); setEmail(''); setPhone(''); setAge(''); setCity(''); setTags([]); setTagInput('');
       setShowModal(false);
       
-      // Показываем ссылку для регистрации
-      if (created?.registrationLink) {
-        setCreatedClientLink(created.registrationLink);
+      if (created?.registrationToken) {
+        setCreatedClientToken(created.registrationToken);
         setShowLinkModal(true);
       }
     } catch (e: any) {
@@ -393,7 +437,7 @@ export default function ClientsList() {
     setRefreshingLinkId(clientId);
     setError(null);
     try {
-      const res = await api<{ registrationLink: string; tokenExpiresAt?: string }>(
+      const res = await api<{ registrationToken: string; tokenExpiresAt?: string }>(
         `/api/clients/${clientId}/refresh-registration-token`,
         { method: 'POST', token }
       );
@@ -402,7 +446,7 @@ export default function ClientsList() {
           c.id === clientId
             ? {
                 ...c,
-                registrationLink: res.registrationLink,
+                registrationToken: res.registrationToken,
                 tokenExpiresAt: res.tokenExpiresAt ?? c.tokenExpiresAt,
                 registrationPending: true,
                 platformRegistered: false,
@@ -570,33 +614,21 @@ export default function ClientsList() {
   const filtersToUse = Array.from(new Set([...selectedTags]));
   const queryLower = query.toLowerCase().trim();
   const filteredItems = items.filter(c => {
-    if (!token) {
-      if (filtersToUse.length > 0) {
-        const labels: string[] = Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [];
-        if (!filtersToUse.some(t => labels.includes(t))) return false;
-      }
-      if (queryLower) {
-        const searchable = [
-          c.name || '',
-          c.email || '',
-          c.phone || '',
-          c.city || '',
-          ...(Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [])
-        ].join(' ').toLowerCase();
-        if (!searchable.includes(queryLower)) return false;
-      }
-      if (crmFilter === 'needs_attention') {
-        const expired = c.registrationStatus === 'expired' || (c.registrationPending && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now());
-        if (!(expired || (!c.nextSessionAt && !c.therapyEndedAt) || (c.openTasksCount || 0) > 0)) return false;
-      } else if (crmFilter === 'no_upcoming') {
-        if (c.nextSessionAt || c.therapyEndedAt) return false;
-      } else if (crmFilter === 'expired_invite') {
-        const expired = c.registrationStatus === 'expired' || (c.registrationPending && c.tokenExpiresAt && new Date(c.tokenExpiresAt).getTime() < Date.now());
-        if (!expired) return false;
-      } else if (crmFilter === 'has_tasks') {
-        if (!(c.openTasksCount > 0)) return false;
-      }
+    if (filtersToUse.length > 0) {
+      const labels: string[] = Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [];
+      if (!filtersToUse.some(t => labels.includes(t))) return false;
     }
+    if (queryLower) {
+      const searchable = [
+        c.name || '',
+        c.email || '',
+        c.phone || '',
+        c.city || '',
+        ...(Array.isArray(c.tags) ? c.tags.map((t: any) => String(t.label)) : [])
+      ].join(' ').toLowerCase();
+      if (!searchable.includes(queryLower)) return false;
+    }
+    if (clientView === 'active' && !matchesCrmFilter(c, crmFilter)) return false;
     return true;
   });
 
@@ -613,41 +645,42 @@ export default function ClientsList() {
   // Show verification required message
   if (token && isVerified === false) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="clients-page">
         <PsychologistNavbar />
         <VerificationRequired verificationStatus={verificationStatus} />
       </div>
     );
   }
 
+  const createdClientLink = buildInviteLink(createdClientToken);
+
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="clients-page">
       <PsychologistNavbar />
-      <main style={{ flex: 1, padding: isNarrow ? '12px 12px 16px' : isMobile ? '16px 16px 20px' : '32px 48px', maxWidth: '100%', overflowX: 'hidden' }}>
+      <main className={`clients-page__main${isNarrow ? ' clients-page__main--narrow' : isMobile ? ' clients-page__main--mobile' : ''}`}>
         {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr auto', alignItems: 'center', gap: isMobile ? 10 : 16, marginBottom: isMobile ? 14 : 32 }}>
+        <div className={`clients-page__header${isMobile ? ' clients-page__header--mobile' : ''}`}>
           <div data-tour="clients-header">
-            <h1 style={{ margin: 0, fontSize: isNarrow ? 22 : isMobile ? 26 : 32, fontWeight: 800, marginBottom: isMobile ? 4 : 8 }}>Мои клиенты</h1>
-            <form onSubmit={onSearch} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: isMobile ? 8 : 12, maxWidth: isMobile ? '100%' : 600 }}>
+            <h1 className="clients-page__h1">Мои клиенты</h1>
+            <form onSubmit={onSearch} className="clients-page__search" style={{ maxWidth: isMobile ? '100%' : 600 }}>
               <div style={{ position: 'relative', flex: 1 }}>
-                <span style={{ position: 'absolute', left: 10, top: isMobile ? 8 : 10, opacity: .7 }}>🔎</span>
-                <input style={{ width: '100%', padding: isMobile ? '8px 10px 8px 30px' : '10px 12px 10px 34px', borderRadius: 12, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)', minWidth: 0, fontSize: isMobile ? 14 : 15 }} placeholder="Поиск: клиенты, сны, архетипы" value={query} onChange={e => setQuery(e.target.value)} />
+                <input className="clients-page__search-input" style={{ paddingLeft: 30, fontSize: isMobile ? 14 : 15 }} placeholder="Поиск: клиенты, сны, архетипы" value={query} onChange={e => setQuery(e.target.value)} />
               </div>
             </form>
           </div>
-          <div data-tour="clients-add" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: isMobile ? 'stretch' : 'flex-end' }}>
+          <div data-tour="clients-add" className={`clients-page__header-actions${isMobile ? ' clients-page__header-actions--mobile' : ''}`}>
             <PsychologistTourHelpButton tourId="clients" steps={PSYCHOLOGIST_CLIENTS_TOUR_STEPS} userId={user?.id} role={user?.role} />
             {clientView === 'active' && (
-              <button className="button" onClick={() => setShowModal(true)} style={{ padding: isMobile ? '8px 12px' : '10px 20px', fontSize: isMobile ? 14 : 15 }}>Добавить клиента</button>
+              <button className="clients-page__btn" onClick={() => setShowModal(true)} style={{ padding: isMobile ? '8px 12px' : undefined, fontSize: isMobile ? 14 : undefined }}>Добавить клиента</button>
             )}
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }} data-tour="clients-views">
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="clients-page__views" data-tour="clients-views">
+          <div className="clients-page__views-tabs">
             <button
               type="button"
-              className={clientView === 'active' ? 'button' : 'button secondary'}
+              className={clientView === 'active' ? 'clients-page__btn' : 'clients-page__btn clients-page__btn--secondary'}
               onClick={() => setClientView('active')}
               style={{ padding: '8px 14px', fontSize: 13 }}
             >
@@ -655,14 +688,14 @@ export default function ClientsList() {
             </button>
             <button
               type="button"
-              className={clientView === 'archive' ? 'button' : 'button secondary'}
+              className={clientView === 'archive' ? 'clients-page__btn' : 'clients-page__btn clients-page__btn--secondary'}
               onClick={() => setClientView('archive')}
               style={{ padding: '8px 14px', fontSize: 13 }}
             >
               Архив
             </button>
           </div>
-          <span className="small" style={{ color: 'var(--text-muted)' }}>
+          <span className="clients-page__count">
             {clientView === 'archive' ? 'Архив' : 'Активные'}: {filteredItems.length}
             <span style={{ opacity: .6 }}> / {items.length}</span>
           </span>
@@ -677,13 +710,13 @@ export default function ClientsList() {
                 className={`clients-crm-filters__chip${crmFilter === f.id ? ' is-active' : ''}`}
                 onClick={() => setCrmFilter(f.id)}
               >
-                {f.label}
+                {f.label} ({countCrmFilter(f.id)})
               </button>
             ))}
           <div className="clients-crm-filters__right" data-tour="clients-tags">
             <button
               type="button"
-              className={`button${tagFiltersOpen || selectedTags.length > 0 ? '' : ' secondary'}`}
+              className={`clients-page__btn${tagFiltersOpen || selectedTags.length > 0 ? '' : ' clients-page__btn--secondary'}`}
               onClick={openTagFilters}
               style={{ padding: '7px 14px', fontSize: 13 }}
             >
@@ -749,7 +782,7 @@ export default function ClientsList() {
             </div>
           </div>
         )}
-        {error && <div style={{ color: 'red', marginTop: 10 }}>{error}</div>}
+        {error && <div className="clients-page__error">{error}</div>}
 
         <div
           data-tour="clients-grid"
@@ -768,6 +801,7 @@ export default function ClientsList() {
               onEdit={openEditClient}
               onEndTherapy={endTherapy}
               onRestoreTherapy={restoreTherapy}
+              onWrite={(client) => openMessenger({ clientName: client.name || null, roomId: null })}
               tagColor={getColorForLabel}
             />
           ))}
@@ -790,58 +824,30 @@ export default function ClientsList() {
 
         {/* Modal for showing registration link */}
         {showLinkModal && createdClientLink && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1001, padding: 16 }}>
-            <div className="card" style={{ width: 'min(600px, 94vw)', padding: 24, border: fieldBorder, boxShadow: '0 20px 60px rgba(0,0,0,0.45)', borderRadius: 16 }} onClick={e => e.stopPropagation()}>
+          <div className="clients-page__modal-overlay">
+            <div className="clients-page__modal clients-page__modal--narrow" onClick={e => e.stopPropagation()}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 20 }}>
                 <div>
-                  <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>Клиент создан!</div>
-                  <div className="small" style={{ color: 'var(--text-muted)' }}>Отправьте эту ссылку клиенту для регистрации</div>
+                  <div className="clients-page__modal-title" style={{ marginBottom: 4 }}>Клиент создан!</div>
+                  <div className="clients-page__modal-sub">Отправьте эту ссылку клиенту для регистрации</div>
                 </div>
-                <button className="button secondary" onClick={() => { setShowLinkModal(false); setCreatedClientLink(null); }} style={{ padding: '6px 10px', fontSize: 13 }}>✕</button>
+                <button className="clients-page__btn clients-page__btn--secondary" onClick={() => { setShowLinkModal(false); setCreatedClientToken(null); }} style={{ padding: '6px 10px', fontSize: 13 }}>✕</button>
               </div>
               
               <div style={{ marginBottom: 16 }}>
-                <div className="small" style={{ marginBottom: 8, color: 'var(--text-muted)' }}>Ссылка для регистрации:</div>
+                <div className="clients-page__modal-sub" style={{ marginBottom: 8 }}>Ссылка для регистрации:</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input 
                     readOnly
                     value={createdClientLink}
-                    style={{ 
-                      flex: 1, 
-                      padding: '12px 16px', 
-                      borderRadius: 10, 
-                      border: fieldBorder, 
-                      background: 'var(--surface-2)', 
-                      color: 'var(--text)',
-                      fontSize: 13,
-                      fontFamily: 'monospace'
-                    }}
+                    className="clients-page__field"
+                    style={{ flex: 1, fontFamily: 'monospace', fontSize: 13 }}
                   />
                   <button
-                    className="button"
+                    className="clients-page__btn"
                     onClick={async () => {
-                      try {
-                        // Пробуем использовать современный Clipboard API
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                          await navigator.clipboard.writeText(createdClientLink);
-                          alert('Ссылка скопирована!');
-                        } else {
-                          // Fallback для старых браузеров
-                          const input = document.createElement('input');
-                          input.value = createdClientLink;
-                          input.style.position = 'fixed';
-                          input.style.opacity = '0';
-                          document.body.appendChild(input);
-                          input.select();
-                          input.setSelectionRange(0, 99999);
-                          document.execCommand('copy');
-                          document.body.removeChild(input);
-                          alert('Ссылка скопирована!');
-                        }
-                      } catch (err) {
-                        console.error('Failed to copy:', err);
-                        alert('Не удалось скопировать ссылку. Скопируйте её вручную из поля выше.');
-                      }
+                      await copyText(createdClientLink);
+                      alert('Ссылка скопирована!');
                     }}
                     style={{ padding: '12px 20px', fontSize: 13, whiteSpace: 'nowrap' }}
                   >
@@ -850,11 +856,9 @@ export default function ClientsList() {
                 </div>
               </div>
               
-              <div style={{ padding: 12, background: 'rgba(91, 124, 250, 0.1)', borderRadius: 10, border: '1px solid rgba(91, 124, 250, 0.2)' }}>
-                <div className="small" style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                  <strong>Важно:</strong> Клиент должен пройти регистрацию по этой ссылке, чтобы получить доступ к своему профилю. 
-                  Ссылка действительна 7 дней.
-                </div>
+              <div className="clients-page__info-box">
+                <strong>Важно:</strong> Клиент должен пройти регистрацию по этой ссылке, чтобы получить доступ к своему профилю. 
+                Ссылка действительна 7 дней.
               </div>
             </div>
           </div>
@@ -862,17 +866,10 @@ export default function ClientsList() {
 
         {/* Modal for editing client */}
         {editingClient && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}>
+          <div className="clients-page__modal-overlay">
             <div
-              className="card"
-              style={{
-                width: 'min(720px, 96vw)',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-                padding: isMobile ? 14 : 20,
-                border: fieldBorder,
-                borderRadius: 16
-              }}
+              className="clients-page__modal"
+              style={{ padding: isMobile ? 14 : 20 }}
               onClick={e => e.stopPropagation()}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -894,9 +891,9 @@ export default function ClientsList() {
                 <div>
                   <div className="small" style={{ marginBottom: 6 }}>Теги</div>
                   <div style={{ display: 'grid', gap: 8, gridTemplateColumns: isMobile ? '1fr' : '1fr auto auto', alignItems: 'center' }}>
-                    <input placeholder="Новый тег" value={editTagInput} onChange={e => setEditTagInput(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
-                    <input type="color" value={editTagColor} onChange={e => setEditTagColor(e.target.value)} style={{ width: isMobile ? '100%' : 56, height: 38, padding: 0, border: 'none', background: 'transparent' }} />
-                    <button type="button" className="button secondary" onClick={addEditTag} style={{ padding: '6px 10px', fontSize: 13 }}>Добавить тег</button>
+                    <input placeholder="Новый тег" value={editTagInput} onChange={e => setEditTagInput(e.target.value)} className="clients-page__field" />
+                    <ColorDotPalette value={editTagColor} onChange={setEditTagColor} />
+                    <button type="button" className="clients-page__btn clients-page__btn--secondary" onClick={addEditTag} style={{ padding: '6px 10px', fontSize: 13 }}>Добавить тег</button>
                   </div>
                   {editTags.length > 0 && (
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
@@ -910,8 +907,8 @@ export default function ClientsList() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                  <button type="button" className="button secondary" onClick={closeEditClient} style={{ padding: '8px 12px', fontSize: 13 }}>Отмена</button>
-                  <button className="button" type="submit" disabled={savingEdit} style={{ padding: '8px 12px', fontSize: 13 }}>
+                  <button type="button" className="clients-page__btn clients-page__btn--secondary" onClick={closeEditClient} style={{ padding: '8px 12px', fontSize: 13 }}>Отмена</button>
+                  <button className="clients-page__btn" type="submit" disabled={savingEdit} style={{ padding: '8px 12px', fontSize: 13 }}>
                     {savingEdit ? 'Сохранение…' : 'Сохранить'}
                   </button>
                 </div>
@@ -922,19 +919,10 @@ export default function ClientsList() {
 
         {/* Modal for adding client */}
         {showModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}>
+          <div className="clients-page__modal-overlay">
             <div
-              className="card"
-              style={{
-                width: 'min(720px, 96vw)',
-                maxHeight: '90vh',
-                overflowY: 'auto',
-                overflowX: 'hidden',
-                padding: isMobile ? 14 : 20,
-                border: fieldBorder,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
-                borderRadius: 16
-              }}
+              className="clients-page__modal"
+              style={{ padding: isMobile ? 14 : 20 }}
               onClick={e => e.stopPropagation()}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -966,9 +954,9 @@ export default function ClientsList() {
                 <div>
                   <div className="small" style={{ marginBottom: 6 }}>Теги</div>
                   <div style={{ display: 'grid', gap: 8, gridTemplateColumns: isMobile ? '1fr' : '1fr auto auto', alignItems: 'center' }}>
-                    <input placeholder="Новый тег" value={tagInput} onChange={e => setTagInput(e.target.value)} style={{ width: '100%', minWidth: 0, padding: '10px 12px', borderRadius: 10, border: fieldBorder, background: 'var(--surface-2)', color: 'var(--text)' }} />
-                    <input type="color" value={tagColor} onChange={e => setTagColor(e.target.value)} title="Цвет тега" style={{ width: isMobile ? '100%' : 56, height: 38, padding: 0, border: 'none', background: 'transparent' }} />
-                    <button type="button" className="button secondary" onClick={addTag} style={{ padding: '6px 10px', fontSize: 13, width: isMobile ? '100%' : 'auto' }}>Добавить тег</button>
+                    <input placeholder="Новый тег" value={tagInput} onChange={e => setTagInput(e.target.value)} className="clients-page__field" style={{ minWidth: 0 }} />
+                    <ColorDotPalette value={tagColor} onChange={setTagColor} />
+                    <button type="button" className="clients-page__btn clients-page__btn--secondary" onClick={addTag} style={{ padding: '6px 10px', fontSize: 13, width: isMobile ? '100%' : 'auto' }}>Добавить тег</button>
                   </div>
                   {/* Suggestions */}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>

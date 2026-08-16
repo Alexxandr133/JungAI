@@ -1,0 +1,56 @@
+.res-steps {
+  padding: calc(var(--section-y) + 16px) 0;
+  background: var(--paper-soft);
+}
+
+/* Специфичность выше, чем .landing .landing-h2 { margin: 0 } */
+.landing .res-steps .res-steps__title {
+  margin: 0 0 40px;
+}
+
+.res-steps__list {
+  margin: 0 0 32px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.res-steps__card {
+  padding: 26px 22px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.res-steps__num {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.res-steps__card-title {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.res-steps__banner {
+  margin: 0;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: var(--peach-soft);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+@media (max-width: 800px) {
+  .res-steps__list {
+    grid-template-columns: 1fr;
+  }
+}

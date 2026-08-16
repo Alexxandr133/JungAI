@@ -1,0 +1,467 @@
+/* Рабочий стол психолога — §17 DESIGN_BRIEF (mist tokens) */
+.psy-desk {
+  --paper: #f5f3fb;
+  --paper-soft: #ece9f8;
+  --card: #ffffff;
+  --card-border: #d8d2ee;
+  --line: #e2dff0;
+  --ink: #1f1a33;
+  --ink-soft: #5c5678;
+  --ink-muted: #8a8496;
+  --brand: #6c5bd4;
+  --brand-deep: #5546b8;
+  --brand-soft: #efebfc;
+  --surface-2: #f3f1fa;
+  --shadow-card: 0 1px 2px rgba(38, 33, 66, 0.05), 0 10px 28px rgba(38, 33, 66, 0.1);
+  --shadow-card-hover: 0 2px 4px rgba(38, 33, 66, 0.06), 0 14px 34px rgba(38, 33, 66, 0.13);
+  --danger: #d4574e;
+  --font-display: 'Lora', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Golos Text', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.psy-desk__main {
+  flex: 1;
+  padding: 24px clamp(16px, 5vw, 48px);
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.psy-desk__header {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.psy-desk__h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink);
+}
+
+.psy-desk__h1-icon {
+  color: var(--brand);
+  display: inline-flex;
+}
+
+.psy-desk__card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+
+.psy-desk__welcome {
+  margin-bottom: 16px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--brand-soft);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+}
+
+.psy-desk__welcome-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.psy-desk__date {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.psy-desk__greeting {
+  font-size: 22px;
+  font-weight: 600;
+  font-family: var(--font-display);
+  color: var(--ink);
+  margin: 0;
+}
+
+.psy-desk__welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.psy-desk__note-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 700;
+  position: relative;
+}
+
+.psy-desk__note-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+}
+
+.psy-desk__note-btn:hover::after,
+.psy-desk__note-btn:focus-visible::after {
+  opacity: 1;
+}
+
+.psy-desk__note-btn--open {
+  border-color: var(--brand);
+  background: var(--card);
+  color: var(--brand);
+}
+
+.psy-desk__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.psy-desk__btn--primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+.psy-desk__btn--primary:hover {
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+  color: #fff;
+}
+
+.psy-desk__btn--ghost {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.psy-desk__btn--ghost:hover {
+  background: var(--paper-soft);
+}
+
+.psy-desk__session {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.psy-desk__session-label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.psy-desk__session-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.psy-desk__session-meta {
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.psy-desk__session-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.psy-desk__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--paper-soft);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.psy-desk__chip:hover {
+  filter: brightness(0.97);
+}
+
+.psy-desk__chip--accent {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand-deep);
+  font-weight: 600;
+}
+
+.psy-desk__notebook {
+  margin-bottom: 16px;
+  padding: 14px;
+  overflow-x: hidden;
+}
+
+.psy-desk__quick {
+  margin-bottom: 16px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.psy-desk__quick-btn {
+  text-align: left;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: box-shadow 0.18s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.psy-desk__quick-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--brand);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.psy-desk__nav {
+  margin-bottom: 16px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.psy-desk__nav-card {
+  text-align: left;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  transition: box-shadow 0.18s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.psy-desk__nav-card:hover {
+  border-color: var(--brand);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.psy-desk__nav-main {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+}
+
+.psy-desk__nav-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.psy-desk__nav-note {
+  font-size: 14px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.psy-desk__nav-live {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.psy-desk__nav-live--empty {
+  color: var(--ink-muted);
+  cursor: default;
+  pointer-events: none;
+  user-select: none;
+}
+
+.psy-desk__nav-live--active {
+  color: var(--brand);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.psy-desk__nav-live--active:hover {
+  color: var(--brand-deep);
+  text-decoration: underline;
+}
+
+.psy-desk__widgets-grid .card.psy-desk-widget {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+  transition: box-shadow 0.18s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.psy-desk__widgets-grid .card.psy-desk-widget--clickable {
+  cursor: pointer;
+}
+
+.psy-desk__widgets-grid .card.psy-desk-widget--clickable:hover {
+  background: var(--surface-2);
+  border-color: var(--brand);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.psy-desk__widgets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.psy-desk__widgets-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.psy-desk__widgets-hint {
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.psy-desk__widgets-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 0;
+  padding-bottom: 12px;
+}
+
+.psy-desk__widgets-grid .card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+
+.psy-desk__error {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #fbeae8;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.psy-desk__loading {
+  text-align: center;
+  padding: 48px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .psy-desk__widgets-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .psy-desk__quick {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .psy-desk__quick-btn {
+    min-height: 88px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

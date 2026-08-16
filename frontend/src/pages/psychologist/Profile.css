@@ -1,0 +1,738 @@
+/* Редактор профиля психолога — landing-токены (§13). Кабинетный Navbar снаружи. */
+
+.psy-profile-editor {
+  flex: 1;
+  min-height: 0;
+  padding: 28px clamp(16px, 4vw, 40px) 120px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.psy-profile-editor.is-dirty {
+  padding-bottom: 160px;
+}
+
+.psy-profile-editor__title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(28px, 3vw, 34px);
+  color: var(--ink);
+}
+
+.psy-profile-editor__lead {
+  margin: 0 0 24px;
+  color: var(--ink-muted);
+  font-size: 15px;
+}
+
+.psy-profile-editor__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .psy-profile-editor__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .psy-profile-editor__preview {
+    display: none;
+  }
+}
+
+.psy-profile-editor__form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.psy-profile-editor__preview {
+  position: sticky;
+  top: 88px;
+  align-self: start;
+  max-height: calc(100vh - 100px);
+  overflow: auto;
+  padding-bottom: 16px;
+}
+
+.psy-profile-live-preview {
+  min-width: 0;
+}
+
+.psy-profile-editor__preview-label {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.psy-profile-editor__preview-link {
+  display: inline-flex;
+  margin-top: 12px;
+}
+
+/* Зоны */
+.psy-profile-zone {
+  background: var(--card);
+  border: 1px solid var(--card-border, var(--line));
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 24px clamp(16px, 3vw, 28px);
+}
+
+.psy-profile-zone--account {
+  padding: 20px clamp(16px, 3vw, 24px);
+}
+
+.psy-profile-zone__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.psy-profile-zone__eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+.psy-profile-zone__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.psy-profile-zone__subtitle {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+
+/* Полнота §13.5 */
+.psy-profile-complete {
+  min-width: min(100%, 260px);
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2, #f3f1fa);
+  border: 1px solid var(--line);
+}
+
+.psy-profile-complete__progress {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.psy-profile-complete__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.psy-profile-complete__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.psy-profile-complete__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.psy-profile-complete__list li {
+  font-size: 12px;
+  color: var(--ink-muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.psy-profile-complete__list li.is-done {
+  color: var(--sage);
+}
+
+.psy-profile-complete__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.4;
+}
+
+/* Секции формы */
+.psy-profile-section {
+  margin-top: 28px;
+}
+
+.psy-profile-section:first-of-type {
+  margin-top: 0;
+}
+
+.psy-profile-section__title {
+  margin: 0 0 6px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.psy-profile-section__help {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-muted);
+}
+
+.psy-profile-fields {
+  display: grid;
+  gap: 14px;
+}
+
+.psy-profile-fields--2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 640px) {
+  .psy-profile-fields--2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.psy-profile-field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.psy-profile-input,
+.psy-profile-textarea,
+.psy-profile-select {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+}
+
+.psy-profile-textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.55;
+}
+
+.psy-profile-input:focus,
+.psy-profile-textarea:focus,
+.psy-profile-select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-soft);
+  border-color: var(--brand);
+}
+
+.psy-profile-input::placeholder,
+.psy-profile-textarea::placeholder {
+  color: var(--ink-muted);
+}
+
+.psy-profile-counter {
+  margin-top: 6px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.psy-profile-counter.is-warn {
+  color: #b42318;
+}
+
+/* Аватар + верификация в каталоге */
+.psy-profile-avatar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.psy-profile-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 3px solid var(--card);
+  background: var(--paper-soft);
+  box-shadow: 0 4px 16px rgba(35, 32, 43, 0.1);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 600;
+  color: var(--brand-deep);
+}
+
+.psy-profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.psy-profile-avatar-meta {
+  flex: 1;
+  min-width: 180px;
+}
+
+.psy-profile-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.psy-profile-badge--ok {
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+
+.psy-profile-badge--pending {
+  background: var(--peach-soft);
+  color: #9a6b2f;
+}
+
+.psy-profile-badge--rej {
+  background: #fde8e8;
+  color: #b42318;
+}
+
+.psy-profile-badge--none {
+  background: var(--paper-soft);
+  color: var(--ink-muted);
+}
+
+/* Теги §13.3 */
+.psy-profile-tag-search {
+  margin-bottom: 10px;
+}
+
+.psy-profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.psy-profile-tags--selected {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.psy-profile-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.psy-profile-tag:hover {
+  border-color: var(--ink-muted);
+}
+
+.psy-profile-tag.is-on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+.psy-profile-tag__x {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.psy-profile-tag.is-on .psy-profile-tag__x:hover {
+  opacity: 1;
+}
+
+.psy-profile-audience {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.psy-profile-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.psy-profile-chip.is-on {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+
+/* Образование */
+.psy-profile-edu {
+  display: grid;
+  gap: 12px;
+}
+
+.psy-profile-edu-card {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2, #f3f1fa);
+  display: grid;
+  gap: 10px;
+}
+
+.psy-profile-edu-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* Оформление */
+.psy-profile-cover-preview {
+  height: 100px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, var(--peach-soft), var(--brand-soft));
+}
+
+.psy-profile-cover-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.psy-profile-accents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.psy-profile-accent {
+  box-sizing: border-box;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+  border: 2px solid rgba(35, 32, 43, 0.12) !important;
+  cursor: pointer;
+  flex-shrink: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: none !important;
+  background-color: var(--swatch, #3d6b5a) !important;
+  box-shadow: none;
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.psy-profile-accent:hover {
+  border-color: rgba(35, 32, 43, 0.35) !important;
+  transform: scale(1.06);
+}
+
+.psy-profile-accent:focus,
+.psy-profile-accent:focus-visible {
+  outline: 3px solid var(--brand-soft) !important;
+  outline-offset: 2px;
+}
+
+.psy-profile-accent.is-on {
+  box-shadow: 0 0 0 2px var(--ink);
+  border-color: #fff !important;
+}
+
+/* Аккаунт */
+.psy-profile-account-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.psy-profile-account-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.psy-profile-account-row:first-child {
+  padding-top: 0;
+}
+
+.psy-profile-account-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+.psy-profile-account-value {
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.psy-profile-account-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.45;
+}
+
+/* Верификация баннер */
+.psy-profile-verify {
+  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  border: 1px solid #e8d4a8;
+  background: var(--peach-soft);
+  margin-bottom: 20px;
+}
+
+.psy-profile-verify h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.psy-profile-verify p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.psy-profile-alert {
+  padding: 12px 14px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.psy-profile-alert--ok {
+  background: var(--sage-soft);
+  color: var(--sage);
+  border: 1px solid #b7d9c8;
+}
+
+.psy-profile-alert--err {
+  background: #fde8e8;
+  color: #b42318;
+  border: 1px solid #f5c2c0;
+}
+
+/* Sticky save §13.6 */
+.psy-profile-savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px clamp(16px, 4vw, 40px) calc(14px + env(safe-area-inset-bottom));
+  background: var(--card, #ffffff);
+  color: var(--ink, #23202b);
+  border-top: 1px solid var(--line, #e8e2d9);
+  box-shadow: 0 -8px 24px rgba(35, 32, 43, 0.08);
+  /* Не наследовать layout .landing (min-height: 100vh) — иначе белый экран поверх формы */
+  min-height: 0;
+}
+
+.psy-profile-savebar__msg {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.psy-profile-savebar__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Mobile preview FAB + sheet */
+.psy-profile-fab {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: 88px;
+  z-index: 45;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(108, 91, 212, 0.35);
+  cursor: pointer;
+}
+
+.psy-profile-fab--raised {
+  bottom: 150px;
+}
+
+@media (max-width: 1100px) {
+  .psy-profile-fab {
+    display: inline-flex;
+  }
+}
+
+.psy-profile-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  background: rgba(35, 32, 43, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+
+.psy-profile-sheet__panel {
+  width: min(720px, 100%);
+  max-height: 92vh;
+  overflow: auto;
+  background: var(--paper);
+  border-radius: 20px 20px 0 0;
+  padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+}
+
+.psy-profile-sheet__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.psy-profile-file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.psy-profile-file-btn:hover {
+  background: var(--paper-soft);
+}
+
+.psy-profile-file-btn.is-busy {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.psy-profile-phone {
+  display: grid;
+  grid-template-columns: minmax(96px, 110px) 1fr;
+  gap: 10px;
+}
+
+.psy-profile-phone__national {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.psy-profile-phone__national input {
+  flex: 1;
+  padding: 12px 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  outline: none;
+  min-width: 0;
+  font-family: var(--font-ui);
+}
+
+.psy-profile-phone__dial {
+  color: var(--ink-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}

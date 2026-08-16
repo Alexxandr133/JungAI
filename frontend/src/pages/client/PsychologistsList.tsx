@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
+import { yearsWord } from '../../lib/ruPlural';
 import { ClientNavbar } from '../../components/ClientNavbar';
 import '../../styles/tokens.css';
 
@@ -20,6 +22,7 @@ type Psychologist = {
 
 export default function ClientPsychologistsList() {
   const { token } = useAuth();
+  const { openMessenger } = useMessengerUi();
   const navigate = useNavigate();
   const [psychologists, setPsychologists] = useState<Psychologist[]>([]);
   const [myPsychologist, setMyPsychologist] = useState<Psychologist | null>(null);
@@ -138,7 +141,7 @@ export default function ClientPsychologistsList() {
       setSelectedPsychologist(null);
       setRequestMessage('');
       if (requestType === 'chat' && created?.chatRoomId) {
-        navigate(`/chat?roomId=${encodeURIComponent(created.chatRoomId)}`);
+        openMessenger({ roomId: created.chatRoomId });
       }
     } catch (e: any) {
       alert('Ошибка: ' + (e.message || 'Не удалось отправить запрос'));
@@ -198,7 +201,7 @@ export default function ClientPsychologistsList() {
           {/* Search - только для неприкрепленных клиентов */}
           {!hasAttachedPsychologist && (
             <div style={{ position: 'relative', maxWidth: 600, marginBottom: 32 }}>
-              <span style={{ position: 'absolute', left: 12, top: 10, opacity: .7 }}>🔎</span>
+              <span style={{ position: 'absolute', left: 12, top: 10, opacity: .7 }}></span>
               <input
                 type="text"
                 value={query}
@@ -344,7 +347,7 @@ export default function ClientPsychologistsList() {
                     </div>
                     {psych.experience && (
                       <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Опыт: {psych.experience} {psych.experience === 1 ? 'год' : psych.experience < 5 ? 'года' : 'лет'}
+                        Опыт: {psych.experience} {yearsWord(psych.experience)}
                       </div>
                     )}
                   </div>
@@ -561,7 +564,7 @@ export default function ClientPsychologistsList() {
                 <div style={{ marginBottom: 24 }}>
                   <h3 style={{ margin: '0 0 12px 0', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Опыт работы</h3>
                   <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
-                    {selectedPsychologist.experience} {selectedPsychologist.experience === 1 ? 'год' : selectedPsychologist.experience < 5 ? 'года' : 'лет'}
+                    {selectedPsychologist.experience} {yearsWord(selectedPsychologist.experience)}
                   </p>
                 </div>
               )}

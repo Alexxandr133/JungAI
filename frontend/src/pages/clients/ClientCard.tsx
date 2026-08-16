@@ -1,6 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { KeyboardEvent } from 'react';
-import { Copy, Mail, Pencil, Phone, RotateCw } from 'lucide-react';
+import { Copy, Mail, MoreHorizontal, Phone, RotateCw } from 'lucide-react';
 import './ClientsList.css';
 
 type ClientTag = { label: string; color?: string };
@@ -13,9 +13,10 @@ export type ClientCardData = {
   age?: number | null;
   city?: string | null;
   tags?: ClientTag[];
+  createdAt?: string | Date | null;
   therapyEndedAt?: string | null;
   registrationPending?: boolean;
-  registrationLink?: string | null;
+  registrationToken?: string | null;
   tokenExpiresAt?: string | null;
   platformRegistered?: boolean;
   registrationStatus?: 'registered' | 'pending' | 'expired' | 'archived';
@@ -40,7 +41,21 @@ type Props = {
   onEdit: (client: ClientCardData) => void;
   onEndTherapy: (id: string, name?: string) => void;
   onRestoreTherapy: (id: string, name?: string) => void;
+  onWrite?: (client: ClientCardData) => void;
   tagColor: (label: string) => string;
+};
+
+export function buildInviteLink(token: string | null | undefined) {
+  if (!token) return null;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${origin}/register-client?token=${token}`;
+}
+
+const STATUS_LABELS: Record<ClientVisualStatus, string> = {
+  registered: 'В терапии',
+  pending: 'Ожидает регистрации',
+  expired: 'Инвайт истёк',
+  archived: 'В архиве',
 };
 
 function resolveVisualStatus(c: ClientCardData, archived: boolean): ClientVisualStatus {
@@ -66,6 +81,13 @@ function formatShortDate(value?: string | Date | null): string | null {
   });
 }
 
+function formatTherapySince(value?: string | Date | null): string | null {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
 export function ClientCard({
   client: c,
   clientView,
@@ -77,37 +99,51 @@ export function ClientCard({
   onEdit,
   onEndTherapy,
   onRestoreTherapy,
+  onWrite,
   tagColor,
 }: Props) {
   const navigate = useNavigate();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const archived = Boolean(c.therapyEndedAt);
   const status = resolveVisualStatus(c, archived);
+  const inviteLink = buildInviteLink(c.registrationToken);
   const showRegBox =
     clientView === 'active' &&
-    c.registrationLink &&
+    inviteLink &&
     (status === 'pending' || status === 'expired');
+  const canRefreshInvite =
+    (status === 'pending' || status === 'expired') && Boolean(c.registrationToken);
+  const hasTags = Array.isArray(c.tags) && c.tags.length > 0;
+  const subtitle =
+    status === 'registered' || status === 'archived'
+      ? c.createdAt
+        ? `В терапии с ${formatTherapySince(c.createdAt)}`
+        : 'В терапии'
+      : 'Не зарегистрирован';
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [menuOpen]);
 
   function openProfile() {
     navigate(`/clients/${c.id}/profile`);
   }
 
-  function onCardKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      openProfile();
-    }
+  function openWorkspace() {
+    navigate(`/psychologist/work-area?client=${c.id}`);
   }
 
   return (
-    <article
-      className={`client-card client-card--${status}`}
-      role="link"
-      tabIndex={0}
-      onClick={openProfile}
-      onKeyDown={onCardKeyDown}
-      aria-label={`Профиль клиента ${c.name || ''}`}
-    >
-      <div className="client-card__stripe" aria-hidden />
+    <article className={`client-card client-card--${status}`}>
       <div className="client-card__body">
         <div className="client-card__head">
           <div className="client-card__avatar-wrap">
@@ -120,46 +156,41 @@ export function ClientCard({
             )}
           </div>
           <div className="client-card__identity">
-            <h2 className="client-card__name">{c.name}</h2>
-            <div className="client-card__meta">
-              {c.city ? <span>{c.city}</span> : null}
-              {c.city && c.age ? <span className="client-card__meta-sep">•</span> : null}
-              {c.age ? <span>{c.age} лет</span> : null}
-              {!c.city && !c.age ? <span>Клиент</span> : null}
+            <div className="client-card__title-row">
+              <h2 className="client-card__name">{c.name}</h2>
+              <span className={`client-card__badge client-card__badge--${status}`}>
+                {STATUS_LABELS[status]}
+              </span>
             </div>
+            <div className="client-card__subtitle">{subtitle}</div>
+            {(c.city || c.age) && (
+              <div className="client-card__meta">
+                {c.city ? <span>{c.city}</span> : null}
+                {c.city && c.age ? <span className="client-card__meta-sep">•</span> : null}
+                {c.age ? <span>{c.age} лет</span> : null}
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            className="client-card__edit-btn"
-            title="Изменить карточку"
-            aria-label="Изменить карточку клиента"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit(c);
-            }}
-          >
-            <Pencil size={17} strokeWidth={2} />
-          </button>
         </div>
 
         <div className="client-card__contact">
-          <div className="client-card__contact-row" title={c.email || undefined}>
-            <Mail size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
-            <span className={`client-card__contact-text${!c.email ? ' is-empty' : ''}`}>
-              {c.email || 'Email не указан'}
-            </span>
-          </div>
-          <div className="client-card__contact-row" title={c.phone || undefined}>
-            <Phone size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
-            <span className={`client-card__contact-text${!c.phone ? ' is-empty' : ''}`}>
-              {c.phone || 'Телефон не указан'}
-            </span>
-          </div>
+          {c.email && (
+            <div className="client-card__contact-row" title={c.email}>
+              <Mail size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
+              <span className="client-card__contact-text">{c.email}</span>
+            </div>
+          )}
+          {c.phone && (
+            <div className="client-card__contact-row" title={c.phone}>
+              <Phone size={15} strokeWidth={2} className="client-card__contact-icon" aria-hidden />
+              <span className="client-card__contact-text">{c.phone}</span>
+            </div>
+          )}
         </div>
 
-        <div className="client-card__tags">
-          {Array.isArray(c.tags) && c.tags.length > 0 ? (
-            c.tags.map((t, idx) => {
+        {hasTags && (
+          <div className="client-card__tags">
+            {c.tags!.map((t, idx) => {
               const hex =
                 typeof t.color === 'string' && t.color.startsWith('#')
                   ? t.color
@@ -170,17 +201,15 @@ export function ClientCard({
                   className="client-card__tag"
                   style={{
                     background: `color-mix(in srgb, ${hex} 18%, var(--surface-2))`,
-                    border: `1px solid color-mix(in srgb, ${hex} 40%, var(--navbar-edge))`,
+                    border: `1px solid color-mix(in srgb, ${hex} 40%, var(--line))`,
                   }}
                 >
                   {t.label}
                 </span>
               );
-            })
-          ) : (
-            <span className="client-card__tags-empty">Без тегов</span>
-          )}
-        </div>
+            })}
+          </div>
+        )}
 
         <div className="client-card__crm">
           <div className="client-card__crm-row">
@@ -207,32 +236,29 @@ export function ClientCard({
 
         <div className="client-card__extra">
           {showRegBox && (
-            <div
-              className="client-card__reg-box"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="client-card__reg-box">
               <div className="client-card__reg-title">
                 {status === 'expired' ? 'Ссылка регистрации истекла' : 'Ссылка для регистрации'}
               </div>
               <div className="client-card__reg-row">
                 <input
                   readOnly
-                  value={c.registrationLink!}
-                  title={c.registrationLink!}
+                  value={inviteLink!}
+                  title={inviteLink!}
                   className="client-card__reg-input"
                 />
                 <button
                   type="button"
                   className="client-card__icon-btn"
                   title="Копировать ссылку"
-                  onClick={() => onCopyLink(c.registrationLink!)}
+                  onClick={() => onCopyLink(inviteLink!)}
                 >
                   <Copy size={16} />
                 </button>
                 <button
                   type="button"
                   className={`client-card__icon-btn${refreshingLink ? ' client-card__icon-btn--spin' : ''}`}
-                  title="Нажав на эту кнопку, вы обновите токен регистрации"
+                  title="Обновить токен регистрации"
                   disabled={refreshingLink}
                   onClick={() => onRefreshLink(c.id)}
                 >
@@ -252,33 +278,98 @@ export function ClientCard({
           )}
         </div>
 
-        <div className="client-card__actions" onClick={(e) => e.stopPropagation()}>
-          {clientView === 'active' && (
+        <div className="client-card__actions">
+          <button type="button" className="clients-page__btn" onClick={openProfile}>
+            Профиль
+          </button>
+          {onWrite && clientView === 'active' ? (
             <button
               type="button"
-              className="button"
-              onClick={() => navigate(`/psychologist/work-area?client=${c.id}`)}
+              className="clients-page__btn clients-page__btn--secondary"
+              onClick={() => onWrite(c)}
             >
-              Рабочая область
+              Написать
             </button>
-          )}
-          {clientView === 'active' ? (
+          ) : null}
+          <div className="client-card__menu-wrap" ref={menuRef}>
             <button
               type="button"
-              onClick={() => onEndTherapy(c.id, c.name)}
-              className="button secondary client-card__actions-end"
+              className="client-card__menu-btn"
+              aria-label="Действия"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
             >
-              Завершить терапию
+              <MoreHorizontal size={18} />
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onRestoreTherapy(c.id, c.name)}
-              className="button client-card__actions-end"
-            >
-              Вернуть в активные
-            </button>
-          )}
+            {menuOpen && (
+              <div className="client-card__menu" role="menu">
+                <button
+                  type="button"
+                  className="client-card__menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onEdit(c);
+                  }}
+                >
+                  Изменить
+                </button>
+                {canRefreshInvite && (
+                  <button
+                    type="button"
+                    className="client-card__menu-item"
+                    role="menuitem"
+                    disabled={refreshingLink}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRefreshLink(c.id);
+                    }}
+                  >
+                    Обновить инвайт
+                  </button>
+                )}
+                {clientView === 'active' && (
+                  <button
+                    type="button"
+                    className="client-card__menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onEndTherapy(c.id, c.name);
+                    }}
+                  >
+                    Завершить терапию
+                  </button>
+                )}
+                {clientView === 'archive' && (
+                  <button
+                    type="button"
+                    className="client-card__menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRestoreTherapy(c.id, c.name);
+                    }}
+                  >
+                    Вернуть в активные
+                  </button>
+                )}
+                {clientView === 'active' && (
+                  <button
+                    type="button"
+                    className="client-card__menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      openWorkspace();
+                    }}
+                  >
+                    Рабочая область
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </article>

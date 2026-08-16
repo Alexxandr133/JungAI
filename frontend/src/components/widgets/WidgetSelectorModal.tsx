@@ -49,10 +49,10 @@ export default function WidgetSelectorModal({
           maxHeight: '80vh',
           overflow: 'hidden',
           padding: 0,
-          border: '1px solid rgba(255,255,255,0.1)',
+          border: '1px solid var(--card-border, var(--line))',
           borderRadius: 16,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-          background: 'var(--surface)',
+          boxShadow: 'var(--shadow-card-hover, var(--shadow-card))',
+          background: 'var(--card, var(--surface))',
           display: 'flex',
           flexDirection: 'column'
         }}
@@ -194,18 +194,6 @@ export default function WidgetSelectorModal({
                     }}
                   >
                     {widget.description}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: 8,
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                      display: 'flex',
-                      gap: 8,
-                      alignItems: 'center'
-                    }}
-                  >
-                    <span>Размер: {widget.defaultSize}</span>
                   </div>
                 </div>
                 <div

@@ -9,23 +9,78 @@ router.get('/analytics/dashboard', requireAuth, requireRole(['psychologist', 'ad
   try {
     const clients = await (prisma as any).client.findMany({
       where: { psychologistId: req.user!.id },
-      select: { id: true, name: true, email: true, createdAt: true }
+      select: { id: true, name: true, email: true, createdAt: true, therapyEndedAt: true }
     });
 
     const clientIds = clients.map((c: any) => c.id);
+    const activeClientIds = clients.filter((c: any) => !c.therapyEndedAt).map((c: any) => c.id);
 
     // Общая статистика
     const totalClients = clients.length;
+    const activeClients = activeClientIds.length;
     
     // Активные сессии (будущие)
+    const now = new Date();
     const activeSessions = await (prisma as any).event.findMany({
       where: {
         createdBy: req.user!.id,
         type: 'session',
-        startsAt: { gte: new Date() },
-        clientId: { in: clientIds }
+        startsAt: { gte: now },
+        clientId: { in: clientIds },
+        OR: [{ sessionStatus: null }, { sessionStatus: { not: 'declined' } }]
       },
-      select: { id: true, title: true, startsAt: true, clientId: true }
+      select: {
+        id: true,
+        title: true,
+        startsAt: true,
+        clientId: true,
+        type: true,
+        sessionStatus: true,
+        voiceRoom: { select: { roomId: true, roomUrl: true } }
+      },
+      orderBy: { startsAt: 'asc' }
+    });
+
+    const nextEvent = activeSessions[0] ?? null;
+    const nextClient = nextEvent?.clientId
+      ? clients.find((c: any) => c.id === nextEvent.clientId)
+      : null;
+    const nextSession = nextEvent
+      ? {
+          id: nextEvent.id,
+          title: nextEvent.title,
+          startsAt: nextEvent.startsAt,
+          clientId: nextEvent.clientId,
+          clientName: nextClient?.name ?? null,
+          type: nextEvent.type,
+          sessionStatus: nextEvent.sessionStatus ?? null,
+          roomUrl: nextEvent.voiceRoom?.roomUrl ?? null,
+          roomId: nextEvent.voiceRoom?.roomId ?? null
+        }
+      : null;
+
+    const pendingBookingRequests = await (prisma as any).calendarPublicBookingRequest.count({
+      where: { psychologistId: req.user!.id, status: 'pending' }
+    });
+    const pendingSupportMatch = await prisma.supportRequest.count({
+      where: {
+        psychologistId: req.user!.id,
+        clientId: { not: null },
+        status: 'open'
+      }
+    });
+    // Грубая сумма: календарные + support (дубли по email возможны редко; UI дедупит)
+    const pendingIncomingRequests = pendingBookingRequests + pendingSupportMatch;
+
+    const discussOnSessionDreams =
+      clientIds.length > 0
+        ? await (prisma as any).dream.count({
+            where: { clientId: { in: clientIds }, discussOnSession: true }
+          })
+        : 0;
+
+    const publicationDrafts = await (prisma as any).publicationPost.count({
+      where: { authorId: req.user!.id, status: 'draft' }
     });
 
     // Новые сны за неделю
@@ -126,9 +181,14 @@ router.get('/analytics/dashboard', requireAuth, requireRole(['psychologist', 'ad
 
     res.json({
       totalClients,
+      activeClients,
       activeSessions: activeSessions.length,
       newDreams: newDreams.length,
       newJournalEntries: newJournalEntries.length,
+      nextSession,
+      pendingBookingRequests: pendingIncomingRequests,
+      discussOnSessionDreams,
+      publicationDrafts,
       topClients: clientActivity.slice(0, 5),
       topSymbols,
       requiresAttention: {

@@ -8,6 +8,7 @@ import { loadPersonalityText } from '../../lib/psychologistAiPersonality';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { PlatformIcon } from '../../components/icons';
 import { VerificationRequired } from '../../components/VerificationRequired';
+import { ProfileCompletenessGate } from '../../components/ProfileCompletenessGate';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import '../../styles/tokens.css';
@@ -220,6 +221,7 @@ export default function PsychologistWorkspace() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <PsychologistNavbar />
+      <ProfileCompletenessGate />
       <main
         style={{
           flex: 1,

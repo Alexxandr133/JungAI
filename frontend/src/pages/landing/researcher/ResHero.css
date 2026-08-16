@@ -1,0 +1,121 @@
+.res-hero {
+  position: relative;
+  padding: calc(var(--section-y) + 8px) 0;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+.res-hero__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 56px;
+  align-items: center;
+}
+
+.res-hero__trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  padding-top: 16px;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.res-hero__stat {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.res-hero__stat-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.res-hero__trust-rkn {
+  flex: 1 1 180px;
+  min-width: 160px;
+  align-self: center;
+}
+
+.res-hero__visual {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.res-hero__hex-card {
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-mock);
+}
+
+.res-hero__hex-card .ind-hex {
+  max-width: 100%;
+  height: auto;
+}
+
+.res-hero__chart-card {
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+.res-hero__chart-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 18px;
+}
+
+.res-hero__chart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.res-hero__chart-row {
+  display: grid;
+  grid-template-columns: minmax(52px, 0.28fr) 1fr minmax(24px, auto);
+  gap: 10px;
+  align-items: center;
+}
+
+.res-hero__chart-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.res-hero__bar-track {
+  height: 10px;
+  border-radius: 8px;
+  background: var(--paper-soft);
+  overflow: hidden;
+}
+
+.res-hero__bar-fill {
+  height: 100%;
+  border-radius: 8px;
+  min-width: 4px;
+}
+
+.res-hero__chart-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .res-hero__grid {
+    grid-template-columns: 1fr;
+  }
+}

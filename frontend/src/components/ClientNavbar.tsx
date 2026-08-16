@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { UserMenu } from './ui';
-import { MessagesBell } from './MessagesBell';
 import { BrandLogo } from './BrandLogo';
 import { ThemeMenuButton } from './ThemeMenuButton';
 import { PlatformIcon, type PlatformIconName } from './icons';
@@ -49,13 +48,6 @@ export function ClientNavbar() {
         { label: 'Тесты', path: '/client/tests', icon: 'chart' },
         { label: 'Прогресс', path: '/client/progress', icon: 'chart' },
         { label: 'Сертификат', path: '/client/certificate', icon: 'star' }
-      ]
-    },
-    {
-      label: 'Сообщество',
-      icon: 'users',
-      children: [
-        { label: 'Сообщения', path: '/chat', icon: 'inbox' }
       ]
     },
     {
@@ -139,9 +131,7 @@ export function ClientNavbar() {
         gap: 24,
         position: 'relative'
       }}>
-        <div className="navbar-mobile-left" style={{ display: 'none' }}>
-          <MessagesBell />
-        </div>
+        <div className="navbar-mobile-left" style={{ display: 'none' }} />
 
         <div className="navbar-logo-wrap">
           <BrandLogo to="/client" />
@@ -303,11 +293,9 @@ export function ClientNavbar() {
           }}
           className="navbar-right-actions"
         >
-          <div className="navbar-desktop-icons" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <MessagesBell />
-          </div>
+          <div className="navbar-desktop-icons" style={{ display: 'flex', alignItems: 'center', gap: 12 }} />
           <div className="mobile-user-menu">
-            <UserMenu user={user as any} includeMobileMessagesItem />
+            <UserMenu user={user as any} />
           </div>
           <button
             type="button"

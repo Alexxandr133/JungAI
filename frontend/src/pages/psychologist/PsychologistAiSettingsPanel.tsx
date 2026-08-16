@@ -1,6 +1,11 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { PlatformIcon } from '../../components/icons';
-import { MODALITY_OPTIONS, type PsychologistAiSettings } from '../../lib/psychologistAiSettings';
+import { ThemeListbox } from '../../components/ThemeListbox';
+import {
+  MODALITY_OPTIONS,
+  type PsychologistAiSettings,
+  type ResponseStyle,
+} from '../../lib/psychologistAiSettings';
 
 type Props = {
   open: boolean;
@@ -20,6 +25,22 @@ type Props = {
   } | null;
 };
 
+const RESPONSE_STYLE_OPTIONS: Array<{ id: ResponseStyle; label: string }> = [
+  { id: 'concise', label: 'Кратко, по пунктам' },
+  { id: 'balanced', label: 'Сбалансированно' },
+  { id: 'detailed', label: 'Развёрнуто, с примерами' },
+];
+
+function formatQuotaLine(quota: NonNullable<Props['quota']>): string {
+  const used = quota.used.toLocaleString('ru-RU');
+  const limit = quota.limit.toLocaleString('ru-RU');
+  const reset = new Date(quota.resetAt).toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+  });
+  return `${used} / ${limit} · сброс ${reset}`;
+}
+
 export function PsychologistAiSettingsPanel({
   open,
   onClose,
@@ -28,7 +49,7 @@ export function PsychologistAiSettingsPanel({
   onApply,
   onOpenMemory,
   isMobileView,
-  quota
+  quota,
 }: Props) {
   if (!open) return null;
 
@@ -42,7 +63,7 @@ export function PsychologistAiSettingsPanel({
           inset: 0,
           background: 'rgba(0,0,0,0.45)',
           zIndex: 200,
-          animation: 'fadeIn 0.2s ease'
+          animation: 'fadeIn 0.2s ease',
         }}
       />
       <aside
@@ -54,23 +75,23 @@ export function PsychologistAiSettingsPanel({
           width: isMobileView ? 'min(100%, 380px)' : 380,
           maxWidth: '100vw',
           background: 'var(--surface)',
-          borderLeft: '1px solid rgba(255,255,255,0.1)',
+          borderLeft: '1px solid var(--border, rgba(255,255,255,0.1))',
           zIndex: 201,
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '-8px 0 32px rgba(0,0,0,0.35)',
-          animation: 'slideInRight 0.25s ease'
+          animation: 'slideInRight 0.25s ease',
         }}
       >
         <div
           style={{
             padding: '16px 18px',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            borderBottom: '1px solid var(--border, rgba(255,255,255,0.08))',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: 12,
-            flexShrink: 0
+            flexShrink: 0,
           }}
         >
           <div style={{ fontWeight: 800, fontSize: 16 }}>Настройки ИИ</div>
@@ -84,75 +105,60 @@ export function PsychologistAiSettingsPanel({
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: 18,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 20,
+          }}
+        >
           {quota && (
             <div
               style={{
                 padding: '12px 14px',
                 borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.1)',
-                background: 'var(--surface-2)'
+                border: '1px solid var(--border, rgba(255,255,255,0.1))',
+                background: 'var(--surface-2)',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                <span className="small" style={{ fontWeight: 700 }}>Токены AI ({quota.plan})</span>
-                <span className="small" style={{ color: 'var(--text-muted)' }}>
-                  {quota.used.toLocaleString('ru-RU')} / {quota.limit.toLocaleString('ru-RU')}
-                </span>
+              <div className="small" style={{ fontWeight: 700, marginBottom: 4 }}>
+                Квота токенов ({quota.plan})
               </div>
-              <div style={{ height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.09)', overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, Math.max(0, quota.percentageUsed))}%`,
-                    background:
-                      quota.percentageUsed >= 90
-                        ? 'linear-gradient(90deg, #ef4444, #dc2626)'
-                        : quota.percentageUsed >= 70
-                          ? 'linear-gradient(90deg, #f59e0b, #d97706)'
-                          : 'linear-gradient(90deg, #22c55e, #16a34a)',
-                    transition: 'width .25s ease'
-                  }}
-                />
+              <div style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {formatQuotaLine(quota)}
               </div>
               <p className="small" style={{ marginTop: 8, marginBottom: 0, color: 'var(--text-muted)', lineHeight: 1.45 }}>
-                Осталось: <b>{quota.remaining.toLocaleString('ru-RU')}</b>. Сброс лимита: {new Date(quota.resetAt).toLocaleDateString('ru-RU')}.
+                Осталось: <b>{quota.remaining.toLocaleString('ru-RU')}</b>
               </p>
             </div>
           )}
 
           <div>
-            <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            <label
+              className="small"
+              style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}
+            >
               Модальность
             </label>
-            <select
+            <ThemeListbox
+              ariaLabel="Модальность"
               value={draft.modality}
-              onChange={e =>
-                setDraft(d => ({ ...d, modality: e.target.value as PsychologistAiSettings['modality'] }))
-              }
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                fontSize: 14
-              }}
-            >
-              {MODALITY_OPTIONS.map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              options={MODALITY_OPTIONS.map((o) => ({ id: o.id, label: o.label }))}
+              onChange={(modality) => setDraft((d) => ({ ...d, modality }))}
+            />
             <p className="small" style={{ marginTop: 8, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
-              От неё зависят системные инструкции ассистента (акценты теории). Данные клиентов не меняются.
+              От неё зависят системные инструкции ассистента. Данные клиентов не меняются.
             </p>
           </div>
 
           <div>
-            <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            <label
+              className="small"
+              style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}
+            >
               Температура (креативность): {draft.temperature.toFixed(2)}
             </label>
             <input
@@ -161,23 +167,23 @@ export function PsychologistAiSettingsPanel({
               max={1}
               step={0.05}
               value={draft.temperature}
-              onChange={e => setDraft(d => ({ ...d, temperature: Number(e.target.value) }))}
+              onChange={(e) => setDraft((d) => ({ ...d, temperature: Number(e.target.value) }))}
               style={{ width: '100%', accentColor: 'var(--primary)' }}
             />
-            <div className="small" style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', marginTop: 4 }}>
+            <div
+              className="small"
+              style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', marginTop: 4 }}
+            >
               <span>Точнее</span>
               <span>Свободнее</span>
             </div>
           </div>
 
           <div>
-            <p className="small" style={{ marginTop: 0, color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 0 }}>
-              Период снов выбирается перед отправкой запроса в чат, когда вы просите AI анализировать сны.
-            </p>
-          </div>
-
-          <div>
-            <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            <label
+              className="small"
+              style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}
+            >
               Персонализация
             </label>
             <button
@@ -191,7 +197,7 @@ export function PsychologistAiSettingsPanel({
                 justifyContent: 'center',
                 gap: 10,
                 padding: '12px 14px',
-                fontSize: 14
+                fontSize: 14,
               }}
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }}>
@@ -205,41 +211,28 @@ export function PsychologistAiSettingsPanel({
           </div>
 
           <div>
-            <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
+            <label
+              className="small"
+              style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}
+            >
               Объём ответа
             </label>
-            <select
+            <ThemeListbox
+              ariaLabel="Объём ответа"
               value={draft.responseStyle}
-              onChange={e =>
-                setDraft(d => ({
-                  ...d,
-                  responseStyle: e.target.value as PsychologistAiSettings['responseStyle']
-                }))
-              }
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 10,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                fontSize: 14
-              }}
-            >
-              <option value="concise">Кратко, по пунктам</option>
-              <option value="balanced">Сбалансированно</option>
-              <option value="detailed">Развёрнуто, с примерами</option>
-            </select>
+              options={RESPONSE_STYLE_OPTIONS}
+              onChange={(responseStyle) => setDraft((d) => ({ ...d, responseStyle }))}
+            />
           </div>
         </div>
 
         <div
           style={{
             padding: 16,
-            borderTop: '1px solid rgba(255,255,255,0.08)',
+            borderTop: '1px solid var(--border, rgba(255,255,255,0.08))',
             display: 'flex',
             gap: 10,
-            flexShrink: 0
+            flexShrink: 0,
           }}
         >
           <button type="button" className="button secondary" style={{ flex: 1 }} onClick={onClose}>

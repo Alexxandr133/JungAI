@@ -1,9 +1,18 @@
 import { Router } from 'express';
+import { randomBytes } from 'crypto';
 import { requireAuth, AuthedRequest, requireVerification } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 
 const router = Router();
+
+function generateRoomId(): string {
+  return randomBytes(16).toString('hex');
+}
+
+function generateRoomUrl(roomId: string): string {
+  return `/room/${roomId}`;
+}
 
 // Психолог/Исследователь: создать запрос в техподдержку
 router.post('/support/requests', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), async (req: AuthedRequest, res) => {
@@ -284,8 +293,33 @@ router.get('/psychologist/requests', requireAuth, requireRole(['psychologist', '
         }
       }
     });
+
+    const items = await Promise.all(
+      requests.map(async (r) => {
+        let questionnaire = (r as any).questionnaire ?? null;
+        if (!questionnaire) {
+          try {
+            const rows = await prisma.$queryRawUnsafe<any[]>(
+              `SELECT "questionnaire" FROM "SupportRequest" WHERE "id" = ? LIMIT 1`,
+              r.id
+            );
+            const raw = rows?.[0]?.questionnaire;
+            if (raw) questionnaire = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          } catch {
+            /* ignore */
+          }
+        } else if (typeof questionnaire === 'string') {
+          try {
+            questionnaire = JSON.parse(questionnaire);
+          } catch {
+            /* keep string */
+          }
+        }
+        return { ...r, questionnaire };
+      })
+    );
     
-    res.json({ items: requests });
+    res.json({ items });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Не удалось получить запросы' });
   }
@@ -320,10 +354,55 @@ router.post('/psychologist/requests/:id/respond', requireAuth, requireRole(['psy
     }
     
     if (action === 'accept' && request.clientId) {
-      // Назначаем психолога клиенту
-      await prisma.client.update({
-        where: { id: request.clientId },
-        data: { psychologistId: req.user!.id }
+      // DESIGN_BRIEF §18.8: принять = создать «Первую встречу», без CRM-привязки на событии
+      let questionnaire: any = (request as any).questionnaire ?? null;
+      if (!questionnaire) {
+        try {
+          const rows = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT "questionnaire" FROM "SupportRequest" WHERE "id" = ? LIMIT 1`,
+            request.id
+          );
+          const raw = rows?.[0]?.questionnaire;
+          if (raw) questionnaire = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch {
+          /* ignore */
+        }
+      } else if (typeof questionnaire === 'string') {
+        try {
+          questionnaire = JSON.parse(questionnaire);
+        } catch {
+          /* keep */
+        }
+      }
+
+      const slotStartRaw = questionnaire?.slotStart;
+      const slotEndRaw = questionnaire?.slotEnd;
+      const startsAt = slotStartRaw ? new Date(slotStartRaw) : new Date(Date.now() + 3600000);
+      const endsAt = slotEndRaw
+        ? new Date(slotEndRaw)
+        : new Date(startsAt.getTime() + 3600000);
+      const roomId = generateRoomId();
+      const roomUrl = generateRoomUrl(roomId);
+      const guestName = request.client?.name || questionnaire?.contactName || 'Гость';
+      const guestEmail = request.client?.email || questionnaire?.contactEmail || null;
+      const guestPhone = request.client?.phone || questionnaire?.contactPhone || null;
+
+      await prisma.event.create({
+        data: {
+          title: `Встреча: ${guestName}`,
+          type: 'video',
+          description: request.description || null,
+          startsAt: Number.isNaN(startsAt.getTime()) ? new Date(Date.now() + 3600000) : startsAt,
+          endsAt: Number.isNaN(endsAt.getTime()) ? null : endsAt,
+          createdBy: req.user!.id,
+          clientId: null,
+          isFirstMeeting: true,
+          guestName,
+          guestEmail,
+          guestPhone,
+          guestQuestionnaire: questionnaire || undefined,
+          voiceRoom: { create: { roomId, roomUrl } }
+        } as any
       });
     }
 

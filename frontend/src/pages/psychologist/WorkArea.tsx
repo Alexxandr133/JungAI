@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { useAppearance } from '../../context/AppearanceContext';
@@ -35,6 +35,79 @@ const DEFAULT_TABS = [
   'Синхронии'
 ];
 
+const HIGHLIGHT_COLORS = [
+  { id: 'peach', label: 'Персиковый', color: '#fde8d8' },
+  { id: 'sage', label: 'Шалфей', color: '#e3f1ea' },
+  { id: 'lavender', label: 'Лаванда', color: '#efebfc' },
+  { id: 'yellow', label: 'Жёлтый', color: '#fef6d0' },
+] as const;
+
+/** Печать A4; экран — непрерывный лист (без DOM-пагинации). */
+const A4_WIDTH_MM = 210;
+const A4_HEIGHT_MM = 297;
+const A4_MARGIN_MM = 18;
+
+function formatSavedClock(d: Date): string {
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function countWordsAndChars(text: string): { words: number; chars: number } {
+  const trimmed = text.replace(/\u00a0/g, ' ').trim();
+  const chars = text.replace(/\u00a0/g, ' ').length;
+  const words = trimmed ? trimmed.split(/\s+/).filter(Boolean).length : 0;
+  return { words, chars };
+}
+
+/** Разово чистит старые экранные распорки из сохранённого HTML. */
+function stripLegacyPageSpacers(root: ParentNode) {
+  root.querySelectorAll('[data-wa-spacer]').forEach((n) => n.remove());
+}
+
+function getEditorHtml(el: HTMLElement): string {
+  const clone = el.cloneNode(true) as HTMLElement;
+  stripLegacyPageSpacers(clone);
+  return clone.innerHTML;
+}
+
+/** Оценка числа страниц при печати (@page A4, поля A4_MARGIN_MM) — без мутации DOM. */
+let cachedPrintContentPx: number | null = null;
+
+function printContentHeightPx(): number {
+  if (cachedPrintContentPx) return cachedPrintContentPx;
+  const probe = document.createElement('div');
+  probe.style.cssText = `position:absolute;visibility:hidden;height:${A4_HEIGHT_MM - A4_MARGIN_MM * 2}mm;pointer-events:none`;
+  document.body.appendChild(probe);
+  cachedPrintContentPx = probe.offsetHeight || ((A4_HEIGHT_MM - A4_MARGIN_MM * 2) * 96) / 25.4;
+  document.body.removeChild(probe);
+  return cachedPrintContentPx;
+}
+
+function estimatePrintPageCount(el: HTMLElement): number {
+  const cs = window.getComputedStyle(el);
+  const padTop = parseFloat(cs.paddingTop) || 0;
+  const padBottom = parseFloat(cs.paddingBottom) || 0;
+  const inkH = Math.max(0, el.scrollHeight - padTop - padBottom);
+  const pageContentPx = printContentHeightPx();
+  if (pageContentPx <= 0) return 1;
+  return Math.max(1, Math.ceil(inkH / pageContentPx - 1e-9));
+}
+
+function escapeHtmlText(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function plainTextToBlockHtml(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => (line ? `<div>${escapeHtmlText(line)}</div>` : '<div><br></div>'))
+    .join('');
+}
+
 function storageKey(clientId: string, tab: string) {
   return `workarea.content.${clientId}.${tab}`;
 }
@@ -65,6 +138,20 @@ function sanitizePastedRichHtml(html: string): string {
       if (cleaned) node.setAttribute('style', cleaned);
       else node.removeAttribute('style');
     });
+
+    // «Простыня» с кучей <br> → отдельные строки
+    const brCount = doc.body.querySelectorAll('br').length;
+    const blockCount = doc.body.querySelectorAll('p, div, li, h1, h2, h3, h4, blockquote').length;
+    if (brCount >= 3 && blockCount <= 2) {
+      const lines = (doc.body.innerText || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .split('\n');
+      return lines
+        .map((line) => (line.trim() ? `<div>${escapeHtmlText(line)}</div>` : '<div><br></div>'))
+        .join('');
+    }
+
     return doc.body.innerHTML;
   } catch {
     return html;
@@ -81,6 +168,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const { token, user } = useAuth();
   const { t } = useI18n();
   const { appearance } = useAppearance();
+  const navigate = useNavigate();
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -90,6 +178,25 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const [expanded, setExpanded] = useState<boolean>(() => localStorage.getItem('workarea.expanded') === '1');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [wordCount, setWordCount] = useState(0);
+  const [charCount, setCharCount] = useState(0);
+  const [pageCount, setPageCount] = useState(1);
+  const [editorEmpty, setEditorEmpty] = useState(true);
+  const [formatState, setFormatState] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeThrough: false,
+    justifyLeft: false,
+    justifyCenter: false,
+    justifyRight: false,
+    insertUnorderedList: false,
+    insertOrderedList: false,
+  });
+  const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
+  const [renamingTab, setRenamingTab] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
   const saveTimeoutRef = useRef<number | null>(null);
   const [journalEntries, setJournalEntries] = useState<Array<{ id: string; content: string; createdAt: string; updatedAt: string }>>([]);
   const [loadingJournal, setLoadingJournal] = useState(false);
@@ -506,6 +613,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             // Также сохраняем в localStorage как кэш
             const key = storageKey(currentClientId, activeTab);
             try { localStorage.setItem(key, doc.content); } catch {}
+            setLastSavedAt(new Date());
             return;
           }
         } catch (apiError: any) {
@@ -532,6 +640,18 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
         editorRef.current!.innerHTML = '';
       } finally {
         setLoading(false);
+        window.setTimeout(() => {
+          const ed = editorRef.current;
+          if (!ed) return;
+          stripLegacyPageSpacers(ed);
+          const text = ed.innerText || '';
+          const { words, chars } = countWordsAndChars(text);
+          setWordCount(words);
+          setCharCount(chars);
+          setPageCount(estimatePrintPageCount(ed));
+          const html = getEditorHtml(ed).replace(/<br\s*\/?>/gi, '').replace(/&nbsp;/gi, '').trim();
+          setEditorEmpty(!text.trim() && (html === '' || html === '<div></div>' || html === '<p></p>'));
+        }, 0);
       }
     };
     
@@ -555,9 +675,10 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           token,
           body: {
             tabName: activeTab,
-            content: editorRef.current!.innerHTML
+            content: getEditorHtml(editorRef.current!)
           }
         });
+        setLastSavedAt(new Date());
       } catch (error: any) {
         if (error.message?.includes('Verification required') || error.status === 403) {
           setIsVerified(false);
@@ -582,8 +703,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
 
     // Сохраняем в localStorage сразу (для быстрого доступа)
     const key = storageKey(currentClientId, activeTab);
-    const content = editorRef.current.innerHTML;
+    const content = getEditorHtml(editorRef.current);
     try { localStorage.setItem(key, content); } catch {}
+    refreshEditorStats();
 
     // Сохраняем в API с debounce (если есть токен)
     if (token) {
@@ -591,15 +713,149 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }
 
+  function refreshEditorStats() {
+    const el = editorRef.current;
+    if (!el) return;
+    stripLegacyPageSpacers(el);
+    const text = el.innerText || '';
+    const { words, chars } = countWordsAndChars(text);
+    setWordCount(words);
+    setCharCount(chars);
+    const html = getEditorHtml(el).replace(/<br\s*\/?>/gi, '').replace(/&nbsp;/gi, '').trim();
+    setEditorEmpty(!text.trim() && (html === '' || html === '<div></div>' || html === '<p></p>'));
+    setPageCount(estimatePrintPageCount(el));
+  }
+
+  function printWorkAreaDocument() {
+    const el = editorRef.current;
+    if (!el) return;
+    const title = `${currentClient?.name || 'Клиент'} — ${activeTab}`;
+    const bodyHtml = getEditorHtml(el) || '<p></p>';
+
+    let iframe = document.getElementById('wa-print-frame') as HTMLIFrameElement | null;
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'wa-print-frame';
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.setAttribute('title', 'Печать');
+      document.body.appendChild(iframe);
+    }
+    // Реальная ширина A4 — иначе вёрстка с width:0 даёт «полстраницы» при печати
+    iframe.style.cssText = [
+      'position:fixed',
+      'left:-10000px',
+      'top:0',
+      'width:210mm',
+      'min-height:297mm',
+      'border:0',
+      'opacity:0',
+      'pointer-events:none',
+      'z-index:-1',
+    ].join(';');
+
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    const win = iframe.contentWindow;
+    if (!doc || !win) return;
+
+    doc.open();
+    doc.write(`<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>${title.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>
+  <style>
+    @page { size: A4 portrait; margin: ${A4_MARGIN_MM}mm; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      background: #fff !important;
+      color: #211e2b;
+      font-family: 'Golos Text', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .print-body {
+      width: 100%;
+      max-width: 100%;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    h1, h2, h3 { font-family: Lora, Georgia, 'Times New Roman', serif; line-height: 1.25; margin: 0.6em 0 0.35em; }
+    h2 { font-size: 1.35em; }
+    h3 { font-size: 1.15em; }
+    p { margin: 0 0 0.65em; }
+    blockquote {
+      margin: 12px 0;
+      padding: 8px 14px;
+      border-left: 3px solid #6c5bd4;
+      background: #efebfc;
+    }
+    table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+    th, td { border: 1px solid #94a3b8; padding: 6px 8px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
+    ul[data-wa-checklist] { list-style: none; padding-left: 0; }
+    ul[data-wa-checklist] li { padding-left: 1.6em; position: relative; margin: 6px 0; }
+    ul[data-wa-checklist] li::before { content: '☐'; position: absolute; left: 0; }
+    img { max-width: 100%; }
+    a { color: #5546b8; }
+  </style>
+</head>
+<body>
+  <div class="print-body">${bodyHtml}</div>
+</body>
+</html>`);
+    doc.close();
+
+    const runPrint = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    window.setTimeout(runPrint, 300);
+  }
+
+  function syncFormatState() {
+    try {
+      setFormatState({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikeThrough: document.queryCommandState('strikeThrough'),
+        justifyLeft: document.queryCommandState('justifyLeft'),
+        justifyCenter: document.queryCommandState('justifyCenter'),
+        justifyRight: document.queryCommandState('justifyRight'),
+        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        insertOrderedList: document.queryCommandState('insertOrderedList'),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    const onSel = () => syncFormatState();
+    document.addEventListener('selectionchange', onSel);
+    return () => document.removeEventListener('selectionchange', onSel);
+  }, []);
+
   // Toolbar actions (simple MVP using execCommand)
   function exec(cmd: string, value?: string) {
     document.execCommand(cmd, false, value);
     persistContent();
+    syncFormatState();
   }
 
-  function execBlock(tag: 'P' | 'H1' | 'H2' | 'H3' | 'BLOCKQUOTE' | 'PRE') {
+  function execBlock(tag: 'P' | 'H2' | 'H3' | 'BLOCKQUOTE') {
     document.execCommand('formatBlock', false, tag);
     persistContent();
+    syncFormatState();
   }
 
   function insertLink() {
@@ -614,25 +870,33 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     persistContent();
   }
 
-  function setColor(color: string) {
-    document.execCommand('foreColor', false, color);
-    persistContent();
-  }
-
-  function setBackColor(color: string) {
+  function applyHighlight(color: string, id: string) {
     document.execCommand('hiliteColor', false, color);
+    setActiveHighlight(id);
     persistContent();
   }
 
-  function setFontFamily(fontFamily: string) {
-    document.execCommand('fontName', false, fontFamily);
+  function insertChecklist() {
+    const html =
+      '<ul data-wa-checklist="1"><li>Пункт 1</li><li>Пункт 2</li><li>Пункт 3</li></ul><p><br/></p>';
+    document.execCommand('insertHTML', false, html);
     persistContent();
   }
 
   function clearFormatting() {
     document.execCommand('removeFormat', false);
     document.execCommand('unlink', false);
+    setActiveHighlight(null);
     persistContent();
+    syncFormatState();
+  }
+
+  function openAiForClient() {
+    if (!currentClientId) return;
+    const tabsParam = encodeURIComponent(tabs.join('|'));
+    navigate(
+      `/psychologist/ai?client=${encodeURIComponent(currentClientId)}&clientMode=1&tabs=${tabsParam}&from=workarea`
+    );
   }
 
   function handleEditorPaste(e: React.ClipboardEvent<HTMLDivElement>) {
@@ -641,10 +905,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     const text = e.clipboardData.getData('text/plain');
     if (html) {
       document.execCommand('insertHTML', false, sanitizePastedRichHtml(html));
-      persistContent();
-      return;
+    } else {
+      document.execCommand('insertHTML', false, plainTextToBlockHtml(text || ''));
     }
-    document.execCommand('insertText', false, text || '');
     persistContent();
   }
 
@@ -757,6 +1020,23 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     persistContent();
   }
 
+  function redistributeTableColWidths(table: HTMLTableElement) {
+    const cg = table.querySelector('colgroup');
+    if (!cg) return;
+    const cols = Array.from(cg.querySelectorAll('col')) as HTMLTableColElement[];
+    if (!cols.length) return;
+    const pct = Math.floor((10000 / cols.length)) / 100; // e.g. 12.5 for 8 cols
+    cols.forEach((col, i) => {
+      // последний забирает остаток от округления
+      if (i === cols.length - 1) {
+        const used = pct * (cols.length - 1);
+        col.style.width = `${Math.max(1, Math.round((100 - used) * 100) / 100)}%`;
+      } else {
+        col.style.width = `${pct}%`;
+      }
+    });
+  }
+
   function addColumnRightFromContext() {
     const ctx = tableContextRef.current;
     if (!ctx) return;
@@ -764,13 +1044,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     const headRow = table.querySelector('thead tr');
     const bodyRows = Array.from(table.querySelectorAll('tbody tr'));
     const currentCols = headRow ? headRow.children.length : (bodyRows[0]?.children.length || 1);
-    const nextCols = currentCols + 1;
-    const cg = ensureColgroup(table, nextCols);
-    const colEls = cg ? (Array.from(cg.querySelectorAll('col')) as HTMLTableColElement[]) : [];
-
-    // ширина нового столбца
-    const newCol = colEls[nextCols - 1];
-    if (newCol && !newCol.style.width) newCol.style.width = '120px';
+    const nextCols = Math.min(10, currentCols + 1);
+    if (nextCols === currentCols) return;
+    ensureColgroup(table, nextCols);
 
     const insertAt = Math.min(currentCols, Math.max(0, ctx.colIndex + 1));
     if (headRow) {
@@ -788,6 +1064,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       td.innerHTML = '&nbsp;';
       tr.insertBefore(td, tr.children[insertAt] || null);
     });
+    redistributeTableColWidths(table);
     renumberColResizers(table);
     persistContent();
   }
@@ -811,6 +1088,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     bodyRows.forEach((tr) => tr.children[removeAt]?.remove());
 
     ensureColgroup(table, currentCols - 1);
+    redistributeTableColWidths(table);
     renumberColResizers(table);
     persistContent();
   }
@@ -897,10 +1175,12 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       const state = colResizeRef.current;
       if (!state) return;
       const delta = e.clientX - state.startX;
-      const newWidth = Math.max(48, Math.round(state.startWidth + delta));
+      const tableWidth = state.table.getBoundingClientRect().width || 1;
+      const minPct = (48 / tableWidth) * 100;
+      const newPct = Math.max(minPct, Math.min(80, ((state.startWidth + delta) / tableWidth) * 100));
       const col = state.table.querySelectorAll('colgroup col')[state.colIndex] as HTMLTableColElement | undefined;
       if (!col) return;
-      col.style.width = `${newWidth}px`;
+      col.style.width = `${Math.round(newPct * 100) / 100}%`;
     };
     const onUp = () => {
       if (!colResizeRef.current) return;
@@ -938,14 +1218,60 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }
 
-  function addCustomTab() {
+  function addCustomTab(preferredName?: string | null) {
     if (!currentClientId) return;
-    const name = prompt('Название новой вкладки:')?.trim();
-    if (!name) return;
-    const next = Array.from(new Set([...tabs, name]));
+    let name = (preferredName || '').trim();
+    if (!name) name = 'Новая вкладка';
+    // если шаблонное имя уже есть — создаём с суффиксом
+    let finalName = name;
+    if (tabs.includes(finalName)) {
+      let i = 2;
+      while (tabs.includes(`${name} ${i}`)) i += 1;
+      finalName = `${name} ${i}`;
+    }
+    const next = [...tabs, finalName];
     try { localStorage.setItem(tabsKey(currentClientId), JSON.stringify(next)); } catch {}
     if (token) saveTabsToAPI(next);
-    setActiveTab(name);
+    setActiveTab(finalName);
+  }
+
+  function renameTab(oldName: string, newNameRaw: string) {
+    if (!currentClientId) return;
+    const newName = newNameRaw.trim();
+    setRenamingTab(null);
+    if (!newName || newName === oldName) return;
+    if (tabs.includes(newName)) {
+      alert('Вкладка с таким названием уже есть');
+      return;
+    }
+    const next = tabs.map((t) => (t === oldName ? newName : t));
+    try {
+      localStorage.setItem(tabsKey(currentClientId), JSON.stringify(next));
+      const oldKey = storageKey(currentClientId, oldName);
+      const newKey = storageKey(currentClientId, newName);
+      const content = localStorage.getItem(oldKey);
+      if (content != null) {
+        localStorage.setItem(newKey, content);
+        localStorage.removeItem(oldKey);
+      }
+    } catch {}
+    if (token) {
+      void (async () => {
+        try {
+          await saveTabsToAPI(next);
+          if (editorRef.current && activeTab === oldName) {
+            await api(`/api/clients/${currentClientId}/documents`, {
+              method: 'POST',
+              token,
+              body: { tabName: newName, content: editorRef.current.innerHTML },
+            });
+          }
+        } catch (e) {
+          console.error('Error renaming tab:', e);
+        }
+      })();
+    }
+    if (activeTab === oldName) setActiveTab(newName);
   }
 
   function removeCustomTab(tab: string) {
@@ -1098,7 +1424,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   }
 
   const content = (
-    <main style={{ 
+    <main className="wa-root" style={{ 
       flex: 1, 
       padding: 0, 
       minWidth: 0, 
@@ -1108,238 +1434,10 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
       height: '100%',
       position: 'relative' 
     }}>
-        {/* Top Header Bar with Client Selector */}
+        {/* Main Content Area: Sidebar (Tabs) + Editor */}
         <div
           data-tour="workarea-header"
           style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between', 
-          gap: 16, 
-          padding: '12px 20px',
-          borderBottom: `1px solid ${ui.border}`,
-          background: ui.panel,
-          flexShrink: 0
-        }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', color: 'var(--text)' }}>{t('workArea.title')}</h1>
-            
-            {/* Client Selector */}
-            {!restrictedClientId && currentClient && (
-              <div style={{ position: 'relative' }} data-clients-dropdown>
-                <button
-                  onClick={() => setShowClientsDropdown(!showClientsDropdown)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '10px 16px',
-                    borderRadius: 10,
-                    border: 'none',
-                    background: 'var(--surface-2)',
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    minWidth: 200
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'var(--surface)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'var(--surface-2)';
-                  }}
-                >
-                  {getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) ? (
-                    <img
-                      src={getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) || ''}
-                      alt={currentClient.name || 'Аватар'}
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: '50%',
-                        objectFit: 'cover',
-                        border: '2px solid rgba(255,255,255,0.1)',
-                        flexShrink: 0
-                      }}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const parent = target.parentElement;
-                        if (parent && !parent.querySelector('.avatar-fallback')) {
-                          const fallback = document.createElement('div');
-                          fallback.className = 'avatar-fallback';
-                          fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
-                          fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
-                          parent.appendChild(fallback);
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
-                      {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                  <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{currentClient.name || 'Клиент'}</div>
-                    <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{currentClient.email || '—'}</div>
-                  </div>
-                  <span style={{ fontSize: 12, opacity: 0.6, flexShrink: 0 }}>▼</span>
-                </button>
-                {showClientsDropdown && (
-                  <div style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 8px)',
-                    left: 0,
-                    minWidth: 280,
-                    maxWidth: 400,
-                    background: 'var(--surface)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 12,
-                    maxHeight: 400,
-                    overflowY: 'auto',
-                    zIndex: 1000,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-                    padding: '8px'
-                  }}>
-                    {clients.map(c => {
-                      const active = c.id === currentClientId;
-                      return (
-                        <button
-                          key={c.id}
-                          onClick={() => {
-                            setCurrentClientId(c.id);
-                            setShowClientsDropdown(false);
-                            setExpanded(false); // Показываем панель вкладок при выборе клиента
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            padding: '12px',
-                            borderRadius: 8,
-                            border: 'none',
-                            background: active ? ui.activeBg : 'transparent',
-                            color: 'var(--text)',
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                            width: '100%',
-                            transition: 'background 0.2s'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!active) {
-                              e.currentTarget.style.background = ui.hover;
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!active) {
-                              e.currentTarget.style.background = 'transparent';
-                            }
-                          }}
-                        >
-                          {getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) ? (
-                            <img
-                              src={getAvatarUrl(c.avatarUrl || c.profile?.avatarUrl, c.id) || ''}
-                              alt={c.name || 'Аватар'}
-                              style={{
-                                width: 40,
-                                height: 40,
-                                borderRadius: '50%',
-                                objectFit: 'cover',
-                                border: '2px solid rgba(255,255,255,0.1)',
-                                flexShrink: 0
-                              }}
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                const parent = target.parentElement;
-                                if (parent && !parent.querySelector('.avatar-fallback')) {
-                                  const fallback = document.createElement('div');
-                                  fallback.className = 'avatar-fallback';
-                                  fallback.style.cssText = 'width: 40px; height: 40px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 16px; flex-shrink: 0;';
-                                  fallback.textContent = (c.name || '?').trim().charAt(0).toUpperCase();
-                                  parent.appendChild(fallback);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div style={{ width: 40, height: 40, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
-                              {(c.name || '?').trim().charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>{c.name || 'Клиент'}</div>
-                            <div className="small" style={{ fontSize: 12, opacity: .8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{c.email || '—'}</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {clients.length === 0 && (
-                      <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
-                        Нет клиентов
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {restrictedClientId && currentClient && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 8, 
-                padding: '6px 12px', 
-                borderRadius: 8,
-                background: isLightTheme ? '#e9ecef' : 'var(--surface-2)'
-              }}>
-                {getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) ? (
-                  <img
-                    src={getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) || ''}
-                    key={`avatar-${currentClient.id}-${currentClient.avatarUrl || currentClient.profile?.avatarUrl || 'none'}`}
-                    alt={currentClient.name || 'Аватар'}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      objectFit: 'cover',
-                      border: '2px solid rgba(255,255,255,0.1)'
-                    }}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                      const parent = target.parentElement;
-                      if (parent && !parent.querySelector('.avatar-fallback')) {
-                        const fallback = document.createElement('div');
-                        fallback.className = 'avatar-fallback';
-                        fallback.style.cssText = 'width: 24px; height: 24px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 700; font-size: 12px;';
-                        fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
-                        parent.appendChild(fallback);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div style={{ width: 24, height: 24, borderRadius: 999, background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: '#0b0f1a', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12 }}>
-                    {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{currentClient.name || 'Клиент'}</span>
-              </div>
-            )}
-          </div>
-          
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-            <PsychologistTourHelpButton tourId="workArea" steps={PSYCHOLOGIST_WORK_AREA_TOUR_STEPS} userId={user?.id} role={user?.role} />
-            {restrictedClientId && (
-              <span style={{ padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}>
-                🔓 Режим админа
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Main Content Area: Sidebar (Tabs) + Editor */}
-        <div style={{ 
           display: isMobileView ? 'flex' : 'grid', 
           gridTemplateColumns: isMobileView ? 'none' : ((expanded || restrictedClientId) ? '0 1fr' : '240px 1fr'), 
           gap: 0, 
@@ -1413,30 +1511,114 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             }}
             >
               <div style={{ 
-                padding: '16px', 
+                padding: '10px 10px 8px', 
                 borderBottom: `1px solid ${ui.border}`,
                 flexShrink: 0,
-                overflow: 'hidden',
+                overflow: 'visible',
                 opacity: expanded ? 0 : 1,
-                transition: 'opacity 0.3s ease'
+                transition: 'opacity 0.3s ease',
+                position: 'relative',
+                zIndex: 5
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
-                  <b style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', flex: 1 }}>Вкладки</b>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <button 
-                      className="button secondary" 
-                      onClick={addCustomTab} 
-                      style={{ 
-                        padding: '4px 8px', 
-                        fontSize: 12,
-                        minWidth: 'auto',
-                        lineHeight: 1
-                      }}
-                      title={t('workArea.addTab')}
+                <div style={{ position: 'relative' }} data-clients-dropdown>
+                  {currentClient ? (
+                    <button
+                      type="button"
+                      className="wa-client-chip wa-client-chip--sidebar"
+                      onClick={() => setShowClientsDropdown(!showClientsDropdown)}
                     >
-                      +
+                      {getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) ? (
+                        <img
+                          className="wa-avatar wa-avatar--sm"
+                          src={getAvatarUrl(currentClient.avatarUrl || currentClient.profile?.avatarUrl, currentClient.id) || ''}
+                          alt={currentClient.name || 'Аватар'}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                            const parent = target.parentElement;
+                            if (parent && !parent.querySelector('.avatar-fallback')) {
+                              const fallback = document.createElement('div');
+                              fallback.className = 'avatar-fallback wa-avatar-fallback wa-avatar-fallback--sm';
+                              fallback.textContent = (currentClient.name || '?').trim().charAt(0).toUpperCase();
+                              parent.appendChild(fallback);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="wa-avatar-fallback wa-avatar-fallback--sm">
+                          {(currentClient.name || '?').trim().charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div style={{ minWidth: 0, textAlign: 'left', flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }}>
+                          {currentClient.name || 'Клиент'}
+                        </div>
+                        <div className="small" style={{ fontSize: 11, opacity: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                          {currentClient.email || '—'}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, opacity: 0.55, flexShrink: 0 }}>▼</span>
                     </button>
-                  </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 4px' }}>Нет клиентов</div>
+                  )}
+                  {showClientsDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 6px)',
+                      left: 0,
+                      right: 0,
+                      minWidth: 220,
+                      background: 'var(--surface)',
+                      border: `1px solid ${ui.border}`,
+                      borderRadius: 12,
+                      maxHeight: 320,
+                      overflowY: 'auto',
+                      zIndex: 1000,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+                      padding: '6px'
+                    }}>
+                      {clients.map((c) => {
+                        const active = c.id === currentClientId;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setCurrentClientId(c.id);
+                              setShowClientsDropdown(false);
+                              setExpanded(false);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              padding: '10px',
+                              borderRadius: 8,
+                              border: 'none',
+                              background: active ? ui.activeBg : 'transparent',
+                              color: 'var(--text)',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              width: '100%',
+                            }}
+                          >
+                            <div className="wa-avatar-fallback wa-avatar-fallback--sm">
+                              {(c.name || '?').trim().charAt(0).toUpperCase()}
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {c.name || 'Клиент'}
+                              </div>
+                              <div className="small" style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {c.email || '—'}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
               <div style={{ 
@@ -1446,7 +1628,9 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 minHeight: 0,
                 opacity: expanded ? 0 : 1,
                 transition: 'opacity 0.3s ease',
-                overflow: expanded ? 'hidden' : 'auto'
+                overflow: expanded ? 'hidden' : 'auto',
+                display: 'flex',
+                flexDirection: 'column'
               }}>
                 {tabs.map(tab => {
                   const active = tab === activeTab;
@@ -1455,13 +1639,14 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                   return (
                     <div 
                       key={tab} 
+                      className="wa-tab"
                       style={{ 
                         marginBottom: 4,
                         opacity: isDragged ? 0.5 : 1,
                         transform: isDragOver ? 'translateX(4px)' : 'none',
                         transition: 'transform 0.2s'
                       }}
-                      draggable
+                      draggable={renamingTab !== tab}
                       onDragStart={() => handleDragStart(tab)}
                       onDragOver={(e) => handleDragOver(e, tab)}
                       onDragLeave={handleDragLeave}
@@ -1473,10 +1658,17 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                         tabIndex={0}
                         className="button secondary"
                         onClick={() => {
+                          if (renamingTab === tab) return;
                           setActiveTab(tab);
                           if (isMobileView) {
                             setShowTabContent(true);
                           }
+                        }}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setRenamingTab(tab);
+                          setRenameDraft(tab);
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -1531,27 +1723,40 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                           />
                         )}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ opacity: 0.5, fontSize: 12 }}>☰</span>
-                            {tab}
-                          </span>
+                          {renamingTab === tab ? (
+                            <input
+                              className="wa-tab-rename"
+                              value={renameDraft}
+                              autoFocus
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onBlur={() => renameTab(tab, renameDraft)}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  renameTab(tab, renameDraft);
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setRenamingTab(null);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ opacity: 0.5, fontSize: 12 }}>☰</span>
+                              {tab}
+                            </span>
+                          )}
                           <button 
+                            type="button"
                             title="Удалить вкладку" 
-                            className="button secondary" 
+                            className="button secondary wa-tab__close" 
                             onClick={(e) => {
                               e.stopPropagation();
                               removeCustomTab(tab);
                             }} 
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = 'rgba(255, 107, 107, 0.2)';
-                              e.currentTarget.style.color = '#ff6b6b';
-                              e.currentTarget.style.borderColor = 'rgba(255, 107, 107, 0.4)';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = '';
-                              e.currentTarget.style.color = '';
-                              e.currentTarget.style.borderColor = '';
-                            }}
                             style={{ 
                               padding: '2px 6px', 
                               fontSize: 11,
@@ -1569,6 +1774,15 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     </div>
                   );
                 })}
+                <button
+                  type="button"
+                  className="wa-add-tab-btn"
+                  onClick={() => addCustomTab('Новая вкладка')}
+                  disabled={!currentClientId}
+                  title={t('workArea.addTab')}
+                >
+                  + Добавить вкладку
+                </button>
               </div>
             </div>
           )}
@@ -1587,292 +1801,176 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             width: isMobileView ? '100%' : 'auto'
           }}
           >
-            {/* Tab header with title and buttons */}
-            {(!isMobileView || showTabContent) && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'space-between',
-                gap: 12,
-                padding: '12px 16px',
-                background: ui.panel2,
-                borderBottom: `1px solid ${ui.border}`,
-                flexShrink: 0,
-                position: 'relative'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-                  {isMobileView && (
-                    <button
-                      onClick={() => setShowTabContent(false)}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 32,
-                        height: 32,
-                        borderRadius: 10,
-                        border: 'none',
-                        background: 'var(--surface)',
-                        color: 'var(--text)',
-                        cursor: 'pointer',
-                        fontSize: 18,
-                        flexShrink: 0
-                      }}
-                      title="Назад к вкладкам"
-                    >
-                      ←
-                    </button>
-                  )}
-                  <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {activeTab}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }} />
-              </div>
-            )}
-            {/* Mobile back button - removed, now in header above */}
-            {false && isMobileView && showTabContent && (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'space-between',
-                gap: 12,
-                padding: '12px 16px',
-                background: ui.panel2,
-                borderBottom: `1px solid ${ui.border}`,
-                flexShrink: 0
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-                  <button
-                    onClick={() => setShowTabContent(false)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      border: 'none',
-                      background: 'var(--surface)',
-                      color: 'var(--text)',
-                      cursor: 'pointer',
-                      fontSize: 18,
-                      flexShrink: 0
-                    }}
-                    title="Назад к вкладкам"
-                  >
-                    ←
-                  </button>
-                  <div style={{ fontWeight: 700, fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {activeTab}
-                  </div>
-                </div>
-                {/* Убрано: локальный переключатель темы рабочей области */}
-              </div>
+            {/* Mobile: только «назад к вкладкам», без названия вкладки */}
+            {isMobileView && showTabContent && (
+              <button
+                type="button"
+                className="wa-mobile-back"
+                onClick={() => setShowTabContent(false)}
+                title="Назад к вкладкам"
+              >
+                ← К вкладкам
+              </button>
             )}
 
             {/* Toolbar (скрыт для вкладок без редактора) */}
             {activeTab !== 'Дневник клиента' && activeTab !== 'сны' && (
-              <div style={{ 
-                display: 'flex', 
-                gap: 8, 
-                alignItems: 'center', 
-                flexWrap: 'wrap', 
-                flexShrink: 0, 
-                background: ui.panel2, 
-                borderBottom: `1px solid ${ui.border}`, 
-                padding: '8px 12px',
-                overflowX: 'auto',
-                overflowY: 'visible',
-                position: 'relative',
-                zIndex: 5,
-                boxShadow: isLightTheme ? '0 1px 0 rgba(15,23,42,0.05)' : '0 1px 0 rgba(255,255,255,0.05)'
-              }}>
-                {/* Группа: стиль и шрифт */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
-                  <select
-                    onChange={e => execBlock(e.target.value as any)}
-                    defaultValue="P"
+              <div className="wa-toolbar" style={{ background: ui.panel2, borderBottom: `1px solid ${ui.border}` }}>
+                <select
+                  className="wa-tb-select"
+                  onChange={(e) => execBlock(e.target.value as 'P' | 'H2' | 'H3')}
+                  defaultValue="P"
+                  title="Стиль абзаца"
+                  aria-label="Стиль абзаца"
+                >
+                  <option value="P">Обычный</option>
+                  <option value="H2">Заголовок 2</option>
+                  <option value="H3">Заголовок 3</option>
+                </select>
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <button type="button" className={`wa-tb-btn${formatState.bold ? ' is-active' : ''}`} onClick={() => exec('bold')} title="Жирный" aria-pressed={formatState.bold}>B</button>
+                <button type="button" className={`wa-tb-btn${formatState.italic ? ' is-active' : ''}`} onClick={() => exec('italic')} title="Курсив" aria-pressed={formatState.italic} style={{ fontStyle: 'italic' }}>I</button>
+                <button type="button" className={`wa-tb-btn${formatState.underline ? ' is-active' : ''}`} onClick={() => exec('underline')} title="Подчёркнутый" aria-pressed={formatState.underline} style={{ textDecoration: 'underline' }}>U</button>
+                <button type="button" className={`wa-tb-btn${formatState.strikeThrough ? ' is-active' : ''}`} onClick={() => exec('strikeThrough')} title="Зачёркнутый" aria-pressed={formatState.strikeThrough} style={{ textDecoration: 'line-through' }}>S</button>
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <div className="wa-hl" role="group" aria-label="Выделение">
+                  {HIGHLIGHT_COLORS.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className={`wa-hl__swatch${activeHighlight === h.id ? ' is-active' : ''}`}
+                      style={{ background: h.color }}
+                      title={`Выделение: ${h.label}`}
+                      aria-label={`Выделение: ${h.label}`}
+                      onClick={() => applyHighlight(h.color, h.id)}
+                    />
+                  ))}
+                </div>
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <button type="button" className="wa-tb-btn" onClick={() => execBlock('BLOCKQUOTE')} title="Цитата">❝</button>
+                <button type="button" className="wa-tb-btn" onClick={insertChecklist} title="Чек-лист">☑</button>
+                <button type="button" className={`wa-tb-btn${formatState.insertUnorderedList ? ' is-active' : ''}`} onClick={() => exec('insertUnorderedList')} title="Маркированный список" aria-pressed={formatState.insertUnorderedList}>•</button>
+                <button type="button" className={`wa-tb-btn${formatState.insertOrderedList ? ' is-active' : ''}`} onClick={() => exec('insertOrderedList')} title="Нумерованный список" aria-pressed={formatState.insertOrderedList}>1.</button>
+                <button type="button" className="wa-tb-btn" onClick={() => exec('outdent')} title="Уменьшить отступ">⇤</button>
+                <button type="button" className="wa-tb-btn" onClick={() => exec('indent')} title="Увеличить отступ">⇥</button>
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <button type="button" className={`wa-tb-btn${formatState.justifyLeft ? ' is-active' : ''}`} onClick={() => exec('justifyLeft')} title="По левому краю" aria-pressed={formatState.justifyLeft}>⟸</button>
+                <button type="button" className={`wa-tb-btn${formatState.justifyCenter ? ' is-active' : ''}`} onClick={() => exec('justifyCenter')} title="По центру" aria-pressed={formatState.justifyCenter}>≡</button>
+                <button type="button" className={`wa-tb-btn${formatState.justifyRight ? ' is-active' : ''}`} onClick={() => exec('justifyRight')} title="По правому краю" aria-pressed={formatState.justifyRight}>⟹</button>
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <button type="button" className="wa-tb-btn" onClick={insertLink} title="Вставить ссылку">🔗</button>
+                <button type="button" className="wa-tb-btn" onClick={removeLink} title="Удалить ссылку">🔗✕</button>
+                <button
+                  ref={tablePickerButtonRef}
+                  type="button"
+                  className="wa-tb-btn"
+                  onClick={() => {
+                    setTablePickerOpen((v) => !v);
+                    setTablePickerHover({ rows: 4, cols: 4 });
+                  }}
+                  title="Вставить таблицу"
+                >
+                  Таблица ▾
+                </button>
+                <button type="button" className="wa-tb-btn" onClick={deleteCurrentTable} title="Удалить таблицу">
+                  ⌫ табл.
+                </button>
+
+                {tablePickerOpen && tablePickerPos && createPortal(
+                  <div
+                    ref={tablePickerPanelRef}
                     style={{
-                      padding: '6px 10px',
-                      borderRadius: 8,
+                      position: 'fixed',
+                      top: tablePickerPos.top,
+                      left: tablePickerPos.left,
+                      zIndex: 9999,
+                      width: tablePickerPos.width,
+                      maxWidth: 'calc(100vw - 24px)',
+                      padding: 10,
+                      borderRadius: 12,
                       border: `1px solid ${ui.border}`,
-                      background: ui.panel,
-                      color: 'var(--text)',
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      outline: 'none'
-                    }}
-                    title="Стиль"
-                  >
-                    <option value="P">Обычный</option>
-                    <option value="H1">Заголовок 1</option>
-                    <option value="H2">Заголовок 2</option>
-                    <option value="H3">Заголовок 3</option>
-                    <option value="BLOCKQUOTE">Цитата</option>
-                    <option value="PRE">Код</option>
-                  </select>
-                  <select
-                    onChange={e => setFontFamily(e.target.value)}
-                    defaultValue="Arial"
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: 8,
-                      border: `1px solid ${ui.border}`,
-                      background: ui.panel,
-                      color: 'var(--text)',
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      outline: 'none'
-                    }}
-                    title="Шрифт"
-                  >
-                    <option value="Arial">Arial</option>
-                    <option value="Times New Roman">Times New Roman</option>
-                    <option value="Georgia">Georgia</option>
-                    <option value="Verdana">Verdana</option>
-                    <option value="Trebuchet MS">Trebuchet MS</option>
-                    <option value="Courier New">Courier New</option>
-                  </select>
-                </div>
-
-                {/* Группа: начертание */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
-                  <button className="button secondary" onClick={() => exec('bold')} style={{ padding: '6px 10px', fontSize: 13, fontWeight: 'bold' }} title="Жирный">B</button>
-                  <button className="button secondary" onClick={() => exec('italic')} style={{ padding: '6px 10px', fontSize: 13, fontStyle: 'italic' }} title="Курсив">I</button>
-                  <button className="button secondary" onClick={() => exec('underline')} style={{ padding: '6px 10px', fontSize: 13, textDecoration: 'underline' }} title="Подчёркнутый">U</button>
-                  <button className="button secondary" onClick={() => exec('strikeThrough')} style={{ padding: '6px 10px', fontSize: 13, textDecoration: 'line-through' }} title="Зачёркнутый">S</button>
-                </div>
-
-                {/* Группа: списки и выравнивание */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
-                  <button className="button secondary" onClick={() => exec('insertUnorderedList')} style={{ padding: '6px 10px', fontSize: 13 }} title="Маркированный список">•</button>
-                  <button className="button secondary" onClick={() => exec('insertOrderedList')} style={{ padding: '6px 10px', fontSize: 13 }} title="Нумерованный список">1.</button>
-                  <div style={{ width: 1, height: 22, background: ui.border, margin: '0 4px' }} />
-                  <button className="button secondary" onClick={() => exec('justifyLeft')} style={{ padding: '6px 10px', fontSize: 13 }} title="По левому краю">⟸</button>
-                  <button className="button secondary" onClick={() => exec('justifyCenter')} style={{ padding: '6px 10px', fontSize: 13 }} title="По центру">≡</button>
-                  <button className="button secondary" onClick={() => exec('justifyRight')} style={{ padding: '6px 10px', fontSize: 13 }} title="По правому краю">⟹</button>
-                  <button className="button secondary" onClick={() => exec('justifyFull')} style={{ padding: '6px 10px', fontSize: 13 }} title="По ширине">⟷</button>
-                </div>
-
-                {/* Группа: ссылки и цвет */}
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
-                  <button className="button secondary" onClick={insertLink} style={{ padding: '6px 10px', fontSize: 13 }} title="Вставить ссылку">🔗</button>
-                  <button className="button secondary" onClick={removeLink} style={{ padding: '6px 10px', fontSize: 13 }} title="Удалить ссылку">🔗✕</button>
-                  <div style={{ width: 1, height: 22, background: ui.border }} />
-                  <button
-                    ref={tablePickerButtonRef}
-                    className="button secondary"
-                    onClick={() => {
-                      setTablePickerOpen(v => !v);
-                      setTablePickerHover({ rows: 4, cols: 4 });
-                      // позиция пересчитается эффектом при открытии
-                    }}
-                    style={{ padding: '6px 10px', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                    title="Вставить таблицу"
-                  >
-                    Таблица <span style={{ opacity: 0.7 }}>▾</span>
-                  </button>
-                  <div style={{ width: 1, height: 22, background: ui.border }} />
-                  <label className="small" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    Текст
-                    <input type="color" title="Цвет текста" onChange={e => setColor(e.target.value)} style={{ height: 28, width: 32, border: `1px solid ${ui.border}`, borderRadius: 8, cursor: 'pointer', background: ui.panel }} />
-                  </label>
-                  <label className="small" style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    Фон
-                    <input type="color" title="Цвет фона" onChange={e => setBackColor(e.target.value)} style={{ height: 28, width: 32, border: `1px solid ${ui.border}`, borderRadius: 8, cursor: 'pointer', background: ui.panel }} />
-                  </label>
-                  <div style={{ width: 1, height: 22, background: ui.border }} />
-                  <button className="button secondary" onClick={deleteCurrentTable} style={{ padding: '6px 10px', fontSize: 13 }} title="Удалить таблицу">
-                    Удалить таблицу
-                  </button>
-
-                  {tablePickerOpen && tablePickerPos && createPortal(
-                    <div
-                      ref={tablePickerPanelRef}
-                      style={{
-                        position: 'fixed',
-                        top: tablePickerPos.top,
-                        left: tablePickerPos.left,
-                        zIndex: 9999,
-                        width: tablePickerPos.width,
-                        maxWidth: 'calc(100vw - 24px)',
-                        padding: 10,
-                        borderRadius: 12,
-                        border: `1px solid ${ui.border}`,
-                        background: ui.panel2,
-                        boxShadow: isLightTheme ? '0 10px 24px rgba(15,23,42,0.12)' : '0 10px 24px rgba(0,0,0,0.35)'
-                      }}
-                    >
-                      <div className="small" style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        {tablePickerHover ? `Таблица ${tablePickerHover.rows}×${tablePickerHover.cols}` : 'Таблица'}
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 4 }}>
-                        {Array.from({ length: 10 }).map((_, r) =>
-                          Array.from({ length: 10 }).map((__, c) => {
-                            const rows = r + 1;
-                            const cols = c + 1;
-                            const active = Boolean(tablePickerHover && rows <= tablePickerHover.rows && cols <= tablePickerHover.cols);
-                            return (
-                              <div
-                                key={`${r}-${c}`}
-                                onMouseEnter={() => setTablePickerHover({ rows, cols })}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  insertTable(rows, cols);
-                                  setTablePickerOpen(false);
-                                  setTablePickerHover(null);
-                                  setTablePickerPos(null);
-                                }}
-                                style={{
-                                  height: 18,
-                                  borderRadius: 4,
-                                  border: `1px solid ${ui.border}`,
-                                  background: active
-                                    ? (isLightTheme ? 'rgba(59,130,246,0.18)' : 'rgba(59,130,246,0.28)')
-                                    : (isLightTheme ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.10)'),
-                                  cursor: 'pointer'
-                                }}
-                                title={`${rows}×${cols}`}
-                              />
-                            );
-                          })
-                        )}
-                      </div>
-                      <div className="small" style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-                        После вставки потяните за правый‑нижний угол, чтобы изменить размер таблицы.
-                      </div>
-                    </div>,
-                    document.body
-                  )}
-                </div>
-
-                {/* Группа: история и очистка */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 6, borderRadius: 10, background: ui.panel, border: `1px solid ${ui.border}` }}>
-                  <button className="button secondary" onClick={() => exec('undo')} style={{ padding: '6px 10px', fontSize: 13 }} title="Отменить">↶</button>
-                  <button className="button secondary" onClick={() => exec('redo')} style={{ padding: '6px 10px', fontSize: 13 }} title="Повторить">↷</button>
-                  <div style={{ width: 1, height: 22, background: ui.border, margin: '0 4px' }} />
-                  <button className="button secondary" onClick={clearFormatting} style={{ padding: '6px 10px', fontSize: 13, fontWeight: 600 }} title="Очистить формат">
-                    Очистить формат
-                  </button>
-                </div>
-
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span
-                    className="small"
-                    style={{
-                      color: 'var(--text-muted)',
-                      fontSize: 12,
-                      minWidth: 92,
-                      textAlign: 'right',
-                      visibility: saving ? 'visible' : 'hidden'
+                      background: ui.panel2,
+                      boxShadow: isLightTheme ? '0 10px 24px rgba(15,23,42,0.12)' : '0 10px 24px rgba(0,0,0,0.35)'
                     }}
                   >
-                    {t('workArea.saving')}
-                  </span>
-                  <button className="button" onClick={() => saveToAPI(true)} style={{ padding: '6px 12px', fontSize: 13 }}>{t('workArea.save')}</button>
-                </div>
-            </div>
+                    <div className="small" style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      {tablePickerHover ? `Таблица ${tablePickerHover.rows}×${tablePickerHover.cols}` : 'Таблица'}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 4 }}>
+                      {Array.from({ length: 10 }).map((_, r) =>
+                        Array.from({ length: 10 }).map((__, c) => {
+                          const rows = r + 1;
+                          const cols = c + 1;
+                          const active = Boolean(tablePickerHover && rows <= tablePickerHover.rows && cols <= tablePickerHover.cols);
+                          return (
+                            <div
+                              key={`${r}-${c}`}
+                              onMouseEnter={() => setTablePickerHover({ rows, cols })}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                insertTable(rows, cols);
+                                setTablePickerOpen(false);
+                                setTablePickerHover(null);
+                                setTablePickerPos(null);
+                              }}
+                              style={{
+                                height: 18,
+                                borderRadius: 4,
+                                border: `1px solid ${ui.border}`,
+                                background: active
+                                  ? (isLightTheme ? 'rgba(59,130,246,0.18)' : 'rgba(59,130,246,0.28)')
+                                  : (isLightTheme ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.10)'),
+                                cursor: 'pointer'
+                              }}
+                              title={`${rows}×${cols}`}
+                            />
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>,
+                  document.body
+                )}
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <button type="button" className="wa-tb-btn" onClick={() => exec('undo')} title="Отменить">↶</button>
+                <button type="button" className="wa-tb-btn" onClick={() => exec('redo')} title="Повторить">↷</button>
+                <button type="button" className="wa-tb-btn" onClick={clearFormatting} title="Очистить формат">⌫</button>
+
+                <span className="wa-toolbar__sep" aria-hidden />
+
+                <button
+                  type="button"
+                  className="wa-print-btn"
+                  onClick={printWorkAreaDocument}
+                  title="Печать документа A4"
+                >
+                  Печать
+                </button>
+
+                <span className="wa-toolbar__spacer" />
+
+                <button
+                  type="button"
+                  className="wa-ai-btn"
+                  onClick={openAiForClient}
+                  disabled={!currentClientId}
+                  title="Открыть ИИ-чат с контекстом вкладок текущего клиента"
+                >
+                  ИИ по клиенту
+                </button>
+              </div>
             )}
 
             {/* Editor, journal, or dream cards */}
@@ -2001,19 +2099,14 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                 )}
               </div>
             ) : (
-              <div style={{ 
-                flex: 1, 
-                minHeight: 0, 
-                position: 'relative', 
-                display: 'flex', 
-                flexDirection: 'column',
-                overflow: 'hidden'
-              }}>
+              <>
+              <div className="wa-editor-scroll">
                 {loading && (
                   <div style={{ 
                     position: 'absolute', 
                     top: 20, 
-                    left: 24, 
+                    left: '50%',
+                    transform: 'translateX(-50%)',
                     zIndex: 10, 
                     color: 'var(--text-muted)',
                     background: 'rgba(26,29,36,0.9)',
@@ -2024,34 +2117,44 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     {t('workArea.loading')}
                   </div>
                 )}
-                <div
-                  ref={editorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onMouseDown={onEditorMouseDown}
-                  onContextMenu={onEditorContextMenu}
-                  onKeyDown={onEditorKeyDown}
-                  onInput={persistContent}
-                  onPaste={handleEditorPaste}
-                  className="workarea-editor"
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    background: isLightTheme ? '#ffffff' : 'var(--surface-1)',
-                    padding: '48px 60px',
-                    lineHeight: 1.8,
-                    overflowY: 'auto',
-                    overflowX: 'hidden',
-                    opacity: loading ? 0.5 : 1,
-                    fontSize: 15,
-                    color: isLightTheme ? '#1a1a1a' : 'var(--text)',
-                    fontFamily: 'var(--font-sans)',
-                    outline: 'none',
-                    maxWidth: '100%',
-                    wordWrap: 'break-word'
-                  }}
-                />
-                {tableContextMenu.open && createPortal(
+                <div className="wa-paper" style={{ width: `${A4_WIDTH_MM}mm` }}>
+                  <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onMouseDown={onEditorMouseDown}
+                    onContextMenu={onEditorContextMenu}
+                    onKeyDown={onEditorKeyDown}
+                    onInput={persistContent}
+                    onPaste={handleEditorPaste}
+                    className={`workarea-editor${editorEmpty ? ' is-empty' : ''}`}
+                    data-placeholder="Пишите здесь — всё сохраняется автоматически"
+                    style={{ opacity: loading ? 0.5 : 1 }}
+                  />
+                </div>
+              </div>
+              <div className="wa-statusbar">
+                <span><strong>{wordCount}</strong> слов</span>
+                <span><strong>{charCount}</strong> символов</span>
+                <span>~<strong>{pageCount}</strong> стр. при печати</span>
+                <span>Клиент: <strong>{currentClient?.name || '—'}</strong></span>
+                {restrictedClientId && (
+                  <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}>
+                    🔓 Админ
+                  </span>
+                )}
+                <div className="wa-statusbar__right">
+                  <span className={`wa-save-status${saving ? ' is-saving' : ''}`} aria-live="polite">
+                    {saving
+                      ? 'Сохранение…'
+                      : lastSavedAt
+                        ? `Сохранено · ${formatSavedClock(lastSavedAt)}`
+                        : '—'}
+                  </span>
+                  <PsychologistTourHelpButton tourId="workArea" steps={PSYCHOLOGIST_WORK_AREA_TOUR_STEPS} userId={user?.id} role={user?.role} />
+                </div>
+              </div>
+              {tableContextMenu.open && createPortal(
                   <div
                     ref={tableContextMenuRef}
                     style={{
@@ -2092,7 +2195,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                   </div>,
                   document.body
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>

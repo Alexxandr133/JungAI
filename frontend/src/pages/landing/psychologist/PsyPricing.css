@@ -1,0 +1,43 @@
+.psy-pricing {
+  padding: var(--section-y) 0;
+  background: var(--paper);
+  scroll-margin-top: 80px;
+}
+
+.psy-pricing__inner {
+  max-width: 720px;
+  text-align: center;
+}
+
+/* Перебиваем .landing .landing-h2 / .landing-lead { margin: 0 } */
+.landing .psy-pricing .psy-pricing__title {
+  margin: 0 0 28px;
+}
+
+.landing .psy-pricing .psy-pricing__lead {
+  margin: 0 0 40px;
+}
+
+.landing .psy-pricing .psy-pricing__banner {
+  padding: 22px 26px;
+  margin: 0 0 40px;
+  background: var(--peach-soft);
+  border-color: transparent;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--ink);
+  box-shadow: none;
+}
+
+.psy-pricing__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  justify-content: center;
+  align-items: center;
+}
+
+.landing .psy-pricing .psy-pricing__cta .landing-btn--primary {
+  color: #ffffff;
+}

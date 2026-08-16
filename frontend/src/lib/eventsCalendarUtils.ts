@@ -15,6 +15,8 @@ export type CalendarPrefs = {
   minFreeSegmentMinutes: number;
   useCustomDaysOff: boolean;
   customDaysOff: string[];
+  /** Публичная запись по ссылке /book/calendar */
+  bookingByLinkEnabled: boolean;
 };
 
 export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
@@ -28,7 +30,8 @@ export const DEFAULT_CALENDAR_PREFS: CalendarPrefs = {
   lunchEnd: '14:00',
   minFreeSegmentMinutes: 60,
   useCustomDaysOff: false,
-  customDaysOff: []
+  customDaysOff: [],
+  bookingByLinkEnabled: true,
 };
 
 export function dayKeyFromDate(d: Date): string {
@@ -261,7 +264,11 @@ export function loadCalendarPrefs(): CalendarPrefs {
       lunchStart: typeof p.lunchStart === 'string' ? p.lunchStart : DEFAULT_CALENDAR_PREFS.lunchStart,
       lunchEnd: typeof p.lunchEnd === 'string' ? p.lunchEnd : DEFAULT_CALENDAR_PREFS.lunchEnd,
       useCustomDaysOff: typeof p.useCustomDaysOff === 'boolean' ? p.useCustomDaysOff : DEFAULT_CALENDAR_PREFS.useCustomDaysOff,
-      customDaysOff
+      customDaysOff,
+      bookingByLinkEnabled:
+        typeof p.bookingByLinkEnabled === 'boolean'
+          ? p.bookingByLinkEnabled
+          : DEFAULT_CALENDAR_PREFS.bookingByLinkEnabled,
     };
   } catch {
     return DEFAULT_CALENDAR_PREFS;
@@ -288,6 +295,7 @@ export function mergeCalendarPrefsFromServer(raw: unknown): Partial<CalendarPref
   if (Array.isArray(p.customDaysOff)) {
     out.customDaysOff = p.customDaysOff.filter((x): x is string => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x));
   }
+  if (typeof p.bookingByLinkEnabled === 'boolean') out.bookingByLinkEnabled = p.bookingByLinkEnabled;
   return out;
 }
 

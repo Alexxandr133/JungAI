@@ -1,0 +1,117 @@
+.res-eyebrow--accent {
+  color: var(--brand) !important;
+}
+
+.res-tour {
+  scroll-margin-top: 80px;
+}
+
+.res-tour__block {
+  padding: calc(var(--section-y) * 0.85) 0;
+  background: var(--paper);
+}
+
+.res-tour__block--soft {
+  background: var(--paper-soft);
+}
+
+.res-tour__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 48px;
+  align-items: center;
+}
+
+.res-tour__row--flip .res-tour__text {
+  order: 2;
+}
+
+.res-tour__row--flip .res-tour__panel {
+  order: 1;
+}
+
+.res-tour__bullets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.res-tour__bullets li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.res-tour__bullets li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.res-tour__panel {
+  padding: 32px;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: var(--shadow-card);
+}
+
+.res-tour__panel-mark {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.res-tour__panel-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.res-tour__panel-lines span {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--paper-soft);
+}
+
+.res-tour__panel-lines span:nth-child(1) {
+  width: 92%;
+  background: var(--brand-soft);
+}
+
+.res-tour__panel-lines span:nth-child(2) {
+  width: 72%;
+}
+
+.res-tour__panel-lines span:nth-child(3) {
+  width: 54%;
+}
+
+@media (max-width: 800px) {
+  .res-tour__row,
+  .res-tour__row--flip {
+    grid-template-columns: 1fr;
+  }
+
+  .res-tour__row--flip .res-tour__text,
+  .res-tour__row--flip .res-tour__panel {
+    order: unset;
+  }
+
+  .res-tour__block {
+    padding: calc(var(--section-y) * 0.7) 0;
+  }
+}

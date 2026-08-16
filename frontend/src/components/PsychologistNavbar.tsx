@@ -33,8 +33,6 @@ export function PsychologistNavbar() {
             { label: 'Рабочий стол', path: '/psychologist', icon: 'dashboard' },
             { label: 'Клиенты', path: '/clients', icon: 'users' },
             { label: 'Сессии', path: '/events', icon: 'calendar' },
-            { label: 'Сообщения', path: '/chat', icon: 'messages' },
-            { label: 'Запросы', path: '/psychologist/requests', icon: 'messages' },
           ]
         },
         {
@@ -45,7 +43,7 @@ export function PsychologistNavbar() {
             { label: 'Рабочая область', path: '/psychologist/work-area', icon: 'briefcase' },
             { label: 'Журнал снов', path: '/dreams', icon: 'dreams' },
             { label: 'Необьяснимое', path: '/paranormal', icon: 'star' },
-            { label: 'Библиотека', path: '/materials', icon: 'library' },
+            { label: 'Амплификации', path: '/research/amplifications', icon: 'orbit' },
           ]
         },
         {
@@ -55,14 +53,6 @@ export function PsychologistNavbar() {
           tourKey: 'nav-ai'
         },
         {
-          label: 'Исследования',
-          icon: 'microscope',
-          tourKey: 'nav-research',
-          children: [
-            { label: 'Амплификации', path: '/research/amplifications', icon: 'orbit' },
-          ]
-        },
-        {
           label: 'Сообщества',
           icon: 'book',
           tourKey: 'nav-communities',
@@ -70,12 +60,6 @@ export function PsychologistNavbar() {
             { label: 'Публикации', path: '/publications', icon: 'file' },
             { label: 'Лента', path: '/feed', icon: 'messages' }
           ]
-        },
-        {
-          label: 'О платформе',
-          path: '/about',
-          icon: 'info',
-          tourKey: 'nav-about'
         },
         {
           label: 'Тех.поддержка',

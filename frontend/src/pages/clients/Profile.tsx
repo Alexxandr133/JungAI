@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
 import { PlatformIcon } from '../../components/icons';
@@ -76,6 +77,7 @@ function activityTypeLabel(type: string) {
 export default function ClientProfileView() {
   const { id } = useParams<{ id: string }>();
   const { token } = useAuth();
+  const { openMessenger } = useMessengerUi();
   const [client, setClient] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
 
@@ -273,7 +275,7 @@ export default function ClientProfileView() {
 
   if (isVerified === false && token) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="client-profile">
         <PsychologistNavbar />
         <VerificationRequired verificationStatus={verificationStatus} />
       </div>
@@ -285,74 +287,43 @@ export default function ClientProfileView() {
   const lastSession = sessions
     .slice()
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  const clientTags: Array<{ label: string; color?: string }> = Array.isArray(client?.tags) ? client.tags : [];
+  const discussDreams: Array<{ id: string; title?: string; createdAt?: string }> = Array.isArray(
+    client?.discussOnSessionDreams
+  )
+    ? client.discussOnSessionDreams
+    : [];
+  const lastMood = client?.lastMoodCheckIn ?? null;
+  const avatarSrc = getAvatarUrl(client?.avatarUrl || profile?.avatarUrl, id);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="client-profile">
       <PsychologistNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: '100%',
-          overflowX: 'hidden',
-        }}
-      >
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
-            <Link to="/clients" className="button secondary" style={{ padding: '8px 16px', fontSize: 14 }}>
+      <main className="client-profile__main">
+        <div className="client-profile__head">
+          <div className="client-profile__head-top">
+            <Link to="/clients" className="client-profile__btn client-profile__btn--secondary">
               ← Назад к списку
             </Link>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800 }}>Профиль клиента</h1>
+            <h1 className="client-profile__h1">Профиль клиента</h1>
           </div>
           {client && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12 }}>
-              {getAvatarUrl(client.avatarUrl || profile?.avatarUrl, id) ? (
+            <div className="client-profile__identity">
+              {avatarSrc ? (
                 <img
-                  src={getAvatarUrl(client.avatarUrl || profile?.avatarUrl, id) || ''}
+                  src={avatarSrc}
                   key={`avatar-${id}-${client.avatarUrl || profile?.avatarUrl || 'none'}`}
                   alt={client.name || 'Аватар'}
-                  style={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: '50%',
-                    objectFit: 'cover',
-                    border: '3px solid rgba(255,255,255,0.1)',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
-                  }}
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const parent = target.parentElement;
-                    if (parent && !parent.querySelector('.avatar-fallback')) {
-                      const fallback = document.createElement('div');
-                      fallback.className = 'avatar-fallback';
-                      fallback.style.cssText =
-                        'width: 64px; height: 64px; border-radius: 999px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #0b0f1a; display: grid; place-items: center; font-weight: 800; font-size: 24px;';
-                      fallback.textContent = (client.name || '?').trim().charAt(0).toUpperCase();
-                      parent.appendChild(fallback);
-                    }
-                  }}
+                  className="client-profile__avatar"
                 />
               ) : (
-                <div
-                  style={{
-                    width: 64,
-                    height: 64,
-                    borderRadius: 999,
-                    background: 'linear-gradient(135deg, var(--primary), var(--accent))',
-                    color: '#0b0f1a',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 800,
-                    fontSize: 24,
-                  }}
-                >
+                <div className="client-profile__avatar-fallback">
                   {(client.name || '?').trim().charAt(0).toUpperCase()}
                 </div>
               )}
-              <div>
-                <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{client.name}</div>
-                <div className="small" style={{ color: 'var(--text-muted)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="client-profile__name">{client.name}</div>
+                <div className="client-profile__meta">
                   {client.email && <span>{client.email}</span>}
                   {client.phone && (
                     <span>
@@ -361,40 +332,62 @@ export default function ClientProfileView() {
                     </span>
                   )}
                 </div>
+                {clientTags.length > 0 && (
+                  <div className="client-profile__tags">
+                    {clientTags.map((t, i) => (
+                      <span
+                        key={`${t.label}-${i}`}
+                        className="client-profile__tag"
+                        style={
+                          t.color
+                            ? {
+                                background: `color-mix(in srgb, ${t.color} 16%, var(--surface-2))`,
+                                borderColor: `color-mix(in srgb, ${t.color} 35%, var(--line))`,
+                                color: 'var(--ink)',
+                              }
+                            : undefined
+                        }
+                      >
+                        {t.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <Link
-                to={`/psychologist/work-area?client=${id}`}
-                className="button"
-                style={{ marginLeft: 'auto', padding: '8px 14px', fontSize: 13 }}
-              >
-                Рабочая область
-              </Link>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="client-profile__btn client-profile__btn--secondary"
+                  onClick={() => openMessenger({ clientName: client.name || null, roomId: null })}
+                >
+                  Написать
+                </button>
+                <Link
+                  to={`/psychologist/work-area?client=${id}`}
+                  className="client-profile__btn"
+                >
+                  Рабочая область
+                </Link>
+              </div>
             </div>
           )}
         </div>
 
-        {error && (
-          <div style={{ marginBottom: 16, padding: 12, background: 'var(--surface-2)', borderRadius: 10, color: '#ff7b7b' }}>
-            {error}
-          </div>
-        )}
+        {error && <div className="client-profile__error">{error}</div>}
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <div className="small" style={{ opacity: 0.7 }}>
-              Загрузка данных...
-            </div>
-          </div>
+          <div className="client-profile__loading">Загрузка данных...</div>
         ) : client ? (
           <div>
-            <div className="client-profile-tabs">
+            <div className="client-profile-tabs" role="tablist" aria-label="Разделы профиля">
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
-                  className={activeTab === tab.id ? 'button' : 'button secondary'}
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  className={`client-profile-tabs__btn${activeTab === tab.id ? ' is-active' : ''}`}
                   onClick={() => setActiveTab(tab.id)}
-                  style={{ padding: '8px 14px', fontSize: 13 }}
                 >
                   {tab.label}
                   {tab.id === 'tasks' && openTasks.length > 0 ? ` (${openTasks.length})` : ''}
@@ -404,56 +397,58 @@ export default function ClientProfileView() {
             </div>
 
             {activeTab === 'overview' && (
-              <div className="card" style={{ padding: 24 }}>
-                <h2 style={{ marginTop: 0, marginBottom: 20 }}>Обзор</h2>
+              <div className="client-profile__panel">
+                <h2>Обзор</h2>
                 <div className="client-profile-overview-grid">
                   <div className="client-profile-stat">
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-                      Контакты
-                    </div>
-                    <div>{client.email || '—'}</div>
-                    <div className="small" style={{ marginTop: 4 }}>
-                      {client.phone || 'Телефон не указан'}
-                    </div>
+                    <div className="client-profile-stat__label">Контакты</div>
+                    <div className="client-profile-stat__value">{client.email || '—'}</div>
+                    {client.phone && (
+                      <div className="client-profile-stat__muted">{client.phone}</div>
+                    )}
                     {(client.city || client.age) && (
-                      <div className="small" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                      <div className="client-profile-stat__muted">
                         {[client.city, client.age ? `${client.age} лет` : null].filter(Boolean).join(' • ')}
                       </div>
                     )}
                   </div>
                   <div className="client-profile-stat">
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-                      Следующая сессия
-                    </div>
-                    <div style={{ fontWeight: 700 }}>
+                    <div className="client-profile-stat__label">Следующая сессия</div>
+                    <div className="client-profile-stat__value">
                       {nextEventAt ? formatDateTime(nextEventAt) : 'Не запланирована'}
                     </div>
-                    <div className="small" style={{ marginTop: 4, color: 'var(--text-muted)' }}>
+                    <div className="client-profile-stat__muted">
                       Последняя: {lastSession ? formatDateTime(lastSession.date) : '—'}
                     </div>
                   </div>
                   <div className="client-profile-stat">
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-                      Открытые задачи
-                    </div>
-                    <div style={{ fontSize: 28, fontWeight: 800 }}>{openTasks.length}</div>
+                    <div className="client-profile-stat__label">Открытые задачи</div>
+                    {openTasks.length > 0 ? (
+                      <div className="client-profile-stat__value" style={{ fontSize: 28 }}>
+                        {openTasks.length}
+                      </div>
+                    ) : (
+                      <div className="client-profile-stat__muted" style={{ fontWeight: 600, color: 'var(--ink-soft)' }}>
+                        Нет открытых задач
+                      </div>
+                    )}
                     <button
                       type="button"
-                      className="button secondary"
+                      className="client-profile__btn client-profile__btn--secondary"
                       style={{ marginTop: 8, padding: '6px 10px', fontSize: 12 }}
                       onClick={() => setActiveTab('tasks')}
                     >
-                      К задачам
+                      {openTasks.length > 0 ? 'К задачам' : 'Поставить задачу'}
                     </button>
                   </div>
                   <div className="client-profile-stat">
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6 }}>
-                      Активность
+                    <div className="client-profile-stat__label">Активность</div>
+                    <div className="client-profile-stat__value">
+                      {activity.length ? formatDateTime(activity[0].at) : 'Пока нет событий'}
                     </div>
-                    <div style={{ fontWeight: 700 }}>{activity.length ? formatDateTime(activity[0].at) : 'Пока нет событий'}</div>
                     <button
                       type="button"
-                      className="button secondary"
+                      className="client-profile__btn client-profile__btn--secondary"
                       style={{ marginTop: 8, padding: '6px 10px', fontSize: 12 }}
                       onClick={() => setActiveTab('timeline')}
                     >
@@ -461,19 +456,80 @@ export default function ClientProfileView() {
                     </button>
                   </div>
                 </div>
-                {openTasks.length > 0 && (
-                  <div style={{ marginTop: 20 }}>
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>
-                      Ближайшие задачи
+
+                <div className="client-profile-block">
+                  <div className="client-profile-block__title">Сны к обсуждению</div>
+                  {discussDreams.length === 0 ? (
+                    <div className="client-profile-stat__muted">Нет снов с отметкой «обсудить на сессии»</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {discussDreams.map((d) => (
+                        <div key={d.id} className="client-profile-list-item">
+                          <span style={{ fontWeight: 600 }}>{d.title || 'Без названия'}</span>
+                          <span className="client-profile-stat__muted">
+                            {d.createdAt ? formatDateTime(d.createdAt) : ''}
+                          </span>
+                        </div>
+                      ))}
                     </div>
+                  )}
+                </div>
+
+                <div className="client-profile-block">
+                  <div className="client-profile-block__title">Последние заметки</div>
+                  {notes.length === 0 ? (
+                    <div className="client-profile-stat__muted">Пока нет заметок</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {notes.slice(0, 3).map((n) => (
+                        <div key={n.id} className="client-profile-list-item client-profile-list-item--stack">
+                          <div className="client-profile-stat__muted">{formatDateTime(n.createdAt)}</div>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>
+                            {n.content.length > 180 ? `${n.content.slice(0, 180)}…` : n.content}
+                          </div>
+                        </div>
+                      ))}
+                      {notes.length > 3 && (
+                        <button
+                          type="button"
+                          className="client-profile__btn client-profile__btn--ghost"
+                          style={{ alignSelf: 'start' }}
+                          onClick={() => setActiveTab('notes')}
+                        >
+                          Все заметки →
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="client-profile-block">
+                  <div className="client-profile-block__title">Wellness: последний check-in</div>
+                  {!lastMood ? (
+                    <div className="client-profile-stat__muted">Клиент ещё не отмечал состояние</div>
+                  ) : (
+                    <div className="client-profile-stat">
+                      <div className="client-profile-stat__value">
+                        Настроение {lastMood.mood}/5 · Энергия {lastMood.energy}/5 · Тревога{' '}
+                        {lastMood.anxiety}/5
+                      </div>
+                      <div className="client-profile-stat__muted">
+                        {formatDateTime(lastMood.createdAt)}
+                        {lastMood.note ? ` · ${lastMood.note}` : ''}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {openTasks.length > 0 && (
+                  <div className="client-profile-block">
+                    <div className="client-profile-block__title">Ближайшие задачи</div>
                     <div style={{ display: 'grid', gap: 8 }}>
                       {openTasks.slice(0, 3).map((t) => (
                         <div key={t.id} className="client-profile-list-item">
                           <span>{t.title}</span>
                           {t.dueAt && (
-                            <span className="small" style={{ color: 'var(--text-muted)' }}>
-                              до {formatDateTime(t.dueAt)}
-                            </span>
+                            <span className="client-profile-stat__muted">до {formatDateTime(t.dueAt)}</span>
                           )}
                         </div>
                       ))}
@@ -484,8 +540,8 @@ export default function ClientProfileView() {
             )}
 
             {activeTab === 'timeline' && (
-              <div className="card" style={{ padding: 24 }}>
-                <h2 style={{ marginTop: 0, marginBottom: 20 }}>Таймлайн</h2>
+              <div className="client-profile__panel">
+                <h2>Таймлайн</h2>
                 {activity.length === 0 ? (
                   <div className="client-profile-empty">Пока нет событий</div>
                 ) : (
@@ -494,13 +550,11 @@ export default function ClientProfileView() {
                       <div key={item.id} className="client-profile-timeline__item">
                         <div className="client-profile-timeline__meta">
                           <span className="client-profile-timeline__type">{activityTypeLabel(item.type)}</span>
-                          <span className="small" style={{ color: 'var(--text-muted)' }}>
-                            {formatDateTime(item.at)}
-                          </span>
+                          <span className="client-profile-stat__muted">{formatDateTime(item.at)}</span>
                         </div>
                         <div style={{ fontWeight: 700 }}>{item.title}</div>
                         {item.preview && (
-                          <div className="small" style={{ marginTop: 6, whiteSpace: 'pre-wrap', color: 'var(--text-muted)' }}>
+                          <div className="client-profile-stat__muted" style={{ marginTop: 6, whiteSpace: 'pre-wrap' }}>
                             {item.preview}
                           </div>
                         )}
@@ -512,8 +566,8 @@ export default function ClientProfileView() {
             )}
 
             {activeTab === 'notes' && (
-              <div className="card" style={{ padding: 24 }}>
-                <h2 style={{ marginTop: 0, marginBottom: 16 }}>Заметки</h2>
+              <div className="client-profile__panel">
+                <h2>Заметки</h2>
                 <form onSubmit={createNote} className="client-profile-form">
                   <textarea
                     value={noteDraft}
@@ -522,7 +576,7 @@ export default function ClientProfileView() {
                     rows={3}
                     required
                   />
-                  <button type="submit" className="button" disabled={savingNote || !noteDraft.trim()}>
+                  <button type="submit" className="client-profile__btn" disabled={savingNote || !noteDraft.trim()}>
                     {savingNote ? 'Сохранение…' : 'Добавить заметку'}
                   </button>
                 </form>
@@ -532,13 +586,11 @@ export default function ClientProfileView() {
                   <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
                     {notes.map((n) => (
                       <div key={n.id} className="client-profile-list-item client-profile-list-item--stack">
-                        <div className="small" style={{ color: 'var(--text-muted)' }}>
-                          {formatDateTime(n.createdAt)}
-                        </div>
+                        <div className="client-profile-stat__muted">{formatDateTime(n.createdAt)}</div>
                         <div style={{ whiteSpace: 'pre-wrap' }}>{n.content}</div>
                         <button
                           type="button"
-                          className="button secondary"
+                          className="client-profile__btn client-profile__btn--secondary"
                           style={{ padding: '4px 8px', fontSize: 12, alignSelf: 'start' }}
                           onClick={() => deleteNote(n.id)}
                         >
@@ -552,8 +604,8 @@ export default function ClientProfileView() {
             )}
 
             {activeTab === 'tasks' && (
-              <div className="card" style={{ padding: 24 }}>
-                <h2 style={{ marginTop: 0, marginBottom: 16 }}>Задачи</h2>
+              <div className="client-profile__panel">
+                <h2>Задачи</h2>
                 <form onSubmit={createTask} className="client-profile-form">
                   <input
                     value={taskDraft}
@@ -566,12 +618,12 @@ export default function ClientProfileView() {
                     value={taskDue}
                     onChange={(e) => setTaskDue(e.target.value)}
                   />
-                  <button type="submit" className="button" disabled={savingTask || !taskDraft.trim()}>
-                    {savingTask ? 'Создание…' : 'Создать задачу'}
+                  <button type="submit" className="client-profile__btn" disabled={savingTask || !taskDraft.trim()}>
+                    {savingTask ? 'Создание…' : 'Поставить задачу'}
                   </button>
                 </form>
                 {tasks.length === 0 ? (
-                  <div className="client-profile-empty">Пока нет задач</div>
+                  <div className="client-profile-empty">Нет открытых задач</div>
                 ) : (
                   <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
                     {tasks.map((t) => (
@@ -588,13 +640,13 @@ export default function ClientProfileView() {
                               {t.title}
                             </div>
                             {t.dueAt && (
-                              <div className="small" style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                              <div className="client-profile-stat__muted" style={{ marginTop: 2 }}>
                                 Срок: {formatDateTime(t.dueAt)}
                               </div>
                             )}
                           </div>
                         </label>
-                        <span className="small" style={{ color: 'var(--text-muted)' }}>
+                        <span className="client-profile-stat__muted">
                           {t.status === 'done' ? 'Готово' : 'Открыта'}
                         </span>
                       </div>
@@ -605,8 +657,8 @@ export default function ClientProfileView() {
             )}
 
             {activeTab === 'info' && (
-              <div className="card" style={{ padding: 24 }}>
-                <h2 style={{ marginTop: 0, marginBottom: 20 }}>Основная информация</h2>
+              <div className="client-profile__panel">
+                <h2>Основная информация</h2>
                 <div style={{ display: 'grid', gap: 16 }}>
                   {profile?.age && (
                     <div>
@@ -684,43 +736,45 @@ export default function ClientProfileView() {
             )}
 
             {activeTab === 'stats' && (
-              <div className="card" style={{ padding: 24 }}>
-                <h2 style={{ marginTop: 0, marginBottom: 20 }}>Статистика</h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+              <div className="client-profile__panel">
+                <h2>Статистика</h2>
+                <div className="client-profile-overview-grid">
                   <Link to={`/dreams?client=${id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-                    <div className="card" style={{ padding: 20, textAlign: 'center', cursor: 'pointer' }}>
-                      <div style={{ marginBottom: 8, color: 'var(--primary)' }}>
+                    <div className="client-profile-stat" style={{ textAlign: 'center', cursor: 'pointer' }}>
+                      <div style={{ marginBottom: 8, color: 'var(--brand)' }}>
                         <PlatformIcon name="dreams" size={32} strokeWidth={1.4} />
                       </div>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--primary)' }}>{stats?.dreams || 0}</div>
-                      <div className="small" style={{ color: 'var(--text-muted)' }}>
-                        Снов
-                      </div>
+                      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--brand)' }}>{stats?.dreams || 0}</div>
+                      <div className="client-profile-stat__muted">Снов</div>
                     </div>
                   </Link>
-                  <button type="button" className="card" style={{ padding: 20, textAlign: 'center', cursor: 'pointer', border: 'none' }} onClick={() => setActiveTab('sessions')}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>📅</div>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--primary)' }}>{stats?.sessions || 0}</div>
-                    <div className="small" style={{ color: 'var(--text-muted)' }}>
-                      Сессий
-                    </div>
+                  <button
+                    type="button"
+                    className="client-profile-stat"
+                    style={{ textAlign: 'center', cursor: 'pointer', width: '100%' }}
+                    onClick={() => setActiveTab('sessions')}
+                  >
+                    <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--brand)' }}>{stats?.sessions || 0}</div>
+                    <div className="client-profile-stat__muted">Сессий</div>
                   </button>
-                  <button type="button" className="card" style={{ padding: 20, textAlign: 'center', cursor: 'pointer', border: 'none' }} onClick={() => setActiveTab('journal')}>
-                    <div style={{ fontSize: 32, marginBottom: 8 }}>📝</div>
-                    <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--primary)' }}>{stats?.journalEntries || 0}</div>
-                    <div className="small" style={{ color: 'var(--text-muted)' }}>
-                      Записей в дневнике
-                    </div>
+                  <button
+                    type="button"
+                    className="client-profile-stat"
+                    style={{ textAlign: 'center', cursor: 'pointer', width: '100%' }}
+                    onClick={() => setActiveTab('journal')}
+                  >
+                    <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--brand)' }}>{stats?.journalEntries || 0}</div>
+                    <div className="client-profile-stat__muted">Записей в дневнике</div>
                   </button>
                 </div>
               </div>
             )}
 
             {activeTab === 'sessions' && (
-              <div className="card" style={{ padding: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                  <h2 style={{ marginTop: 0 }}>Сессии</h2>
-                  <Link to={`/psychologist/work-area?client=${id}`} className="button" style={{ padding: '8px 16px', fontSize: 14 }}>
+              <div className="client-profile__panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, gap: 12, flexWrap: 'wrap' }}>
+                  <h2 style={{ margin: 0 }}>Сессии</h2>
+                  <Link to={`/psychologist/work-area?client=${id}`} className="client-profile__btn" style={{ padding: '8px 16px', fontSize: 14 }}>
                     Открыть рабочую область
                   </Link>
                 </div>
@@ -744,18 +798,18 @@ export default function ClientProfileView() {
             )}
 
             {activeTab === 'journal' && (
-              <div className="card" style={{ padding: 24 }}>
+              <div className="client-profile__panel">
                 <h2 style={{ marginTop: 0, marginBottom: 20 }}>Дневник клиента</h2>
                 {journalEntries.length === 0 ? (
                   <div className="client-profile-empty">Пока нет записей в дневнике</div>
                 ) : (
                   <div style={{ display: 'grid', gap: 12 }}>
                     {journalEntries.slice(0, 10).map((entry: any) => (
-                      <div key={entry.id} style={{ padding: 16, background: 'var(--surface-2)', borderRadius: 10 }}>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      <div key={entry.id} className="client-profile-list-item client-profile-list-item--stack">
+                        <div className="client-profile-stat__muted">
                           {formatDateTime(entry.createdAt)}
                         </div>
-                        <div style={{ fontSize: 14, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>{entry.content}</div>
+                        <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{entry.content}</div>
                       </div>
                     ))}
                   </div>

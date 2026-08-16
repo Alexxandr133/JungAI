@@ -49,6 +49,9 @@ JingAI — monorepo-платформа для психологов и клиен
 - `frontend/src/pages/client/Sessions.tsx`
 - `frontend/src/pages/admin/Mailings.tsx`
 - `frontend/src/main.tsx`
+- `DESIGN_BRIEF.md` / `COPY-PSY.md` / `COPY-CLIENT.md` / `COPY-RESEARCH.md` — спека публичных лендингов и кабинетов (см. **§26**)
+- `frontend/src/messenger/*`, `frontend/src/context/ChatSocketContext.tsx`, `frontend/src/context/MessengerUiContext.tsx`
+- `backend/src/services/chatService.ts`, `backend/src/routes/chat.ts`, `backend/src/websocket/chatSocket.ts`
 
 ---
 
@@ -104,6 +107,10 @@ JingAI — monorepo-платформа для психологов и клиен
 - Список `/clients`: фильтры (`filter`/`q`/`tags`), карточки с `nextSessionAt`, `lastContactAt`, `openTasksCount`, `registrationStatus`.
 - Профиль: вкладки Overview / Timeline / Notes / Tasks (+ существующие).
 - Клиентский блок wellness (care/progress/match/certificate) + handbook психолога — см. **§25**.
+
+### 5.7 Публичные лендинги + мессенджер (DESIGN_BRIEF)
+- Спека: корневой `DESIGN_BRIEF.md` + копирайты `COPY-PSY.md` / `COPY-CLIENT.md` / `COPY-RESEARCH.md`.
+- Лендинги, каталог, публичный профиль, анкета `/match`, светлые кабинеты, Events/pre-join/book, **мессенджер психолог↔клиент** — см. **§26** (актуальный снимок на 2026-08-12).
 
 ---
 
@@ -1169,4 +1176,230 @@ sqlite3 backend/prisma/prod.db ".tables" | tr ' ' '\n' | grep -E 'Mail|Mood|Clie
 - [ ] `/client/care`, `/progress`, `/match`, `/certificate`
 - [ ] Handbook психолога открывается
 - [ ] `pm2 logs` без постоянных `P2021` / `MailTemplate does not exist`
+
+---
+
+## 26) DESIGN_BRIEF — снимок на 2026-08-12 (лендинги, витрина, кабинеты, мессенджер)
+
+Кратко для ассистента: большой **ещё не закоммиченный** пласт по спецификации `DESIGN_BRIEF.md` (и копирайтам `COPY-*.md`). На момент записи этого раздела изменения в рабочей копии; на прод **не выкатывались**. Три Prisma-миграции + пересборка публичного контура и realtime-мессенджера.
+
+Источник правды по UX/токенам: `DESIGN_BRIEF.md` (§0–22). Этот §26 — инженерный журнал «что реально сделано».
+
+### 26.1 Спека и правила
+
+| Файл | Роль |
+|------|------|
+| `DESIGN_BRIEF.md` | Спека: лендинги, публичный профиль, match, каталог, кабинеты light, Events, pre-join, book, **мессенджер §21–22** |
+| `COPY-PSY.md` / `COPY-CLIENT.md` / `COPY-RESEARCH.md` | Тексты лендингов — **не выдумывать** |
+| `frontend/src/styles/landing-tokens.css` | Токены палитры «mist» под scope `.landing` |
+| `frontend/src/styles/appearance.css` | Светлая тема кабинетов (`html[data-theme=light]`) |
+
+Правила из brief: секции лендинга по одной; токены без самодеятельности; кабинеты — светлые по умолчанию, без градиентных кнопок / glass.
+
+### 26.2 База данных — что изменили (Prisma / SQLite)
+
+Три новые папки миграций (в git как untracked / вместе с schema):
+
+#### A) `20260810120000_match_catalog_education`
+
+**`Profile` (психолог) — новые колонки:**
+
+| Колонка | Тип | Назначение |
+|---------|-----|------------|
+| `sessionPriceRub` | Int? | Цена сессии (₽), витрина/карточка |
+| `therapyMethod` | String? | Метод терапии (коротко) |
+| `worksWith` | Json? | Темы «с чем работаю» (`string[]`) |
+| `audienceFormats` | Json? | Для кого: `self` / `couple` / `child` |
+| `calendarPrefs` | Json? | Настройки занятости календаря (как prefs на фронте) |
+
+**Новая таблица `PsychologistEducation`:**
+
+| Поле | Тип | Назначение |
+|------|-----|------------|
+| `id` | TEXT PK | cuid |
+| `userId` | TEXT FK → Profile.userId | CASCADE |
+| `kind` | TEXT | `higher` \| `course` \| `supervision` \| `other` |
+| `institution`, `title` | TEXT | вуз / название |
+| `yearFrom` | Int | год начала |
+| `yearTo` | Int? | год окончания |
+| `createdAt`, `updatedAt` | DATETIME | |
+
+Индекс: `PsychologistEducation_userId_idx`.
+
+**`ClientMatchProfile` — расширения анкеты `/match`:**
+
+| Колонка | Тип | Назначение |
+|---------|-----|------------|
+| `whoFor` | TEXT default `self` | для кого подбор |
+| `customTopic` | TEXT? | своя тема |
+| `preferredSlotStart` / `preferredSlotEnd` | DATETIME? | желаемый слот |
+| `priceMin` / `priceMax` | Int? | бюджет |
+
+**`SupportRequest`:** колонка `questionnaire` (JSONB/JSON) — структурированная анкета при заявке клиент→психолог.
+
+#### B) `20260810180000_profile_cover_accent`
+
+**`Profile`:**
+
+| Колонка | Тип | Назначение |
+|---------|-----|------------|
+| `coverUrl` | TEXT? | обложка публичного профиля |
+| `accentColor` | TEXT? | акцентный hex карточки (напр. `#3d6b5a`) |
+
+#### C) `20260812120000_chat_read_receipts` — мессенджер
+
+**`ChatMessage`:** колонка `readAt` **DATETIME** (nullable) — момент прочтения чужим участником.
+
+**Новая таблица `ChatRoomRead`:**
+
+| Поле | Тип | Назначение |
+|------|-----|------------|
+| `userId`, `roomId` | TEXT | составной PK |
+| `lastReadAt` | DATETIME default now | курсор прочтения комнаты пользователем |
+
+Индекс: `ChatRoomRead_userId_idx`.
+
+**Важно про SQLite:** в SQL миграции использовать **`DATETIME`**, не `TIMESTAMP(3)` — Prisma-синтаксис Postgres ломает локальный SQLite («Value TIMESTAMP(3) not supported»). Если локально уже успели создать колонку с битым типом — drop/re-add как `DATETIME` (комментарий есть в `migration.sql`).
+
+**Модели в schema (чат):** `ChatRoom` (как было: `id`, `name?`, `createdAt`), `ChatMessage` (+ `readAt`), `ChatRoomRead`. Дубликаты комнат по имени на уровне сервиса: `findOrCreateChatRoom` — одна комната на пару психолог↔клиент.
+
+#### Локально vs прод — грабли
+
+1. Историческая миграция `20260602200000_dream_symbols_ai_status` (и др.) может **блокировать** чистый `migrate deploy` на части локальных БД.
+2. Полный `prisma db push` **опасен**: может предложить drop unrelated learning/research tables — **не делать** на живых данных.
+3. Локально chat-схему иногда накатывали **хирургическим SQL** + `prisma generate`; на прод — только `npm -w backend run prisma:migrate:deploy` из репозитория после backup `prod.db`.
+4. После generate на Windows `ts-node-dev` может держать lock (`EPERM`) на Prisma client — остановить backend, generate, снова `dev`.
+
+Проверка после migrate:
+
+```bash
+sqlite3 backend/prisma/prod.db "PRAGMA table_info(Profile);" | grep -E 'sessionPriceRub|coverUrl|accentColor|worksWith'
+sqlite3 backend/prisma/prod.db ".schema PsychologistEducation"
+sqlite3 backend/prisma/prod.db "PRAGMA table_info(ClientMatchProfile);" | grep -E 'whoFor|priceMin|preferredSlot'
+sqlite3 backend/prisma/prod.db "PRAGMA table_info(ChatMessage);" | grep readAt
+sqlite3 backend/prisma/prod.db ".schema ChatRoomRead"
+sqlite3 backend/prisma/prod.db "SELECT migration_name FROM _prisma_migrations WHERE migration_name LIKE '2026081%';"
+```
+
+Ожидаемые имена:
+- `20260810120000_match_catalog_education`
+- `20260810180000_profile_cover_accent`
+- `20260812120000_chat_read_receipts`
+
+### 26.3 Публичные лендинги (§6–7, §16 brief)
+
+| Маршрут | Компонент | Примечание |
+|---------|-----------|------------|
+| `/` | `ForPsychologistsPage` | лендинг психолога (brief: `/for-psychologists` → сейчас корень) |
+| `/for-psychologists` | Redirect → `/` | |
+| `/for-clients` | `ForClientsPage` | клиентский лендинг |
+| `/for-researchers` | `ForResearchersPage` | исследовательский |
+
+Стили изолированы: `.landing` + `landing-tokens.css`. Навбар/футер: `LandingNavbar`, `LandingFooter`, `CtaBand`. Шрифты Lora + Golos Text в `index.html`. Мета: `usePageMeta`. Ассеты: `frontend/public/landing/`.
+
+Секции психолога (папка `pages/landing/psychologist/`): Hero, PainZoo, Tour(+Block), Research, Steps, Pricing, Verification, Faq + CtaBand.  
+Клиент: `CliHero`, Steps, Catalog, Requests, Between, Trust, Faq.  
+Исследователь: `ResHero`, Tour, Steps, Bridge, Ethics, Faq.
+
+### 26.4 Витрина: профиль, каталог, match (§12–15)
+
+**Публичный профиль** `/psychologists/:id`:
+- `PsychologistPublicCard` / `PsychologistPublicBody` + CSS; обложка `coverUrl`, акцент `accentColor`.
+- Цена, метод, темы, образование, запись.
+
+**Каталог** `/psychologists`:
+- `pages/psychologists/Catalog.tsx` + `Catalog.css`.
+- Общая карточка `PsychologistMiniCard` (каталог + результаты match).
+
+**Анкета подбора** `/match` (`client/Match.tsx` + CSS):
+- шаги, бюджет, слот, `whoFor` / topics → `ClientMatchProfile` + ranking (`backend/src/utils/matchEngine.ts`).
+- Результаты через mini-card.
+
+**Профиль психолога (кабинет)** `psychologist/Profile.tsx` (+ sticky savebar `data-sticky-save`):
+- редактирование витринных полей, образований, cover/accent; soft nudge полноты (`ProfileCompletenessGate`).
+- Теги/топики: `shared/profileTags.ts` / `shared/src/profileTags.ts`.
+
+**Backend:** расширения `psychologists.ts`, `psychologist.ts`, `clientWellness.ts` (match), `clients.ts`, `support.ts` (questionnaire).
+
+### 26.5 Кабинеты light + Events / pre-join / book (§17–20)
+
+- Светлая тема кабинетов через `appearance.css` / токены (`--ink`, `--brand`, `--sage`, …).
+- Дашборд психолога: `Dashboard.tsx` + `Dashboard.css`; виджеты под светлую палитру.
+- CRM `/clients`: светлые карточки (`ClientsList.css`, `ClientCard.tsx`), «Написать» → messenger drawer.
+- Events: крупный рефактор `Events.tsx` + `Events.css`; слоты `backend/src/utils/calendarSlots.ts`.
+- Публичная запись: `PublicCalendarBookPage.tsx` + `PublicCalendarBook.css`.
+- VoiceRoom / pre-join: доработки UI под brief (`VoiceRoom.tsx` / `.css`).
+
+### 26.6 Мессенджер психолог↔клиент (§21–22 brief) — ядро текущего чата
+
+**Продукт UI:**
+- Пузырь 56px fixed bottom-right (`MessengerHost` / `.msg-bubble`), бейдж unread (`--peach`).
+- Drawer справа (~460px, resizable, ширина в `localStorage` `jungai_msg_drawer_width`); mobile — full width.
+- Full-mode те же компоненты: `/chat`, `/messages` → `pages/chat/Chat.tsx` (тонкая обёртка над panel).
+- Список чатов + «+ Новый чат» (модалка клиентов) + крестик закрытия drawer.
+- Пузыри: свои `--brand`, чужие `--surface-2` + border; ✓ / ✓✓ (`Check` / `CheckCheck`, read = `--sage`).
+- Шапка треда: «← назад» + имя (+ online-dot); без «Открыть профиль» / «Удалить» в chrome (упрощение UX).
+- «Написать» с карточки/профиля клиента / заявок открывает drawer с нужным `roomId`.
+- Пункт «Сообщения» убран из основного nav психолога/клиента — вход через bubble.
+
+**App-level realtime:**
+- `ChatSocketContext` — один socket на приложение, StrictMode-safe (нет disconnect на remount), heartbeat ping ~25s, reconnect + resubscribe.
+- `MessengerUiContext` — open/close, `roomId`, `clientName`.
+- Wired в `main.tsx` внутри `AuthProvider`: `ChatSocketProvider` + `MessengerHost`.
+
+**Backend:**
+- `services/chatService.ts` — комнаты, сообщения, unread, find-or-create без дублей.
+- `routes/chat.ts` — REST.
+- `websocket/chatSocket.ts` + `realtime/chatHub.ts` — ack, read-receipt (**только** если `authorId != readerId`), presence, unread с сервера.
+
+**Nginx:** в `nginx-jung-ai.conf` / `nginx.conf.example` для `/socket.io` — `proxy_read_timeout` / `proxy_send_timeout` **300s** (+ Upgrade).
+
+**UX-фиксы, зафиксированные в разработке (август 2026):**
+- Drawer z-index **~11050** (выше sticky navbar `10000`) — иначе шапка чата под меню.
+- Кнопки `+` / `×`: не transparent; **`padding: 0`** — иначе глобальный `button { padding: 0.6em 1.2em }` из `index.css` сжимает Lucide-иконки до невидимости.
+- Bubble поднимается над sticky savebar через `--bubble-bottom` + `:has([data-sticky-save])`.
+- Не ставить `key={roomId}` на panel при смене комнаты — иначе теряется chrome при remount.
+
+**Ещё не сделано из brief (v2):** сообщение чата → Timeline клиента CRM.
+
+### 26.7 Ключевые файлы (этот пласт)
+
+**Frontend:** `messenger/*`, `context/ChatSocketContext.tsx`, `MessengerUiContext.tsx`, `pages/landing/**`, `components/landing/**`, `PsychologistMiniCard*`, `PsychologistPublic*`, `pages/psychologists/Catalog*`, `PublicProfile*`, `client/Match*`, `psychologist/Profile*`, `Dashboard*`, `events/Events*`, `PublicCalendarBook*`, `styles/landing-tokens.css`, `appearance.css`, `main.tsx`.
+
+**Backend:** `prisma/schema.prisma` + 3 миграции `20260810*` / `20260812*`, `services/chatService.ts`, `routes/chat.ts`, `websocket/chatSocket.ts`, `realtime/chatHub.ts`, `utils/matchEngine.ts`, `utils/calendarSlots.ts`, правки `psychologists.ts` / `psychologist.ts` / `events.ts` / `clientWellness.ts`.
+
+**Infra:** `nginx-jung-ai.conf`, `nginx.conf.example`.
+
+### 26.8 Деплой на прод (когда этот пласт попадёт в `main`)
+
+Обычный безопасный сценарий (§11 / §20.9) **плюс** три миграции §26.2 и проверка nginx WS timeouts.
+
+```bash
+cd /var/www/jingai
+grep DATABASE_URL backend/.env
+pm2 stop jingai-backend
+TS=$(date +%Y%m%d_%H%M%S)
+mkdir -p /root/jingai-backups
+sqlite3 backend/prisma/prod.db ".backup /root/jingai-backups/prod_${TS}.db"
+cp -a backend/prisma/prod.db /root/jingai-backups/prod_${TS}.db.copy
+git pull --ff-only origin main
+npm ci
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend && npm run build:frontend
+# убедиться, что nginx отдаёт актуальный frontend/dist и socket.io timeouts 300s
+pm2 restart jingai-backend --update-env
+```
+
+### 26.9 Чек-лист приёмки
+
+- [ ] `/` — лендинг психолога (mist, Lora/Golos), `/for-clients`, `/for-researchers`
+- [ ] `/psychologists`, `/psychologists/:id` — цена/темы/cover/образование
+- [ ] `/match` — анкета → результаты
+- [ ] Профиль психолога: savebar, cover/accent, образования сохраняются
+- [ ] Миграции `20260810*` / `20260812*` в `_prisma_migrations`
+- [ ] Bubble → drawer; unread; ✓/✓✓; presence; один socket в логах
+- [ ] «Написать» с карточки клиента открывает нужный чат
+- [ ] Navbar не перекрывает шапку drawer; иконки +/× видны
+- [ ] `/chat` full-mode; nginx `/socket.io` не рвёт соединение за минуты
 

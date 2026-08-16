@@ -1,13 +1,15 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import App from './App.tsx'
 import './styles/tokens.css'
 import './styles/appearance.css'
 import './index.css'
 import { AppearanceProvider } from './context/AppearanceContext'
 import { GlobalAppearance } from './components/GlobalAppearance'
 import { AuthProvider } from './context/AuthContext'
+import { ChatSocketProvider } from './context/ChatSocketContext'
+import { MessengerUiProvider } from './context/MessengerUiContext'
+import { MessengerHost } from './messenger/MessengerHost'
 import { SessionExpiredModal } from './components/SessionExpiredModal'
 import { I18nProvider } from './context/I18nContext'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -40,7 +42,6 @@ import ClientRank from './pages/client/Rank'
 import ClientTests from './pages/client/Tests'
 import ClientCommunity from './pages/client/Community'
 import ClientSessions from './pages/client/Sessions'
-import ClientPsychologistsList from './pages/client/PsychologistsList'
 import ClientAIChat from './pages/client/ClientAIChat'
 import ClientCare from './pages/client/Care'
 import ClientProgress from './pages/client/Progress'
@@ -66,7 +67,6 @@ import PsychologistProfile from './pages/psychologist/Profile'
 import PsychologistSupport from './pages/psychologist/Support'
 import PsychologistHandbook from './pages/psychologist/Handbook'
 import PsychologistAIChat from './pages/psychologist/AIChat'
-import PsychologistRequestsPage from './pages/psychologist/Requests'
 import AdminDashboard from './pages/admin/Dashboard'
 import AdminVerification from './pages/admin/Verification'
 import AdminSupport from './pages/admin/Support'
@@ -81,8 +81,11 @@ import GuestPage from './pages/guest/Guest'
 import GuestTests from './pages/guest/GuestTests'
 import GuestPublications from './pages/guest/GuestPublications'
 import GuestDreams from './pages/guest/GuestDreams'
-import PsychologistsList from './pages/guest/PsychologistsList'
+import PsychologistsCatalog from './pages/psychologists/Catalog'
 import PublicPsychologistProfile from './pages/psychologists/PublicProfile'
+import ForPsychologistsPage from './pages/landing/psychologist/ForPsychologistsPage'
+import ForClientsPage from './pages/landing/client/ForClientsPage'
+import ForResearchersPage from './pages/landing/researcher/ForResearchersPage'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { ForcedEmailMigrationModal } from './components/EmailChangeFlow'
 import { MobileInstallPrompt } from './components/MobileInstallPrompt'
@@ -98,13 +101,19 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <GlobalAppearance />
         <I18nProvider>
           <AuthProvider>
+            <ChatSocketProvider>
+            <MessengerUiProvider>
+            <MessengerHost />
             <SessionExpiredModal />
             <ForcedEmailMigrationModal />
             <MobileInstallPrompt />
             <CookieConsentBanner />
             <ErrorBoundary>
             <Routes>
-              <Route path="/" element={<App />} />
+              <Route path="/" element={<ForPsychologistsPage />} />
+              <Route path="/for-psychologists" element={<Navigate to="/" replace />} />
+              <Route path="/for-clients" element={<ForClientsPage />} />
+              <Route path="/for-researchers" element={<ForResearchersPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route path="/register-client" element={<RegisterClient />} />
@@ -120,7 +129,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/guest/tests" element={<GuestTests />} />
               <Route path="/guest/publications" element={<GuestPublications />} />
               <Route path="/guest/dreams" element={<GuestDreams />} />
-              <Route path="/psychologists" element={<PsychologistsList />} />
+              <Route path="/psychologists" element={<PsychologistsCatalog />} />
               <Route path="/psychologists/:id" element={<PublicPsychologistProfile />} />
 
               <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
@@ -202,14 +211,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/psychologist/requests"
-                element={
-                  <ProtectedRoute roles={['psychologist', 'admin']}>
-                    <PsychologistRequestsPage />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/psychologist/requests" element={<Navigate to="/events#requests" replace />} />
               <Route
                 path="/psychologist/ai"
                 element={
@@ -521,7 +523,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 path="/client/psychologists"
                 element={
                   <ProtectedRoute roles={['client', 'admin']}>
-                    <ClientPsychologistsList />
+                    <PsychologistsCatalog />
                   </ProtectedRoute>
                 }
               />
@@ -549,6 +551,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
+              <Route path="/match" element={<ClientMatch />} />
               <Route
                 path="/client/match"
                 element={
@@ -660,6 +663,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="*" element={<div>Not found</div>} />
             </Routes>
             </ErrorBoundary>
+            </MessengerUiProvider>
+            </ChatSocketProvider>
           </AuthProvider>
         </I18nProvider>
       </AppearanceProvider>

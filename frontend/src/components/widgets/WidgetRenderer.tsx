@@ -125,7 +125,7 @@ export default function WidgetRenderer({
   return (
       <div
       ref={widgetRef}
-      className="card"
+      className={`card psy-desk-widget${isClickable ? ' psy-desk-widget--clickable' : ''}`}
       draggable={!!onDragStart}
       onDragStart={() => {
         // Помечаем, что начался drag
@@ -161,34 +161,41 @@ export default function WidgetRenderer({
           onClick?.(widget.type);
         }
       }}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={(e) => {
+        if (!isClickable) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick?.(widget.type);
+        }
+      }}
       style={{
         padding: 20,
         position: 'relative',
         cursor: isClickable ? 'pointer' : (isDragged ? 'grabbing' : 'grab'),
         opacity: isDragged ? 0.5 : 1,
         transform: isDragOver ? 'scale(1.02)' : 'none',
-        transition: isDragged ? 'none' : 'transform 0.2s, opacity 0.2s, box-shadow 0.2s',
-        border: isDragOver ? '2px solid var(--primary)' : '1px solid rgba(148,163,184,0.4)',
+        transition: isDragged ? 'none' : 'transform 0.2s, opacity 0.2s, background 0.15s, border-color 0.15s, box-shadow 0.18s',
+        border: isDragOver ? '2px solid var(--brand, var(--primary))' : '1px solid var(--card-border, var(--line))',
         borderRadius: 14,
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',
-        boxShadow: isDragOver ? '0 0 0 3px rgba(59,130,246,0.18)' : '0 8px 24px rgba(2, 6, 23, 0.18)',
+        background: 'var(--card, var(--surface))',
+        boxShadow: 'var(--shadow-card, none)',
         ...getGridStyle()
       }}
-      onMouseEnter={() => {
+      onMouseEnter={(e) => {
         setShowControls(true);
-        if (isClickable && widgetRef.current) {
-          widgetRef.current.style.boxShadow = '0 4px 12px rgba(91, 124, 250, 0.2)';
+        if (isClickable) {
+          e.currentTarget.style.background = 'var(--surface-2)';
+          e.currentTarget.style.boxShadow = 'var(--shadow-card-hover, var(--shadow-card))';
         }
       }}
-      onMouseLeave={() => {
+      onMouseLeave={(e) => {
         setShowControls(false);
-        if (widgetRef.current) {
-          widgetRef.current.style.boxShadow = 'none';
-        }
+        e.currentTarget.style.background = 'var(--card, var(--surface))';
+        e.currentTarget.style.boxShadow = 'var(--shadow-card, none)';
       }}
     >
-      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderRadius: 14, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }} />
-
       {/* Drag handle */}
       <div
         data-widget-control
@@ -205,7 +212,7 @@ export default function WidgetRenderer({
           opacity: showControls ? 1 : 0,
           transition: 'opacity 0.2s',
           zIndex: 10,
-          color: 'var(--text-muted)',
+          color: 'var(--ink-muted, var(--text-muted))',
           fontSize: 16
         }}
         onMouseDown={(e) => {

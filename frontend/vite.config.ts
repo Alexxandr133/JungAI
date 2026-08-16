@@ -1,5 +1,9 @@
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 // Максимально простой и безопасный конфиг Vite
 export default defineConfig({
@@ -15,6 +19,9 @@ export default defineConfig({
     },
   },
   resolve: {
+    alias: {
+      'jungai-shared': path.resolve(rootDir, '../shared/src'),
+    },
     // Критично: гарантируем, что используется одна и та же копия React
     // Это исправляет ошибку "Cannot read properties of null (reading 'useContext')"
     dedupe: ['react', 'react-dom', 'react-router', 'react-router-dom'],
