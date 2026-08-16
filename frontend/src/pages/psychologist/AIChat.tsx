@@ -1848,10 +1848,10 @@ export default function PsychologistAIChat() {
                   flexDirection: 'column'
                 }}
               >
-                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 24px', width: '100%', display: 'flex', flexDirection: 'column', flex: 1 }}>
                   {messages.length === 0 && !loading ? (
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
-                      <div style={{ textAlign: 'center', maxWidth: 500 }}>
+                      <div style={{ textAlign: 'center', maxWidth: 720 }}>
                         <div style={{ fontSize: 56, marginBottom: 20, opacity: 0.8 }}>💬</div>
                         <h3 style={{ fontSize: isMobileView ? 16 : 22, fontWeight: 700, marginBottom: 12, color: 'var(--text)' }}>
                           Начните диалог с AI ассистентом
@@ -1998,7 +1998,7 @@ export default function PsychologistAIChat() {
                   padding: '16px 0'
                 }}
               >
-                <div style={{ maxWidth: 768, margin: '0 auto', padding: '0 24px', width: '100%' }}>
+                <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 24px', width: '100%' }}>
                   {/* Shortcut buttons - показываем только если режим работы с клиентами включен и выбран клиент */}
                   {false && clientModeEnabled && selectedClientId && shortcuts.length > 0 && (
                     <div style={{ 

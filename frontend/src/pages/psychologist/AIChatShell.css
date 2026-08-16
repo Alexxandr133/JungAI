@@ -191,7 +191,7 @@
 }
 
 .ai-chat-bubble {
-  max-width: min(85%, 560px);
+  max-width: min(88%, 640px);
   padding: 10px 14px 8px;
   border-radius: 16px;
   font-size: 15px;
@@ -208,6 +208,7 @@
 }
 
 .ai-chat-bubble.is-theirs {
+  max-width: min(98%, 1080px);
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line, var(--border, rgba(255, 255, 255, 0.14)));
@@ -215,6 +216,7 @@
 }
 
 .ai-chat-bubble.is-error {
+  max-width: min(98%, 1080px);
   background: rgba(239, 68, 68, 0.12);
   border: 1px solid rgba(239, 68, 68, 0.35);
   color: var(--text);
@@ -247,7 +249,7 @@
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
-  max-width: 420px;
+  max-width: 720px;
   margin: 0 auto;
 }
 
