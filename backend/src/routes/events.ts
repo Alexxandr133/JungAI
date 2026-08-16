@@ -1175,21 +1175,26 @@ router.get('/events/room/:roomId/livekit-token', requireAuth, async (req: Authed
     const allowed = await canUserAccessEvent(voiceRoom.event as any, req.user!);
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
-    const identity = req.user!.id;
+    // Tab-scoped identity: same account in two tabs/devices no longer kicks each other (DUPLICATE_IDENTITY).
+    const userId = req.user!.id;
+    const sidRaw = String(req.query.sid || req.headers['x-room-sid'] || '').trim();
+    const sid = sidRaw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
+    const identity = sid ? `${userId}_${sid}` : `${userId}_${randomBytes(4).toString('hex')}`;
     const profile = await (prisma as any).profile.findUnique({
-      where: { userId: identity },
+      where: { userId },
       select: { name: true, avatarUrl: true }
     });
-    const displayName = profile?.name || req.user!.email || `user-${identity.slice(0, 8)}`;
+    const displayName = profile?.name || req.user!.email || `user-${userId.slice(0, 8)}`;
     const at = new AccessToken(config.livekitApiKey, config.livekitApiSecret, {
       identity,
       name: displayName,
       metadata: JSON.stringify({
-        userId: identity,
+        userId,
         displayName,
         avatarUrl: profile?.avatarUrl || null
       }),
-      ttl: `${Math.max(300, config.livekitTokenTtlSec)}s`
+      // Long calls: default TTL is 4h; floor 1h so mid-meeting JWT expiry is rarer
+      ttl: `${Math.max(3600, config.livekitTokenTtlSec)}s`
     });
     at.addGrant({
       room: roomId,
@@ -1216,6 +1221,8 @@ router.post('/events/room/:roomId/guest-livekit-token', async (req, res) => {
   const roomId = String(req.params.roomId || '');
   const requestedName = String(req.body?.displayName || '').trim();
   const displayName = requestedName.slice(0, 60) || 'Гость';
+  const keyRaw = String(req.body?.participantKey || '').trim();
+  const participantKey = keyRaw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32);
 
   try {
     if (!config.livekitUrl || !config.livekitApiKey || !config.livekitApiSecret) {
@@ -1233,7 +1240,8 @@ router.post('/events/room/:roomId/guest-livekit-token', async (req, res) => {
       return res.status(403).json({ error: 'Guest access is allowed only for video meetings' });
     }
 
-    const identity = `guest-${randomBytes(8).toString('hex')}`;
+    // Stable per-tab key lets auto-reconnect reuse identity; otherwise mint a fresh guest id
+    const identity = participantKey ? `guest-${participantKey}` : `guest-${randomBytes(8).toString('hex')}`;
     const at = new AccessToken(config.livekitApiKey, config.livekitApiSecret, {
       identity,
       name: displayName,
@@ -1241,7 +1249,7 @@ router.post('/events/room/:roomId/guest-livekit-token', async (req, res) => {
         isGuest: true,
         displayName
       }),
-      ttl: `${Math.max(300, config.livekitTokenTtlSec)}s`
+      ttl: `${Math.max(3600, config.livekitTokenTtlSec)}s`
     });
     at.addGrant({
       room: roomId,

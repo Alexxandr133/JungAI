@@ -41,7 +41,7 @@ export const config = {
   livekitUrl: process.env.LIVEKIT_URL || (process.env.NODE_ENV === 'development' ? 'ws://127.0.0.1:7880' : ''),
   livekitApiKey: process.env.LIVEKIT_API_KEY || (process.env.NODE_ENV === 'development' ? 'devkey' : ''),
   livekitApiSecret: process.env.LIVEKIT_API_SECRET || (process.env.NODE_ENV === 'development' ? 'supersecret' : ''),
-  livekitTokenTtlSec: Number(process.env.LIVEKIT_TOKEN_TTL_SEC || 3600),
+  livekitTokenTtlSec: Number(process.env.LIVEKIT_TOKEN_TTL_SEC || 14400),
   appTimeZone: process.env.APP_TIME_ZONE || 'Europe/Moscow',
   eventTimezoneOffsetMinutes: Number(process.env.EVENT_TIMEZONE_OFFSET_MINUTES || 180),
   // Frontend URL для генерации ссылок регистрации

@@ -20,7 +20,26 @@ import {
 import { DisconnectReason, Room, Track } from 'livekit-client';
 import { PlatformIcon } from '../../components/icons';
 import { Check, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip, PhoneOff, SendHorizontal, Users, Video, VideoOff } from 'lucide-react';
+import { isJwtExpired } from '../../utils/authSession';
 
+const ROOM_PARTICIPANT_KEY = 'jingai_room_participant_key';
+const MAX_AUTO_RECONNECT = 3;
+
+function getRoomParticipantKey(): string {
+  try {
+    let key = sessionStorage.getItem(ROOM_PARTICIPANT_KEY);
+    if (!key) {
+      key =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID().replace(/-/g, '').slice(0, 24)
+          : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+      sessionStorage.setItem(ROOM_PARTICIPANT_KEY, key);
+    }
+    return key;
+  } catch {
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
 interface EventData {
   id: string;
   title: string;
@@ -657,8 +676,10 @@ export default function VoiceRoom() {
 
   const guestForced = searchParams.get('guest') === '1';
   const [authFallbackGuest, setAuthFallbackGuest] = useState(false);
-  const isGuestMode = guestForced || !token || authFallbackGuest;
-  const roomApiToken = isGuestMode ? undefined : (token ?? undefined);
+  // Просроченный JWT в localStorage у тех, кто давно не заходил — не считаем сессию живой
+  const effectiveAuthToken = token && !isJwtExpired(token) ? token : null;
+  const isGuestMode = guestForced || !effectiveAuthToken || authFallbackGuest;
+  const roomApiToken = isGuestMode ? undefined : (effectiveAuthToken ?? undefined);
   
   const [event, setEvent] = useState<EventData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -666,9 +687,11 @@ export default function VoiceRoom() {
   const [joined, setJoined] = useState(false);
   const [livekitToken, setLivekitToken] = useState<string>('');
   const [livekitUrl, setLivekitUrl] = useState<string>('');
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
   const [guestDisplayName, setGuestDisplayName] = useState('');
   const [joinedAsName, setJoinedAsName] = useState('');
   const [reconnectHint, setReconnectHint] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const [preCameraOn, setPreCameraOn] = useState(true);
   const [preMicOn, setPreMicOn] = useState(true);
   const [joinWithCamera, setJoinWithCamera] = useState(true);
@@ -680,6 +703,18 @@ export default function VoiceRoom() {
   const [joining, setJoining] = useState(false);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
+  const intentionalLeaveRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectInFlightRef = useRef(false);
+  const ignoreDisconnectRef = useRef(false);
+  const joinMediaRef = useRef({ camera: true, mic: true });
+  const guestNameRef = useRef('');
+  const isGuestModeRef = useRef(isGuestMode);
+  const roomApiTokenRef = useRef(roomApiToken);
+
+  isGuestModeRef.current = isGuestMode;
+  roomApiTokenRef.current = roomApiToken;
+  guestNameRef.current = guestDisplayName;
 
   const displayNameForPreview =
     (isGuestMode ? guestDisplayName.trim() : '') ||
@@ -797,10 +832,11 @@ export default function VoiceRoom() {
     if (!roomId) return;
     try {
       setLoading(true);
-      if (!guestForced && token) {
+      // Гостевая ссылка или просроченный JWT — сразу публичная комната
+      if (!guestForced && effectiveAuthToken) {
         try {
           const res = await api<{ event: EventData; voiceRoom: any }>(`/api/events/by-room/${roomId}`, {
-            token,
+            token: effectiveAuthToken,
             suppressSessionExpired: true,
           });
           setEvent(res.event);
@@ -808,9 +844,12 @@ export default function VoiceRoom() {
           setError(null);
           return;
         } catch (e: any) {
-          if (e?.status !== 401) throw e;
+          // 401/403 → вход как гость (чужой аккаунт / истекшая сессия)
+          if (e?.status !== 401 && e?.status !== 403) throw e;
           setAuthFallbackGuest(true);
         }
+      } else if (!guestForced && token && !effectiveAuthToken) {
+        setAuthFallbackGuest(true);
       }
       const res = await api<{ event: EventData; voiceRoom: any }>(`/api/events/public-room/${roomId}`);
       setEvent(res.event);
@@ -822,7 +861,7 @@ export default function VoiceRoom() {
     } finally {
       setLoading(false);
     }
-  }, [roomId, guestForced, token]);
+  }, [roomId, guestForced, token, effectiveAuthToken]);
 
   useEffect(() => {
     if (!roomId) {
@@ -833,6 +872,40 @@ export default function VoiceRoom() {
 
     void loadEventData();
   }, [roomId, loadEventData]);
+
+  const fetchLiveKitToken = useCallback(
+    async (opts: { asGuest: boolean; displayName: string; authToken?: string | null }) => {
+      if (!roomId) throw new Error('Room ID missing');
+      const participantKey = getRoomParticipantKey();
+      if (opts.asGuest) {
+        return api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
+          method: 'POST',
+          body: { displayName: opts.displayName.trim() || 'Гость', participantKey },
+        });
+      }
+      try {
+        return await api<LiveKitTokenResponse>(
+          `/api/events/room/${roomId}/livekit-token?sid=${encodeURIComponent(participantKey)}`,
+          {
+            token: opts.authToken || undefined,
+            suppressSessionExpired: true,
+          }
+        );
+      } catch (e: any) {
+        if (e?.status !== 401 && e?.status !== 403) throw e;
+        setAuthFallbackGuest(true);
+        const name = opts.displayName.trim();
+        if (!name) {
+          throw new Error('Сессия истекла. Введите имя и присоединитесь как гость.');
+        }
+        return api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
+          method: 'POST',
+          body: { displayName: name, participantKey },
+        });
+      }
+    },
+    [roomId]
+  );
 
   async function handleJoin(opts?: { camera?: boolean; mic?: boolean }) {
     if (!roomId) return;
@@ -845,39 +918,24 @@ export default function VoiceRoom() {
     setJoining(true);
     setError(null);
     try {
-      let res: LiveKitTokenResponse;
-      if (isGuestMode) {
-        res = await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
-          method: 'POST',
-          body: { displayName: guestDisplayName.trim() },
-        });
-      } else {
-        try {
-          res = await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/livekit-token`, {
-            token: roomApiToken,
-            suppressSessionExpired: true,
-          });
-        } catch (e: any) {
-          if (e?.status !== 401) throw e;
-          setAuthFallbackGuest(true);
-          if (!guestDisplayName.trim()) {
-            setError('Сессия истекла. Введите имя и присоединитесь как гость.');
-            return;
-          }
-          res = await api<LiveKitTokenResponse>(`/api/events/room/${roomId}/guest-livekit-token`, {
-            method: 'POST',
-            body: { displayName: guestDisplayName.trim() },
-          });
-        }
-      }
+      const res = await fetchLiveKitToken({
+        asGuest: isGuestMode,
+        displayName: guestDisplayName,
+        authToken: roomApiToken,
+      });
       previewStreamRef.current?.getTracks().forEach((t) => t.stop());
       previewStreamRef.current = null;
+      joinMediaRef.current = { camera: wantCamera, mic: wantMic };
       setJoinWithCamera(wantCamera);
       setJoinWithMic(wantMic);
       setLivekitToken(res.token);
       setLivekitUrl(res.url);
       setJoinedAsName(res.name || '');
+      setConnectionGeneration((g) => g + 1);
+      reconnectAttemptsRef.current = 0;
+      intentionalLeaveRef.current = false;
       setJoined(true);
+      setReconnecting(false);
       setReconnectHint(null);
       setError(null);
     } catch (e: any) {
@@ -887,10 +945,70 @@ export default function VoiceRoom() {
     }
   }
 
+  const attemptAutoReconnect = useCallback(async () => {
+    if (!roomId || reconnectInFlightRef.current || intentionalLeaveRef.current) return;
+    if (reconnectAttemptsRef.current >= MAX_AUTO_RECONNECT) {
+      setJoined(false);
+      setLivekitToken('');
+      setReconnecting(false);
+      setReconnectHint('Связь с комнатой прервалась. Нажмите «Подключиться» ещё раз.');
+      return;
+    }
+    reconnectInFlightRef.current = true;
+    reconnectAttemptsRef.current += 1;
+    const attempt = reconnectAttemptsRef.current;
+    setReconnecting(true);
+    setReconnectHint(`Переподключение… (${attempt}/${MAX_AUTO_RECONNECT})`);
+    try {
+      await new Promise((r) => setTimeout(r, 600 * attempt));
+      if (intentionalLeaveRef.current) return;
+      const asGuest = isGuestModeRef.current;
+      const name =
+        guestNameRef.current.trim() ||
+        profile?.name ||
+        user?.name ||
+        user?.email?.split('@')[0] ||
+        'Гость';
+      const res = await fetchLiveKitToken({
+        asGuest,
+        displayName: name,
+        authToken: roomApiTokenRef.current,
+      });
+      if (intentionalLeaveRef.current) return;
+      // Remount LiveKitRoom with fresh token (ignore CLIENT_INITIATED from old instance)
+      ignoreDisconnectRef.current = true;
+      setLivekitToken(res.token);
+      setLivekitUrl(res.url);
+      setJoinedAsName(res.name || '');
+      setJoinWithCamera(joinMediaRef.current.camera);
+      setJoinWithMic(joinMediaRef.current.mic);
+      setConnectionGeneration((g) => g + 1);
+      setJoined(true);
+      setReconnecting(false);
+      setReconnectHint(null);
+    } catch (e: any) {
+      console.warn('[VoiceRoom] auto-reconnect failed:', e);
+      if (reconnectAttemptsRef.current >= MAX_AUTO_RECONNECT) {
+        setJoined(false);
+        setLivekitToken('');
+        setReconnecting(false);
+        setReconnectHint('Связь с комнатой прервалась. Нажмите «Подключиться» ещё раз.');
+      } else {
+        reconnectInFlightRef.current = false;
+        void attemptAutoReconnect();
+        return;
+      }
+    } finally {
+      reconnectInFlightRef.current = false;
+    }
+  }, [roomId, fetchLiveKitToken, profile?.name, user?.name, user?.email]);
+
   function handleLeave() {
+    intentionalLeaveRef.current = true;
     setJoined(false);
     setLivekitToken('');
     setReconnectHint(null);
+    setReconnecting(false);
     if (isGuestMode) {
       navigate('/');
       return;
@@ -1091,9 +1209,10 @@ export default function VoiceRoom() {
         ) : (
           <div style={{ width: '100%', minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <LiveKitRoom
+              key={`lk-${connectionGeneration}`}
               token={livekitToken}
               serverUrl={livekitUrl}
-              connect={joined}
+              connect={joined && !!livekitToken}
               video={joinWithCamera}
               audio={joinWithMic}
               options={{
@@ -1103,17 +1222,45 @@ export default function VoiceRoom() {
                 videoCaptureDefaults: videoDeviceId ? { deviceId: videoDeviceId } : undefined,
                 audioCaptureDefaults: audioDeviceId ? { deviceId: audioDeviceId } : undefined,
               }}
+              connectOptions={{
+                autoSubscribe: true,
+                maxRetries: 5,
+                peerConnectionTimeout: 45_000,
+              }}
               onDisconnected={(reason) => {
-                if (reason === DisconnectReason.CLIENT_INITIATED) {
-                  handleLeave();
+                if (ignoreDisconnectRef.current) {
+                  ignoreDisconnectRef.current = false;
                   return;
                 }
-                setJoined(false);
-                setLivekitToken('');
-                setReconnectHint('Связь с комнатой прервалась. Нажмите «Подключиться» ещё раз.');
+                if (intentionalLeaveRef.current || reason === DisconnectReason.CLIENT_INITIATED) {
+                  if (!intentionalLeaveRef.current) {
+                    handleLeave();
+                  }
+                  return;
+                }
+                void attemptAutoReconnect();
               }}
               style={{ height: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
             >
+              {reconnecting && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    zIndex: 40,
+                    top: 12,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    padding: '8px 14px',
+                    borderRadius: 10,
+                    background: 'rgba(15, 18, 28, 0.88)',
+                    color: '#fff',
+                    fontSize: 13,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {reconnectHint || 'Переподключение…'}
+                </div>
+              )}
               <LiveKitConferenceRu
                 eventType={event.type}
                 eventTitle={event.title}

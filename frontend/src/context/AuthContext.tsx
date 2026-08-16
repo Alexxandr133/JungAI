@@ -1,6 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
-import { AUTH_SESSION_EXPIRED_EVENT, isLocalDevHost, isUnauthorizedError } from '../utils/authSession';
+import {
+  AUTH_SESSION_EXPIRED_EVENT,
+  isLocalDevHost,
+  isPublicRoomPath,
+  isUnauthorizedError,
+} from '../utils/authSession';
 import { clearVerificationCache } from '../utils/verification';
 
 type UserRole = 'psychologist' | 'client' | 'researcher' | 'admin' | 'guest';
@@ -87,9 +92,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearVerificationCache();
       return me;
     } catch (e) {
-      if (isUnauthorizedError(e) && !isLocalDevHost()) {
+      // На /room/… не поднимаем «сессия истекла» — гости со старым JWT должны спокойно войти в звонок
+      if (isUnauthorizedError(e) && !isLocalDevHost() && !isPublicRoomPath()) {
         setSessionExpired(true);
-      } else {
+      } else if (!isUnauthorizedError(e)) {
         console.warn('[Auth] /api/auth/me failed, keeping cached user:', e);
       }
       return null;
