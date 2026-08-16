@@ -80,10 +80,11 @@ JingAI — monorepo-платформа для психологов и клиен
 - Выделение ближайшей встречи отдельно.
 
 ### 5.2 Видеовстречи (LiveKit)
-- Комната: `/room/:roomId`
-- Для авторизованных: токен через защищенный endpoint.
-- Для гостя: публичный endpoint + ввод display name.
-- Backend генерирует LiveKit token.
+- Комната: `/room/:roomId` (гостевая ссылка: `?guest=1`).
+- Для авторизованных: токен через защищенный endpoint (identity = `userId` + tab `sid`).
+- Для гостя: публичный endpoint + ввод display name (+ стабильный `participantKey` на вкладку).
+- Backend генерирует LiveKit token (TTL по умолчанию **4ч**, `LIVEKIT_TOKEN_TTL_SEC`).
+- Устойчивость гостевых созвонов / auto-reconnect / просроченный JWT — см. **§27**.
 
 ### 5.3 Сообщества/публикации
 - In-memory заменён на Prisma (`Community`, `PublicationPost`, …) — подробности в **§21**.
@@ -208,8 +209,8 @@ SMTP (обязательно для писем и админ-рассылок; �
 
 1. `pm2 stop jingai-backend`
 2. backup БД (`sqlite .backup`)
-3. `git pull`
-4. `npm ci` (root + workspaces при необходимости)
+3. **`git pull` сначала** — потом уже `npm ci` (иначе ставится дерево под старый lockfile)
+4. `npm ci --include=dev` **только из корня** `/var/www/jingai` (не `cd backend && npm ci` / не `cd frontend && npm ci` — ломает hoist workspaces)
 5. `npm -w backend run prisma:generate` из корня монорепо (**никогда** голый `npx prisma` — подтянется Prisma 7 и сломается схема)
 6. `npm -w backend run prisma:migrate:deploy` (**обязательно**, если в релизе есть миграции)
 7. `npm run build:backend && npm run build:frontend`
@@ -219,6 +220,8 @@ SMTP (обязательно для писем и админ-рассылок; �
 Не делать “на автомате”:
 - `prisma db push`
 - `prisma migrate dev`
+
+**Frontend-only релиз** (только CSS/React UI, без backend/миграций): `git pull` → `npm run build:frontend` → при необходимости Ctrl+F5. Prisma/generate/migrate не нужны. См. **§27.4**.
 
 ---
 
@@ -235,6 +238,10 @@ SMTP (обязательно для писем и админ-рассылок; �
 
 - `MailTemplate does not exist` / `P2021` на mail-таблицах
   - не применена миграция `20260809123000_admin_mail_tables` → `prisma:migrate:deploy` + `prisma:generate` + restart.
+
+- `prisma: not found` / `sh: 1: prisma: not found` после `npm ci`
+  - CLI не попал в `node_modules` (раньше был только в `devDependencies` + `peer`/`devOptional` в lockfile).
+  - Фикс в репо: `prisma` в **`backend` `dependencies`** (коммит `d27572e`). Ставить deps **только из корня** с `--include=dev`. Не делать nested `npm ci` в `backend/` / `frontend/`. Подробности **§27.3**.
 
 - `SMTP is not configured`
   - в `backend/.env` нет SMTP_* (локально и на проде — разные файлы).
@@ -1402,4 +1409,126 @@ pm2 restart jingai-backend --update-env
 - [ ] «Написать» с карточки клиента открывает нужный чат
 - [ ] Navbar не перекрывает шапку drawer; иконки +/× видны
 - [ ] `/chat` full-mode; nginx `/socket.io` не рвёт соединение за минуты
+
+---
+
+## 27) Релиз / сессия 2026-08-16 — комнаты (гость), Prisma на проде, ширина ИИ-чата
+
+Кратко для ассистента: на `main` ушли устойчивость гостевых LiveKit-звонков, перенос `prisma` CLI в `dependencies` backend (чтобы `prisma generate` на проде не падал), и расширение визуальной ширины пузырей ИИ-ассистента. Полный деплой того дня тянул большой пласт с §26 + несколько миграций.
+
+### 27.1 Git / коммиты (ядро сессии)
+
+| Коммит | Суть |
+|--------|------|
+| `4ac173e` | `fix(room)`: гостевой вход при просроченном JWT, tab-scoped LiveKit identity, auto-reconnect до 3 раз |
+| `d27572e` | `fix(deps)`: `prisma` CLI → `backend` **dependencies** (prod `npm ci` ставит бинарь) |
+| `928b954` | `fix(ai-chat)`: шире колонка чата и пузыри ответов ассистента (только frontend) |
+| ранее `1dd9d00` и пласт §26 | nav/AI model/booking toggle + лендинги/мессенджер и др. |
+
+Прод в той сессии успешно дошёл до `4ac173e` / `d27572e` / `928b954` после починки install Prisma.
+
+### 27.2 Видеокомнаты — почему часть гостей «выкидывало на переподключиться»
+
+**Симптом:** хост кидает `https://…/room/:id?guest=1`; кто-то заходит нормально, у кого давно не заходили на платформу — после входа экран «Связь с комнатой прервалась. Нажмите Подключиться ещё раз.»
+
+**Причины (связка):**
+1. В `localStorage` лежит **просроченный JWT** → bootstrap `/api/auth/me` / гонка с auth-путём мешали чистому гостевому сценарию.
+2. У залогиненных LiveKit `identity = userId` → второй вкладка/устройство → **DUPLICATE_IDENTITY** → disconnect.
+3. При любом неожиданном disconnect UI сразу сбрасывал в prejoin без retry.
+
+**Что сделано (код):**
+- `isJwtExpired` + на `/room/…` не поднимать «сессия истекла» (`authSession.ts`, `AuthContext`, `SessionExpiredModal`).
+- `?guest=1` или просроченный/недоступный auth → гостевой путь; `401`/`403` на `by-room` → fallback guest.
+- Auth token: `identity = userId_sid` (`?sid=` из `sessionStorage`); guest: `participantKey` в body → стабильный `guest-…` на вкладку.
+- Auto-reconnect до 3 попыток с новым JWT LiveKit; banner «Переподключение…».
+- TTL LiveKit token: floor **3600s**, default env **14400** (`LIVEKIT_TOKEN_TTL_SEC`).
+
+**Файлы:** `frontend/src/pages/room/VoiceRoom.tsx`, `frontend/src/utils/authSession.ts`, `frontend/src/context/AuthContext.tsx`, `frontend/src/components/SessionExpiredModal.tsx`, `backend/src/routes/events.ts`, `backend/src/config.ts`.
+
+**Гостевой доступ по типу события:** по-прежнему только `video` | `call` (`isGuestAccessibleType`).
+
+### 27.3 Деплой: `prisma: not found` на Ubuntu (зафиксировано 2026-08-16)
+
+**Симптом:**
+```text
+npm -w backend run prisma:generate
+sh: 1: prisma: not found
+```
+и `ls node_modules/.bin/prisma` / `backend/node_modules/.bin/prisma` — пусто, пакета `prisma` нет ни в корне, ни в backend.
+
+**Ошибки процесса деплоя в ту сессию:**
+1. Сделали `npm ci` **до** `git pull` → дерево deps не соответствовало новому lockfile/коду.
+2. Делали **nested** `cd backend && npm ci` и `cd frontend && npm ci` — в monorepo workspaces это ломает/дублирует hoist; бинарь CLI легко «пропадает».
+3. В lockfile `prisma` был `peer` + `devOptional` (только `devDependencies`) — на проде CLI мог не установиться.
+
+**Правила (жёстко):**
+1. Порядок: **backup → `git pull` → `npm ci` → generate/migrate → build → pm2**.
+2. `npm ci --include=dev` **только из** `/var/www/jingai` (корня). Не `cd backend|frontend && npm ci`.
+3. `prisma` CLI держать в **`backend.dependencies`** рядом с `@prisma/client` (с `d27572e`).
+4. Не вызывать голый `npx prisma` с registry (риск Prisma **7** / P1012) — только локальный бинарь: `npm -w backend run prisma:generate` или `./node_modules/.bin/prisma …`.
+5. Аварийно, если бинаря нет: `npm install prisma@6.16.3 -w backend --no-save` затем `node_modules/.bin/prisma --version` (**должно быть 6.16.x**).
+
+**Полный безопасный деплой (когда есть backend/миграции):**
+
+```bash
+cd /var/www/jingai
+pm2 stop jingai-backend
+mkdir -p /var/backups/jingai
+sqlite3 /var/www/jingai/backend/prisma/prod.db ".backup '/var/backups/jingai/prod.db.pre_deploy.$(date +%F-%H%M%S).sqlite'"
+git stash push -u -m "server-temp-before-pull-$(date +%F-%H%M)" || true
+git pull --ff-only origin main
+rm -rf node_modules backend/node_modules frontend/node_modules
+npm ci --include=dev
+ls -la node_modules/.bin/prisma
+node_modules/.bin/prisma --version   # 6.16.x
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend
+npm run build:frontend
+pm2 restart jingai-backend --update-env
+pm2 save
+pm2 flush jingai-backend
+pm2 logs jingai-backend --lines 50
+```
+
+Миграции, которые уезжали вместе с большим `git pull` (264d040→4ac173e+), в т.ч.:
+- `20260810120000_match_catalog_education`
+- `20260810180000_profile_cover_accent`
+- `20260812120000_chat_read_receipts`
+- `20260816140000_first_meeting_guest_fields`
+- `20260816180000_user_ai_model`
+
+### 27.4 Frontend-only деплой (подтверждено: ширина ИИ-чата)
+
+Когда меняется только UI (CSS/TSX), без API и без Prisma:
+
+```bash
+cd /var/www/jingai
+git pull --ff-only origin main
+npm run build:frontend
+# pm2 restart не обязателен для статики; если backend был stopped — поднять
+pm2 status
+```
+
+После выкладки — Ctrl+F5 на странице.
+
+### 27.5 ИИ-чат психолога — ширина ответов (визуал)
+
+**Запрос:** ответы ассистента визуально слишком узкие; объём/длину генерации не трогать.
+
+**Сделано (`928b954`):**
+- колонка ленты/composer: `maxWidth` **768 → 1120**;
+- пузырь `.ai-chat-bubble.is-theirs` / error: до **~1080px** (`min(98%, 1080px)`);
+- user-bubble чуть шире прежнего, но уже ассистента;
+- tip-chips / empty state расширены.
+
+**Файлы:** `frontend/src/pages/psychologist/AIChat.tsx`, `AIChatShell.css`.
+
+### 27.6 Чек-лист приёмки этой сессии
+
+- [ ] Гостевая ссылка `…/room/:id?guest=1` со **старым/просроченным** JWT в браузере — вход как гость без модалки «сессия истекла»
+- [ ] Два устройства с одним аккаунтом не выбивают друг друга (разные LiveKit identity)
+- [ ] Краткий обрыв сети → banner «Переподключение…», не сразу prejoin
+- [ ] На сервере `node_modules/.bin/prisma --version` → 6.16.x; `prisma:generate` не падает
+- [ ] ИИ-чат: ответы читаются на широкой колонке после `build:frontend` + hard refresh
 
