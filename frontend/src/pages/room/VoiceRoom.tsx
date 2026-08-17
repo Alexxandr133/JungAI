@@ -5,7 +5,6 @@ import { api, getApiBaseUrl, resolvePublicFileUrl } from '../../lib/api';
 import '@livekit/components-styles';
 import './VoiceRoom.css';
 import {
-  DisconnectButton,
   LiveKitRoom,
   ParticipantTile,
   RoomAudioRenderer,
@@ -23,22 +22,48 @@ import { Check, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip
 import { isJwtExpired } from '../../utils/authSession';
 
 const ROOM_PARTICIPANT_KEY = 'jingai_room_participant_key';
-const MAX_AUTO_RECONNECT = 3;
+const MAX_AUTO_RECONNECT = 8;
+
+const STABLE_ROOM_OPTIONS = {
+  disconnectOnPageLeave: false,
+  adaptiveStream: true,
+  dynacast: true,
+} as const;
+
+const STABLE_CONNECT_OPTIONS = {
+  autoSubscribe: true,
+  maxRetries: 5,
+  peerConnectionTimeout: 45_000,
+};
+
+function randomParticipantKey(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function getRoomParticipantKey(): string {
   try {
     let key = sessionStorage.getItem(ROOM_PARTICIPANT_KEY);
     if (!key) {
-      key =
-        typeof crypto !== 'undefined' && 'randomUUID' in crypto
-          ? crypto.randomUUID().replace(/-/g, '').slice(0, 24)
-          : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+      key = randomParticipantKey();
       sessionStorage.setItem(ROOM_PARTICIPANT_KEY, key);
     }
     return key;
   } catch {
-    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+    return randomParticipantKey();
   }
+}
+
+function rotateRoomParticipantKey(): string {
+  const key = randomParticipantKey();
+  try {
+    sessionStorage.setItem(ROOM_PARTICIPANT_KEY, key);
+  } catch {
+    /* ignore */
+  }
+  return key;
 }
 interface EventData {
   id: string;
@@ -205,6 +230,7 @@ type ConferenceProps = {
   roomId: string;
   selfDisplayName?: string;
   selfAvatarUrl?: string | null;
+  onLeave: () => void;
 };
 
 function MicStatusIcon({ enabled, size = 14, className = '' }: { enabled: boolean; size?: number; className?: string }) {
@@ -238,7 +264,7 @@ function ParticipantNameBadge({ displayName, avatarUrl, micEnabled, suffix }: { 
   );
 }
 
-function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt, roomId, selfDisplayName, selfAvatarUrl }: ConferenceProps) {
+function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt, roomId, selfDisplayName, selfAvatarUrl, onLeave }: ConferenceProps) {
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>(null);
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
@@ -651,9 +677,15 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
           </div>
 
           <div className="voice-room-toolbar__group voice-room-toolbar__group--right">
-            <DisconnectButton className="voice-room-ctrl-btn voice-room-ctrl-btn--hangup" title="Покинуть встречу" aria-label="Покинуть встречу">
+            <button
+              type="button"
+              className="voice-room-ctrl-btn voice-room-ctrl-btn--hangup"
+              title="Покинуть встречу"
+              aria-label="Покинуть встречу"
+              onClick={onLeave}
+            >
               <PhoneOff size={22} strokeWidth={2.25} />
-            </DisconnectButton>
+            </button>
           </div>
         </div>
       </div>
@@ -687,7 +719,7 @@ export default function VoiceRoom() {
   const [joined, setJoined] = useState(false);
   const [livekitToken, setLivekitToken] = useState<string>('');
   const [livekitUrl, setLivekitUrl] = useState<string>('');
-  const [connectionGeneration, setConnectionGeneration] = useState(0);
+  const [lkRoom, setLkRoom] = useState<Room | null>(null);
   const [guestDisplayName, setGuestDisplayName] = useState('');
   const [joinedAsName, setJoinedAsName] = useState('');
   const [reconnectHint, setReconnectHint] = useState<string | null>(null);
@@ -707,6 +739,8 @@ export default function VoiceRoom() {
   const reconnectAttemptsRef = useRef(0);
   const reconnectInFlightRef = useRef(false);
   const ignoreDisconnectRef = useRef(false);
+  const joinedRef = useRef(false);
+  const lkRoomRef = useRef<Room | null>(null);
   const joinMediaRef = useRef({ camera: true, mic: true });
   const guestNameRef = useRef('');
   const isGuestModeRef = useRef(isGuestMode);
@@ -715,6 +749,7 @@ export default function VoiceRoom() {
   isGuestModeRef.current = isGuestMode;
   roomApiTokenRef.current = roomApiToken;
   guestNameRef.current = guestDisplayName;
+  joinedRef.current = joined;
 
   const displayNameForPreview =
     (isGuestMode ? guestDisplayName.trim() : '') ||
@@ -831,7 +866,8 @@ export default function VoiceRoom() {
   const loadEventData = useCallback(async () => {
     if (!roomId) return;
     try {
-      setLoading(true);
+      // Не размонтировать LiveKitRoom спиннером, если уже в звонке
+      if (!joinedRef.current) setLoading(true);
       // Гостевая ссылка или просроченный JWT — сразу публичная комната
       if (!guestForced && effectiveAuthToken) {
         try {
@@ -907,6 +943,14 @@ export default function VoiceRoom() {
     [roomId]
   );
 
+  const ensureLkRoom = useCallback(() => {
+    if (lkRoomRef.current) return lkRoomRef.current;
+    const room = new Room({ ...STABLE_ROOM_OPTIONS });
+    lkRoomRef.current = room;
+    setLkRoom(room);
+    return room;
+  }, []);
+
   async function handleJoin(opts?: { camera?: boolean; mic?: boolean }) {
     if (!roomId) return;
     const wantCamera = opts?.camera ?? preCameraOn;
@@ -928,12 +972,13 @@ export default function VoiceRoom() {
       joinMediaRef.current = { camera: wantCamera, mic: wantMic };
       setJoinWithCamera(wantCamera);
       setJoinWithMic(wantMic);
+      ensureLkRoom();
       setLivekitToken(res.token);
       setLivekitUrl(res.url);
       setJoinedAsName(res.name || '');
-      setConnectionGeneration((g) => g + 1);
       reconnectAttemptsRef.current = 0;
       intentionalLeaveRef.current = false;
+      ignoreDisconnectRef.current = false;
       setJoined(true);
       setReconnecting(false);
       setReconnectHint(null);
@@ -945,13 +990,13 @@ export default function VoiceRoom() {
     }
   }
 
-  const attemptAutoReconnect = useCallback(async () => {
+  const attemptAutoReconnect = useCallback(async (forceNewIdentity = false) => {
     if (!roomId || reconnectInFlightRef.current || intentionalLeaveRef.current) return;
     if (reconnectAttemptsRef.current >= MAX_AUTO_RECONNECT) {
-      setJoined(false);
-      setLivekitToken('');
       setReconnecting(false);
       setReconnectHint('Связь с комнатой прервалась. Нажмите «Подключиться» ещё раз.');
+      setJoined(false);
+      setLivekitToken('');
       return;
     }
     reconnectInFlightRef.current = true;
@@ -960,8 +1005,9 @@ export default function VoiceRoom() {
     setReconnecting(true);
     setReconnectHint(`Переподключение… (${attempt}/${MAX_AUTO_RECONNECT})`);
     try {
-      await new Promise((r) => setTimeout(r, 600 * attempt));
+      await new Promise((r) => setTimeout(r, Math.min(2500, 400 * attempt)));
       if (intentionalLeaveRef.current) return;
+      if (forceNewIdentity) rotateRoomParticipantKey();
       const asGuest = isGuestModeRef.current;
       const name =
         guestNameRef.current.trim() ||
@@ -975,17 +1021,19 @@ export default function VoiceRoom() {
         authToken: roomApiTokenRef.current,
       });
       if (intentionalLeaveRef.current) return;
-      // Remount LiveKitRoom with fresh token (ignore CLIENT_INITIATED from old instance)
       ignoreDisconnectRef.current = true;
+      ensureLkRoom();
       setLivekitToken(res.token);
       setLivekitUrl(res.url);
       setJoinedAsName(res.name || '');
       setJoinWithCamera(joinMediaRef.current.camera);
       setJoinWithMic(joinMediaRef.current.mic);
-      setConnectionGeneration((g) => g + 1);
       setJoined(true);
       setReconnecting(false);
       setReconnectHint(null);
+      window.setTimeout(() => {
+        ignoreDisconnectRef.current = false;
+      }, 800);
     } catch (e: any) {
       console.warn('[VoiceRoom] auto-reconnect failed:', e);
       if (reconnectAttemptsRef.current >= MAX_AUTO_RECONNECT) {
@@ -995,16 +1043,24 @@ export default function VoiceRoom() {
         setReconnectHint('Связь с комнатой прервалась. Нажмите «Подключиться» ещё раз.');
       } else {
         reconnectInFlightRef.current = false;
-        void attemptAutoReconnect();
+        void attemptAutoReconnect(forceNewIdentity);
         return;
       }
     } finally {
       reconnectInFlightRef.current = false;
     }
-  }, [roomId, fetchLiveKitToken, profile?.name, user?.name, user?.email]);
+  }, [roomId, fetchLiveKitToken, ensureLkRoom, profile?.name, user?.name, user?.email]);
 
   function handleLeave() {
     intentionalLeaveRef.current = true;
+    ignoreDisconnectRef.current = true;
+    try {
+      lkRoomRef.current?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    lkRoomRef.current = null;
+    setLkRoom(null);
     setJoined(false);
     setLivekitToken('');
     setReconnectHint(null);
@@ -1023,6 +1079,47 @@ export default function VoiceRoom() {
     }
     navigate('/events');
   }
+
+  const handleRoomDisconnected = useCallback(
+    (reason?: DisconnectReason) => {
+      if (intentionalLeaveRef.current || ignoreDisconnectRef.current) return;
+      if (
+        reason === DisconnectReason.ROOM_DELETED ||
+        reason === DisconnectReason.PARTICIPANT_REMOVED
+      ) {
+        setJoined(false);
+        setLivekitToken('');
+        setReconnecting(false);
+        setReconnectHint('Встреча завершена или доступ закрыт.');
+        return;
+      }
+      const duplicate = reason === DisconnectReason.DUPLICATE_IDENTITY;
+      void attemptAutoReconnect(duplicate);
+    },
+    [attemptAutoReconnect]
+  );
+
+  const handleRoomError = useCallback(
+    (err: Error) => {
+      if (intentionalLeaveRef.current) return;
+      console.warn('[VoiceRoom] LiveKit error:', err);
+      void attemptAutoReconnect();
+    },
+    [attemptAutoReconnect]
+  );
+
+  const handleRoomDisconnectedRef = useRef(handleRoomDisconnected);
+  const handleRoomErrorRef = useRef(handleRoomError);
+  handleRoomDisconnectedRef.current = handleRoomDisconnected;
+  handleRoomErrorRef.current = handleRoomError;
+
+  const stableOnDisconnected = useCallback((reason?: DisconnectReason) => {
+    handleRoomDisconnectedRef.current(reason);
+  }, []);
+
+  const stableOnError = useCallback((err: Error) => {
+    handleRoomErrorRef.current(err);
+  }, []);
 
   if (loading) {
     return (
@@ -1209,37 +1306,21 @@ export default function VoiceRoom() {
         ) : (
           <div style={{ width: '100%', minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
             <LiveKitRoom
-              key={`lk-${connectionGeneration}`}
+              room={lkRoom ?? undefined}
               token={livekitToken}
               serverUrl={livekitUrl}
               connect={joined && !!livekitToken}
               video={joinWithCamera}
               audio={joinWithMic}
-              options={{
-                disconnectOnPageLeave: false,
-                adaptiveStream: true,
-                dynacast: true,
-                videoCaptureDefaults: videoDeviceId ? { deviceId: videoDeviceId } : undefined,
-                audioCaptureDefaults: audioDeviceId ? { deviceId: audioDeviceId } : undefined,
+              options={STABLE_ROOM_OPTIONS}
+              connectOptions={STABLE_CONNECT_OPTIONS}
+              onConnected={() => {
+                reconnectAttemptsRef.current = 0;
+                setReconnecting(false);
+                setReconnectHint(null);
               }}
-              connectOptions={{
-                autoSubscribe: true,
-                maxRetries: 5,
-                peerConnectionTimeout: 45_000,
-              }}
-              onDisconnected={(reason) => {
-                if (ignoreDisconnectRef.current) {
-                  ignoreDisconnectRef.current = false;
-                  return;
-                }
-                if (intentionalLeaveRef.current || reason === DisconnectReason.CLIENT_INITIATED) {
-                  if (!intentionalLeaveRef.current) {
-                    handleLeave();
-                  }
-                  return;
-                }
-                void attemptAutoReconnect();
-              }}
+              onDisconnected={stableOnDisconnected}
+              onError={stableOnError}
               style={{ height: '100%', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
             >
               {reconnecting && (
@@ -1267,6 +1348,7 @@ export default function VoiceRoom() {
                 eventStartsAt={event.startsAt}
                 eventEndsAt={event.endsAt}
                 roomId={roomId!}
+                onLeave={handleLeave}
                 selfDisplayName={
                   isGuestMode
                     ? (guestDisplayName.trim() || joinedAsName || undefined)
