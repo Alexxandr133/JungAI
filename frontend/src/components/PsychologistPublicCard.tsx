@@ -36,10 +36,17 @@ type Props = {
   compact?: boolean;
   /** Показать CTA «Записаться» (якорь на #schedule) */
   showCta?: boolean;
+  bookCtaLabel?: string;
   onBookClick?: () => void;
 };
 
-export function PsychologistPublicCard({ data, compact, showCta = true, onBookClick }: Props) {
+export function PsychologistPublicCard({
+  data,
+  compact,
+  showCta = true,
+  bookCtaLabel = 'Записаться',
+  onBookClick,
+}: Props) {
   const raw = data.accentColor?.trim().toLowerCase() || '';
   const accent = /^#[0-9a-f]{6}$/.test(raw) ? raw : DEFAULT_ACCENT;
   const coverSrc = data.coverUrl
@@ -103,7 +110,7 @@ export function PsychologistPublicCard({ data, compact, showCta = true, onBookCl
           {showCta ? (
             <div className="psy-public-card__cta-wrap">
               <a href="#schedule" className="psy-public-card__cta" onClick={handleCta}>
-                Записаться
+                {bookCtaLabel}
               </a>
             </div>
           ) : null}

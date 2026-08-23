@@ -8,21 +8,22 @@ const ZOO_CHIPS = [
   'ChatGPT',
   'таблицы',
   'бумажные заметки',
+  'Сервысы по поиску клиентов',
 ] as const;
 
-const CHIP_SOFT = ['brand', 'peach', 'sage', 'brand', 'peach', 'sage', 'brand'] as const;
+const CHIP_SOFT = ['brand', 'peach', 'sage', 'brand', 'peach', 'sage', 'brand', 'peach'] as const;
 
 export function PsyPainZoo() {
   return (
     <section className="psy-zoo" aria-labelledby="psy-zoo-heading">
       <div className="landing-container">
-        <h2 id="psy-zoo-heading" className="landing-h2 psy-zoo__title">
-          Сколько стоит зоопарк инструментов?
+        <h2 id="psy-zoo-heading" className="landing-h2 psy-zoo__title" style={{ marginBottom: 32 }}>
+          Обычно психолог использует разрозненные инструменты:
         </h2>
 
         <div className="psy-zoo__grid">
           <div className="psy-zoo__col">
-            <h3 className="landing-h3 psy-zoo__sub">Обычно это выглядит так</h3>
+            <h3 className="landing-h3 psy-zoo__sub">Выглядит это так:</h3>
             <div className="psy-zoo__chips" aria-label="Разрозненные инструменты">
               {ZOO_CHIPS.map((label, i) => (
                 <span

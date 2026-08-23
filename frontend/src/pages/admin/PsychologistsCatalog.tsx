@@ -14,6 +14,7 @@ type CatalogItem = {
   isVerified: boolean;
   sortOrder: number;
   hidden: boolean;
+  acceptingClients?: boolean;
   visibleOnSite: boolean;
 };
 
@@ -70,7 +71,11 @@ export default function AdminPsychologistsCatalog() {
       prev.map(p => {
         if (p.id !== id) return p;
         const hidden = !p.hidden;
-        return { ...p, hidden, visibleOnSite: p.isVerified && !hidden };
+        return {
+          ...p,
+          hidden,
+          visibleOnSite: p.isVerified && !hidden && p.acceptingClients !== false,
+        };
       })
     );
     setSavedHint(false);
@@ -100,7 +105,7 @@ export default function AdminPsychologistsCatalog() {
     }
   }
 
-  const visibleCount = items.filter(p => p.isVerified && !p.hidden).length;
+  const visibleCount = items.filter(p => p.isVerified && !p.hidden && p.acceptingClients !== false).length;
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -193,6 +198,11 @@ export default function AdminPsychologistsCatalog() {
                     {p.hidden && (
                       <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(148, 163, 184, 0.2)', color: 'var(--text-muted)' }}>
                         Скрыт
+                      </span>
+                    )}
+                    {p.acceptingClients === false && (
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(148, 163, 184, 0.2)', color: 'var(--text-muted)' }}>
+                        Поиск выключен
                       </span>
                     )}
                     {p.visibleOnSite && (

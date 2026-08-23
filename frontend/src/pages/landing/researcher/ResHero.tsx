@@ -41,13 +41,12 @@ export function ResHero({ stats, statsLoading }: ResHeroProps) {
       <div className="landing-container res-hero__grid">
         <div className="res-hero__copy">
           <p className="landing-eyebrow">Исследователям и практикующим психологам</p>
-          <h1 id="res-hero-heading" className="landing-h1" style={{ marginBottom: 28 }}>
-            Исследуйте бессознательное с помощью технологий
-          </h1>
+          <h2 id="res-hero-heading" className="landing-h2" style={{ marginBottom: 28 }}>
+          «Бессознательное, имеющее совершенно неведомую нам природу, всегда выражается через сознание и в терминах сознания». К.Г. Юнг.
+          </h2>
           <p className="landing-lead" style={{ marginBottom: 36, maxWidth: 540 }}>
-            JungAI вырос из юнгианской традиции и собирает исследовательский контур: дневник снов с
-            ИИ-извлечением символов, частота символов, модель индивидуации и пространство проектов.
-            Вместо разрозненных таблиц, заметок и файлов — один контур.
+          JungAI — это новое пространство для проектов, выросшее из юнгианской традиции и передающей  дух исследования сознания и бессознательного. 
+          JungAI не только изучает большие базы снов, синхронии, амплификации и символы, но и работает с индивидуальным исследовательским и научным подходом в любой психологической модальности.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 36 }}>
             <Link to="/register?role=researcher" className="landing-btn landing-btn--primary">

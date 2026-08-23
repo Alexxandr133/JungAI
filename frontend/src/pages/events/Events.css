@@ -584,9 +584,59 @@ html[data-theme='light'] .events-page a.events-page__btn--ghost:hover {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  background: var(--sage-soft);
-  color: var(--sage);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
   margin-bottom: 12px;
+}
+
+.events-page__choice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border, var(--line));
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.events-page__choice-legend {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.events-page__choice-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 8px 0 0;
+  cursor: pointer;
+}
+
+.events-page__choice-option input {
+  margin-top: 3px;
+  accent-color: var(--brand);
+}
+
+.events-page__choice-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.events-page__choice-option strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.events-page__choice-option em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-muted);
 }
 
 .events-page__share-row {

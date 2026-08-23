@@ -54,6 +54,14 @@
 .mood-tracker__n {
   font-size: 11px;
   font-weight: 800;
+  text-align: center;
+  line-height: 1.2;
+  max-width: 100%;
+}
+
+.mood-tracker__n--compact {
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .mood-tracker__face--bad {
@@ -234,7 +242,7 @@
 }
 
 .mood-chart__swatch--mood {
-  background: linear-gradient(90deg, #c48b8b, #b8ae8e, #7fad8f);
+  background: #7fad8f;
 }
 
 .mood-chart__swatch--energy {

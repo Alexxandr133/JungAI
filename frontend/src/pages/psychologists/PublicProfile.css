@@ -249,6 +249,24 @@
   color: var(--ink-muted);
 }
 
+.psy-public-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.psy-public-consent input {
+  margin-top: 3px;
+  accent-color: var(--brand);
+}
+
+.psy-public-consent a {
+  color: var(--brand);
+}
+
 .psy-public-msg {
   margin: 10px 0 0;
   font-size: 14px;

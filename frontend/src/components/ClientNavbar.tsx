@@ -44,7 +44,7 @@ export function ClientNavbar() {
       label: 'Личное развитие',
       icon: 'sparkles',
       children: [
-        { label: 'Баллы и уровень', path: '/client/tasks', icon: 'trophy' },
+        { label: 'Прогресс', path: '/client/progress', icon: 'chart' },
         { label: 'Тесты', path: '/client/tests', icon: 'chart' },
         { label: 'Прогресс', path: '/client/progress', icon: 'chart' },
         { label: 'Сертификат', path: '/client/certificate', icon: 'star' }
@@ -173,14 +173,14 @@ export function ClientNavbar() {
                       textDecoration: 'none',
                       color: itemIsActive ? 'var(--primary)' : 'var(--text)',
                       background: itemIsActive
-                        ? 'rgba(91, 124, 250, 0.12)'
+                        ? 'var(--brand-soft)'
                         : isHovered
-                        ? 'rgba(255, 255, 255, 0.05)'
+                        ? 'var(--paper-soft)'
                         : 'transparent',
                       fontWeight: itemIsActive ? 600 : 500,
                       fontSize: 14,
                       transition: 'all 0.2s ease',
-                      border: itemIsActive ? '1px solid rgba(91, 124, 250, 0.2)' : '1px solid transparent'
+                      border: itemIsActive ? '1px solid rgba(108, 91, 212, 0.22)' : '1px solid transparent'
                     }}
                   >
                     {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
@@ -195,16 +195,16 @@ export function ClientNavbar() {
                       padding: '10px 16px',
                       borderRadius: 10,
                       background: itemIsActive
-                        ? 'rgba(91, 124, 250, 0.12)'
+                        ? 'var(--brand-soft)'
                         : isHovered
-                        ? 'rgba(255, 255, 255, 0.05)'
+                        ? 'var(--paper-soft)'
                         : 'transparent',
                       color: itemIsActive ? 'var(--primary)' : 'var(--text)',
                       fontWeight: itemIsActive ? 600 : 500,
                       fontSize: 14,
                       cursor: 'pointer',
                       transition: 'all 0.2s ease',
-                      border: itemIsActive ? '1px solid rgba(91, 124, 250, 0.2)' : '1px solid transparent'
+                      border: itemIsActive ? '1px solid rgba(108, 91, 212, 0.22)' : '1px solid transparent'
                     }}
                   >
                     {item.icon && <PlatformIcon name={item.icon} size={18} style={{ flexShrink: 0, opacity: 0.9 }} />}
@@ -230,7 +230,7 @@ export function ClientNavbar() {
                       marginTop: 8,
                       minWidth: 220,
                       background: 'var(--surface)',
-                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      border: '1px solid var(--line)',
                       borderRadius: 12,
                       boxShadow: '0 12px 40px rgba(0, 0, 0, 0.4)',
                       padding: 8,
@@ -263,7 +263,7 @@ export function ClientNavbar() {
                           }}
                           onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
                             if (!childIsActive) {
-                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                              e.currentTarget.style.background = 'var(--paper-soft)';
                             }
                           }}
                           onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
@@ -329,7 +329,7 @@ export function ClientNavbar() {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(5,8,16,0.8)',
+            background: 'rgba(33, 30, 43, 0.35)',
             backdropFilter: 'blur(6px)',
             zIndex: 99999,
             display: 'flex',
@@ -388,7 +388,7 @@ export function ClientNavbar() {
                       borderRadius: 8,
                       textDecoration: 'none',
                       color: isActive(item.path) ? 'var(--primary)' : 'var(--text)',
-                      background: isActive(item.path) ? 'rgba(91, 124, 250, 0.12)' : 'transparent',
+                      background: isActive(item.path) ? 'var(--brand-soft)' : 'transparent',
                       fontWeight: isActive(item.path) ? 600 : 500,
                       fontSize: 14
                     }}

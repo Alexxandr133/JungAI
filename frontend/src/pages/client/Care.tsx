@@ -53,7 +53,7 @@ export default function ClientCare() {
   }, [load]);
 
   async function saveMood(next: { mood: number; energy: number; anxiety: number }) {
-    if (!token || lockedToday) return;
+    if (!token) return;
     setSaving(true);
     setError(null);
     try {
@@ -65,10 +65,6 @@ export default function ClientCare() {
       await load();
     } catch (e: any) {
       setError(e?.message || 'Не удалось сохранить');
-      if (e?.data?.code === 'MOOD_ALREADY_TODAY' || e?.status === 409) {
-        setLockedToday(true);
-        await load();
-      }
     } finally {
       setSaving(false);
     }
@@ -131,6 +127,7 @@ export default function ClientCare() {
                     locked={lockedToday}
                     saving={saving}
                     disabled={!token}
+                    onUnlock={() => setLockedToday(false)}
                     onSave={(v) => void saveMood(v)}
                   />
                 </div>

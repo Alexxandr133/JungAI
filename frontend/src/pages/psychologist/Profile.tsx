@@ -112,6 +112,8 @@ export default function PsychologistProfile() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<Snapshot | null>(null);
+  const [acceptingClients, setAcceptingClients] = useState(true);
+  const [savingSearch, setSavingSearch] = useState(false);
 
   const phoneCountryMeta = useMemo(
     () => PHONE_COUNTRIES.find((c) => c.code === phoneCountry) || PHONE_COUNTRIES[0],
@@ -241,6 +243,7 @@ export default function PsychologistProfile() {
         coverUrl?: string | null;
         accentColor?: string | null;
         isVerified?: boolean;
+        acceptingClients?: boolean;
       }>('/api/psychologist/profile', { token });
 
       const parsed = parseStoredPhone(res.phone || '');
@@ -269,6 +272,7 @@ export default function PsychologistProfile() {
         coverUrl: res.coverUrl || null,
       };
       applySnapshot(snap, Boolean(res.isVerified));
+      setAcceptingClients(res.acceptingClients !== false);
       setMediaRev((n) => n + 1);
     } catch (e) {
       console.error('Failed to load profile:', e);
@@ -286,6 +290,27 @@ export default function PsychologistProfile() {
       setVerificationComment(res.comment || null);
     } catch {
       setVerificationStatus('none');
+    }
+  }
+
+  async function toggleAcceptingClients(next: boolean) {
+    if (!token || savingSearch) return;
+    const prev = acceptingClients;
+    setAcceptingClients(next);
+    setSavingSearch(true);
+    setError(null);
+    try {
+      await api('/api/psychologist/profile', {
+        method: 'PUT',
+        token,
+        body: { acceptingClients: next },
+      });
+      setStatus(next ? 'Поиск клиентов включён' : 'Поиск клиентов выключен — вас нет в каталоге и подборе');
+    } catch (e: unknown) {
+      setAcceptingClients(prev);
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить статус поиска');
+    } finally {
+      setSavingSearch(false);
     }
   }
 
@@ -318,6 +343,7 @@ export default function PsychologistProfile() {
           worksWith: worksWithSelected,
           audienceFormats,
           accentColor: accentToSave,
+          acceptingClients,
         },
       });
       await api('/api/psychologist/profile/educations', {
@@ -599,6 +625,35 @@ export default function PsychologistProfile() {
                   <p className="psy-profile-zone__subtitle">
                     Данные ниже попадают в каталог и на страницу вашего профиля
                   </p>
+                  <div className="psy-profile-search">
+                    <div className="psy-profile-search__status">
+                      Поиск клиентов:{' '}
+                      <strong>{acceptingClients ? 'включён' : 'выключен'}</strong>
+                    </div>
+                    <div className="psy-profile-search__switch" role="group" aria-label="Поиск клиентов">
+                      <button
+                        type="button"
+                        className={`psy-profile-search__btn${acceptingClients ? ' is-on' : ''}`}
+                        disabled={savingSearch}
+                        onClick={() => void toggleAcceptingClients(true)}
+                      >
+                        Включён
+                      </button>
+                      <button
+                        type="button"
+                        className={`psy-profile-search__btn${!acceptingClients ? ' is-off' : ''}`}
+                        disabled={savingSearch}
+                        onClick={() => void toggleAcceptingClients(false)}
+                      >
+                        Выключен
+                      </button>
+                    </div>
+                    <p className="psy-profile-search__hint">
+                      {acceptingClients
+                        ? 'Вас видно в каталоге и в анкете подбора.'
+                        : 'Вас нет в каталоге и в подборе. Прямая ссылка на страницу работает.'}
+                    </p>
+                  </div>
                 </div>
                 <div className="psy-profile-complete" aria-live="polite">
                   <p className="psy-profile-complete__progress">

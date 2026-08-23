@@ -95,8 +95,8 @@ function guestInviteHrefFromId(roomId: string): string {
   return `${roomHrefFromId(roomId)}?guest=1`;
 }
 
-function calendarBookHrefFromToken(shareToken: string): string {
-  return `${appOrigin()}/book/calendar?t=${encodeURIComponent(shareToken)}`;
+function publicProfileHref(userId: string): string {
+  return `${appOrigin()}/psychologists/${encodeURIComponent(userId)}`;
 }
 
 function clientNameFromEvent(
@@ -170,7 +170,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     typeof window !== 'undefined' ? window.innerWidth <= 720 : false
   );
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [calendarShareUrl, setCalendarShareUrl] = useState('');
+  const publicPageUrl = user?.id ? publicProfileHref(user.id) : '';
   const [menuEventId, setMenuEventId] = useState<string | null>(null);
   const [settingsHelpOpen, setSettingsHelpOpen] = useState(false);
   const timeZone = useMemo(
@@ -254,7 +254,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
             id: `booking:${br.id}`,
             bookingId: br.id,
             supportRequestId: null,
-            kind: br.source === 'match' || br.questionnaire ? 'match' : 'slot',
+            kind:
+              br.source === 'inquiry'
+                ? 'inquiry'
+                : br.source === 'match' || br.questionnaire
+                  ? 'match'
+                  : 'slot',
             contactName: br.contactName,
             contactEmail: br.contactEmail,
             contactPhone: br.contactPhone,
@@ -294,28 +299,6 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       setRequiresAttention(res.requiresAttention);
     } catch (e: any) {
       console.error('Failed to load requires attention:', e);
-    }
-  }
-
-  async function ensureCalendarShareUrl(force = false): Promise<string | null> {
-    if (!token) return null;
-    if (calendarShareUrl && !force) return calendarShareUrl;
-    try {
-      const res = await api<{ token?: string; url?: string }>('/api/events/calendar-share', {
-        method: 'POST',
-        token
-      });
-      const shareToken = res.token || (res.url ? new URL(res.url, appOrigin()).searchParams.get('t') : null);
-      if (!shareToken) {
-        showToast('error', 'Не удалось создать ссылку');
-        return null;
-      }
-      const url = calendarBookHrefFromToken(shareToken);
-      setCalendarShareUrl(url);
-      return url;
-    } catch (e: any) {
-      showToast('error', e.message || 'Не удалось создать ссылку');
-      return null;
     }
   }
 
@@ -395,12 +378,6 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     return () => window.clearTimeout(t);
   }, [calendarPrefs, token, user?.role]);
 
-  useEffect(() => {
-    if (!token || isResearcherMode) return;
-    if (user?.role !== 'psychologist' && user?.role !== 'researcher' && user?.role !== 'admin') return;
-    void ensureCalendarShareUrl();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, isResearcherMode, user?.role]);
   usePsychologistPlatformTour({
     tourId: 'sessions',
     userId: user?.id,
@@ -564,12 +541,11 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     }
   }
 
-  async function copyPublicCalendarLink() {
-    const url = await ensureCalendarShareUrl();
-    if (!url) return;
+  async function copyPublicPageLink() {
+    if (!publicPageUrl) return;
     try {
-      await navigator.clipboard.writeText(url);
-      showToast('success', 'Ссылка на календарь скопирована в буфер обмена');
+      await navigator.clipboard.writeText(publicPageUrl);
+      showToast('success', 'Ссылка на публичную страницу скопирована');
     } catch {
       showToast('error', 'Не удалось скопировать');
     }
@@ -1169,6 +1145,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                   onChanged={() => {
                     void load();
                     void loadIncomingRequests();
+                    void loadClients();
                   }}
                   onToast={showToast}
                 />
@@ -1310,53 +1287,50 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
             {!isResearcherMode &&
               (user?.role === 'psychologist' || user?.role === 'researcher' || user?.role === 'admin') && (
                 <div className="events-page__card">
-                  <h3 className="events-page__card-title">Публичный календарь</h3>
-                  <div
-                    className="events-page__status-pill"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <Check size={14} />
-                      {calendarPrefs.bookingByLinkEnabled
-                        ? 'Запись по ссылке включена'
-                        : 'Запись по ссылке выключена'}
-                    </span>
-                    <button
-                      type="button"
-                      className="events-page__btn events-page__btn--secondary events-page__btn--sm"
-                      onClick={() =>
-                        setCalendarPrefs((prev) => ({
-                          ...prev,
-                          bookingByLinkEnabled: !prev.bookingByLinkEnabled,
-                        }))
-                      }
-                      title={
-                        calendarPrefs.bookingByLinkEnabled
-                          ? 'Выключить запись по ссылке'
-                          : 'Включить запись по ссылке'
-                      }
-                    >
-                      {calendarPrefs.bookingByLinkEnabled ? 'Выкл' : 'Вкл'}
-                    </button>
-                  </div>
+                  <h3 className="events-page__card-title">Публичная страница</h3>
+                  <fieldset className="events-page__choice">
+                    <legend className="events-page__choice-legend">Время на странице</legend>
+                    <label className="events-page__choice-option">
+                      <input
+                        type="radio"
+                        name="events-show-slots"
+                        checked={calendarPrefs.bookingByLinkEnabled}
+                        onChange={() =>
+                          setCalendarPrefs((prev) => ({ ...prev, bookingByLinkEnabled: true }))
+                        }
+                      />
+                      <span>
+                        <strong>Показывать время</strong>
+                        <em>Клиент выбирает слот на вашей странице</em>
+                      </span>
+                    </label>
+                    <label className="events-page__choice-option">
+                      <input
+                        type="radio"
+                        name="events-show-slots"
+                        checked={!calendarPrefs.bookingByLinkEnabled}
+                        onChange={() =>
+                          setCalendarPrefs((prev) => ({ ...prev, bookingByLinkEnabled: false }))
+                        }
+                      />
+                      <span>
+                        <strong>Не показывать время</strong>
+                        <em>Клиент оставляет запрос на ведение без календаря</em>
+                      </span>
+                    </label>
+                  </fieldset>
                   <div className="events-page__share-row">
                     <input
                       className="events-page__share-input"
                       readOnly
-                      value={calendarShareUrl || 'Ссылка загружается…'}
-                      onFocus={() => void ensureCalendarShareUrl()}
+                      value={publicPageUrl || 'Ссылка появится после входа'}
                     />
                     <button
                       type="button"
                       className="events-page__btn events-page__btn--secondary events-page__btn--sm"
-                      onClick={() => void copyPublicCalendarLink()}
+                      onClick={() => void copyPublicPageLink()}
                       title="Копировать"
+                      disabled={!publicPageUrl}
                     >
                       <Link2 size={14} />
                     </button>
@@ -1364,31 +1338,30 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                   <div className="events-page__stack-btns">
                     <a
                       className="events-page__btn events-page__btn--secondary events-page__btn--block"
-                      href={calendarShareUrl || '#'}
+                      href={publicPageUrl || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => {
-                        if (!calendarShareUrl) {
-                          e.preventDefault();
-                          void ensureCalendarShareUrl().then((url) => {
-                            if (url) window.open(url, '_blank', 'noopener,noreferrer');
-                          });
-                        }
+                        if (!publicPageUrl) e.preventDefault();
                       }}
                     >
-                      Открыть страницу записи
+                      Открыть публичную страницу
                     </a>
-                    <button
-                      type="button"
-                      className="events-page__btn events-page__btn--secondary events-page__btn--block"
-                      onClick={() => openCalendarModal('settings')}
-                    >
-                      <Settings2 size={16} />
-                      Настройки доступности
-                    </button>
+                    {calendarPrefs.bookingByLinkEnabled ? (
+                      <button
+                        type="button"
+                        className="events-page__btn events-page__btn--secondary events-page__btn--block"
+                        onClick={() => openCalendarModal('settings')}
+                      >
+                        <Settings2 size={16} />
+                        Настройки доступности
+                      </button>
+                    ) : null}
                   </div>
                   <p className="events-page__card-micro">
-                    Клиенты записываются сами — вы подтверждаете
+                    {calendarPrefs.bookingByLinkEnabled
+                      ? 'Клиенты записываются на слот — вы подтверждаете'
+                      : 'Клиенты оставляют запрос — без выбора времени'}
                   </p>
                 </div>
               )}

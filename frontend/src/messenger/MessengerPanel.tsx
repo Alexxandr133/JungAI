@@ -18,6 +18,8 @@ type Props = {
   mode: Mode;
   initialRoomId?: string | null;
   initialClientName?: string | null;
+  /** Черновик в поле ввода (например, мысль дня) */
+  initialDraft?: string | null;
   onRoomChange?: (roomId: string | null) => void;
   onClose?: () => void;
 };
@@ -26,6 +28,7 @@ export function MessengerPanel({
   mode,
   initialRoomId = null,
   initialClientName = null,
+  initialDraft = null,
   onRoomChange,
   onClose
 }: Props) {
@@ -49,7 +52,7 @@ export function MessengerPanel({
   const [clients, setClients] = useState<any[]>([]);
   const [current, setCurrent] = useState<string | null>(initialRoomId);
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
-  const [content, setContent] = useState('');
+  const [content, setContent] = useState(initialDraft?.trim() || '');
   const [query, setQuery] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +66,7 @@ export function MessengerPanel({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const handledClientName = useRef<string | null>(null);
+  const draftApplied = useRef(false);
   const stackMode = mode === 'drawer' || isMobile;
 
   const currentRoom = useMemo(() => rooms.find((r) => r.id === current) || null, [rooms, current]);
@@ -180,6 +184,27 @@ export function MessengerPanel({
     setShowThread(true);
     onRoomChange?.(initialRoomId);
   }, [initialRoomId]);
+
+  // Черновик из «Обсудить» / мысль дня: открыть первый чат и подставить текст
+  useEffect(() => {
+    const draft = initialDraft?.trim();
+    if (!draft || draftApplied.current) return;
+    if (!rooms.length && !current) return;
+    draftApplied.current = true;
+    setContent(draft);
+    if (!current && rooms[0]) {
+      setCurrent(rooms[0].id);
+      setShowThread(true);
+      onRoomChange?.(rooms[0].id);
+    }
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+    });
+  }, [initialDraft, rooms, current, onRoomChange]);
 
   useEffect(() => {
     if (!initialClientName || handledClientName.current === initialClientName) return;

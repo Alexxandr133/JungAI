@@ -202,22 +202,22 @@ router.post('/client/mood', requireAuth, requireRole(['client', 'admin']), async
       where: { clientId: client.id, createdAt: { gte: todayStart } },
       orderBy: { createdAt: 'desc' },
     });
-    if (existing) {
-      return res.status(409).json({
-        error: 'Настроение уже отмечено сегодня. Следующая отметка — завтра.',
-        code: 'MOOD_ALREADY_TODAY',
-        item: existing,
-      });
-    }
 
     const mood = clampScore(req.body?.mood);
     const energy = clampScore(req.body?.energy ?? 3);
     const anxiety = clampScore(req.body?.anxiety ?? 3);
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 500) : null;
-    const item = await prisma.moodCheckIn.create({
-      data: { clientId: client.id, mood, energy, anxiety, note },
-    });
-    res.json({ item, lockedToday: true });
+
+    // Одна отметка на день: повторный POST обновляет сегодняшнюю
+    const item = existing
+      ? await prisma.moodCheckIn.update({
+          where: { id: existing.id },
+          data: { mood, energy, anxiety, note },
+        })
+      : await prisma.moodCheckIn.create({
+          data: { clientId: client.id, mood, energy, anxiety, note },
+        });
+    res.json({ item, lockedToday: true, updated: Boolean(existing) });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to save mood' });
   }

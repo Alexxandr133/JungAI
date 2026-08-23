@@ -46,6 +46,7 @@ type PsychologistProfile = {
   educations: Education[];
   nearestSlot: FreeSlot | null;
   freeSlots: FreeSlot[];
+  showSlots?: boolean;
 };
 
 function loadMatchQuery(): Record<string, unknown> {
@@ -106,6 +107,7 @@ export default function PublicPsychologistProfile() {
   const [booking, setBooking] = useState(false);
   const [bookMsg, setBookMsg] = useState<string | null>(null);
   const [bookError, setBookError] = useState<string | null>(null);
+  const [consentPd, setConsentPd] = useState(false);
   const [canRate, setCanRate] = useState(false);
   const [myRating, setMyRating] = useState(0);
   const [myComment, setMyComment] = useState('');
@@ -159,7 +161,11 @@ export default function PublicPsychologistProfile() {
       }>(`/api/psychologists/public/${id}`, { token: token ?? undefined });
       setProfile(res.psychologist);
       setReviews(res.reviews || []);
-      setSelectedSlot(res.psychologist.nearestSlot || res.psychologist.freeSlots?.[0] || null);
+      setSelectedSlot(
+        res.psychologist.showSlots === false
+          ? null
+          : res.psychologist.nearestSlot || res.psychologist.freeSlots?.[0] || null
+      );
     } finally {
       setLoading(false);
     }
@@ -182,10 +188,17 @@ export default function PublicPsychologistProfile() {
   const isOwnProfile =
     Boolean(user?.id && profile?.id && user.id === profile.id && (user.role === 'psychologist' || user.role === 'admin'));
 
+  const showSlots = profile?.showSlots !== false;
+
   async function submitBooking() {
-    if (!profile || !selectedSlot) return;
+    if (!profile) return;
+    if (showSlots && !selectedSlot) return;
     if (contactName.trim().length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail.trim())) {
       setBookError('Укажите имя и корректный email');
+      return;
+    }
+    if (!showSlots && !consentPd) {
+      setBookError('Нужно согласие на обработку персональных данных');
       return;
     }
     setBooking(true);
@@ -197,8 +210,9 @@ export default function PublicPsychologistProfile() {
         method: 'POST',
         token: token || undefined,
         body: {
-          slotStart: selectedSlot.slotStart,
-          slotEnd: selectedSlot.slotEnd,
+          ...(showSlots && selectedSlot
+            ? { slotStart: selectedSlot.slotStart, slotEnd: selectedSlot.slotEnd }
+            : {}),
           contactName: contactName.trim(),
           contactEmail: contactEmail.trim(),
           contactPhone: contactPhone.trim() || null,
@@ -207,10 +221,15 @@ export default function PublicPsychologistProfile() {
           topics: mq.topics || [],
           customTopic: mq.customTopic || null,
           priceBand: mq.priceBand || null,
-          timePreference: mq.timePreference || 'slot',
+          timePreference: showSlots ? mq.timePreference || 'slot' : 'any',
         },
       });
-      setBookMsg(res.message || 'Заявка отправлена. Подтверждение и детали встречи придут на почту.');
+      setBookMsg(
+        res.message ||
+          (showSlots
+            ? 'Заявка отправлена. Подтверждение и детали встречи придут на почту.'
+            : 'Запрос на ведение отправлен. Психолог свяжется с вами.')
+      );
     } catch (e: unknown) {
       setBookError(e instanceof Error ? e.message : 'Не удалось отправить заявку');
     } finally {
@@ -278,17 +297,19 @@ export default function PublicPsychologistProfile() {
                   accentColor: profile.accentColor,
                   sessionPriceRub: profile.sessionPriceRub,
                   verified: profile.verified,
-                  nearestSlotLabel: profile.nearestSlot
-                    ? new Date(profile.nearestSlot.slotStart).toLocaleString('ru-RU', {
-                        weekday: 'short',
-                        day: 'numeric',
-                        month: 'long',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : null,
+                  nearestSlotLabel:
+                    showSlots && profile.nearestSlot
+                      ? new Date(profile.nearestSlot.slotStart).toLocaleString('ru-RU', {
+                          weekday: 'short',
+                          day: 'numeric',
+                          month: 'long',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : null,
                 }}
                 onBookClick={scrollToSchedule}
+                bookCtaLabel={showSlots ? 'Записаться' : 'Оставить запрос'}
               />
 
               <PsychologistPublicBody
@@ -300,62 +321,78 @@ export default function PublicPsychologistProfile() {
                 }}
               />
 
-              {/* Расписание и запись */}
               <section id="schedule" className="psy-public-section psy-public-schedule" aria-labelledby="schedule-heading">
                 <h2 id="schedule-heading" className="landing-h3">
-                  Расписание и запись
+                  {showSlots ? 'Расписание и запись' : 'Запрос на ведение'}
                 </h2>
                 <div className="psy-public-schedule__grid">
-                  <div className="psy-public-schedule__slots">
-                    {slotsByDay.length === 0 ? (
-                      <p className="landing-body">Свободных слотов на ближайшие дни нет. Загляните позже или выберите другого специалиста.</p>
-                    ) : (
-                      slotsByDay.map(([dayKey, slots]) => (
-                        <div key={dayKey} className="psy-public-day">
-                          <h3 className="psy-public-day__title">
-                            {new Date(dayKey + 'T12:00:00').toLocaleDateString('ru-RU', {
-                              weekday: 'long',
-                              day: 'numeric',
-                              month: 'long',
-                            })}
-                          </h3>
-                          <div className="psy-public-day__slots">
-                            {slots.map((s) => {
-                              const on = selectedSlot?.slotStart === s.slotStart;
-                              return (
-                                <button
-                                  key={s.slotStart}
-                                  type="button"
-                                  className={`psy-public-slot${on ? ' is-selected' : ''}`}
-                                  onClick={() => setSelectedSlot(s)}
-                                >
-                                  {s.startHm}
-                                </button>
-                              );
-                            })}
+                  {showSlots ? (
+                    <div className="psy-public-schedule__slots">
+                      {slotsByDay.length === 0 ? (
+                        <p className="landing-body">
+                          Свободных слотов на ближайшие дни нет. Загляните позже или выберите другого специалиста.
+                        </p>
+                      ) : (
+                        slotsByDay.map(([dayKey, slots]) => (
+                          <div key={dayKey} className="psy-public-day">
+                            <h3 className="psy-public-day__title">
+                              {new Date(dayKey + 'T12:00:00').toLocaleDateString('ru-RU', {
+                                weekday: 'long',
+                                day: 'numeric',
+                                month: 'long',
+                              })}
+                            </h3>
+                            <div className="psy-public-day__slots">
+                              {slots.map((s) => {
+                                const on = selectedSlot?.slotStart === s.slotStart;
+                                return (
+                                  <button
+                                    key={s.slotStart}
+                                    type="button"
+                                    className={`psy-public-slot${on ? ' is-selected' : ''}`}
+                                    onClick={() => setSelectedSlot(s)}
+                                  >
+                                    {s.startHm}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <div className="psy-public-schedule__slots">
+                      <p className="landing-body">
+                        Специалист не отображает свободное слоты. Оставьте запрос — он рассмотрит его и свяжется с
+                        вами.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="psy-public-schedule__form landing-card">
                     <h3 className="landing-h3" style={{ fontSize: 18, marginBottom: 8 }}>
                       Запись
                     </h3>
-                    {selectedSlot ? (
-                      <p className="landing-small" style={{ marginBottom: 14 }}>
-                        {new Date(selectedSlot.slotStart).toLocaleString('ru-RU', {
-                          weekday: 'long',
-                          day: 'numeric',
-                          month: 'long',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </p>
+                    {showSlots ? (
+                      selectedSlot ? (
+                        <p className="landing-small" style={{ marginBottom: 14 }}>
+                          {new Date(selectedSlot.slotStart).toLocaleString('ru-RU', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'long',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      ) : (
+                        <p className="landing-small" style={{ marginBottom: 14 }}>
+                          Выберите свободный слот слева
+                        </p>
+                      )
                     ) : (
                       <p className="landing-small" style={{ marginBottom: 14 }}>
-                        Выберите свободный слот слева
+                        Без выбора времени — психолог сам предложит слот, если примет запрос
                       </p>
                     )}
                     <div className="psy-public-form">
@@ -378,7 +415,7 @@ export default function PublicPsychologistProfile() {
                         className="psy-public-input"
                         value={contactPhone}
                         onChange={(e) => setContactPhone(e.target.value)}
-                        placeholder="Телефон (необязательно)"
+                        placeholder="Номер телефона"
                         autoComplete="tel"
                       />
                       <textarea
@@ -388,19 +425,33 @@ export default function PublicPsychologistProfile() {
                         placeholder="Пара слов о запросе (необязательно)"
                         rows={3}
                       />
+                      {!showSlots ? (
+                        <label className="psy-public-consent">
+                          <input
+                            type="checkbox"
+                            checked={consentPd}
+                            onChange={(e) => setConsentPd(e.target.checked)}
+                          />
+                          <span>
+                            <Link to="/personal-data-consent">Согласен на обработку персональных данных.</Link>
+                          </span>
+                        </label>
+                      ) : null}
                     </div>
                     {bookError && <p className="psy-public-msg psy-public-msg--err">{bookError}</p>}
                     {bookMsg && <p className="psy-public-msg psy-public-msg--ok">{bookMsg}</p>}
                     <button
                       type="button"
                       className="psy-public-submit"
-                      disabled={booking || !selectedSlot}
+                      disabled={booking || (showSlots ? !selectedSlot : !consentPd)}
                       onClick={() => void submitBooking()}
                     >
-                      {booking ? 'Отправляем…' : 'Записаться'}
+                      {booking ? 'Отправляем…' : showSlots ? 'Записаться' : 'Отправить запрос'}
                     </button>
                     <p className="landing-small psy-public-form-note">
-                      Подтверждение и детали встречи придут на почту
+                      {showSlots
+                        ? 'Подтверждение и детали встречи придут на почту'
+                        : 'Ответ психолога придёт на указанную почту'}
                     </p>
                   </div>
                 </div>
@@ -467,9 +518,9 @@ export default function PublicPsychologistProfile() {
       {/* Mobile sticky: цена + Записаться */}
       {profile && (
         <div className="psy-public-sticky">
-          <div className="psy-public-sticky__price">{priceLabel || 'Выбрать время'}</div>
+          <div className="psy-public-sticky__price">{priceLabel || (showSlots ? 'Выбрать время' : 'Запрос на ведение')}</div>
           <button type="button" className="psy-public-sticky__cta" onClick={scrollToSchedule}>
-            Записаться
+            {showSlots ? 'Записаться' : 'Оставить запрос'}
           </button>
         </div>
       )}

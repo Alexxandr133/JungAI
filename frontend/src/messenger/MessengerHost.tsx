@@ -36,10 +36,14 @@ function isPublicSurfacePath(pathname: string) {
   );
 }
 
+function canUseMessengerBubble(role: string | undefined) {
+  return role === 'psychologist' || role === 'client' || role === 'admin';
+}
+
 export function MessengerHost() {
   const { user } = useAuth();
   const location = useLocation();
-  const { open, roomId, clientName, openMessenger, closeMessenger, setRoomId } = useMessengerUi();
+  const { open, roomId, clientName, draft, openMessenger, closeMessenger, setRoomId } = useMessengerUi();
   const chat = useChatSocketOptional();
   const dragRef = useRef<{ startX: number; startW: number } | null>(null);
   const [width, setWidth] = useState(() => {
@@ -52,14 +56,12 @@ export function MessengerHost() {
     }
   });
 
-  // Только кабинет психолога (не лендинги / каталог / клиент / исследователь)
-  const inPsychCabinet =
-    user?.role === 'psychologist' && !isPublicSurfacePath(location.pathname);
+  const inCabinet = canUseMessengerBubble(user?.role) && !isPublicSurfacePath(location.pathname);
   const onFullMessages = location.pathname === '/messages' || location.pathname === '/chat';
 
   useEffect(() => {
-    if (!inPsychCabinet && open) closeMessenger();
-  }, [inPsychCabinet, open, closeMessenger]);
+    if (!inCabinet && open) closeMessenger();
+  }, [inCabinet, open, closeMessenger]);
 
   useEffect(() => {
     try {
@@ -93,7 +95,7 @@ export function MessengerHost() {
     }
   }, []);
 
-  if (!inPsychCabinet || onFullMessages) return null;
+  if (!inCabinet || onFullMessages) return null;
 
   const unread = chat?.unread.total || 0;
   const drawerStyle: CSSProperties | undefined =
@@ -135,6 +137,7 @@ export function MessengerHost() {
               mode="drawer"
               initialRoomId={roomId}
               initialClientName={clientName}
+              initialDraft={draft}
               onRoomChange={setRoomId}
               onClose={closeMessenger}
             />

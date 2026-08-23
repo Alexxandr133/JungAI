@@ -11,6 +11,7 @@ import {
 } from '../utils/matchEngine';
 import { isEmailTransportConfigured, sendEmail } from '../utils/email';
 import { config } from '../config';
+import { idsWithSearchOff } from '../utils/acceptingClients';
 
 const router = Router();
 
@@ -88,6 +89,7 @@ async function ensureMatchCatalogSchema() {
       await cols('SupportRequest', 'questionnaire', '"questionnaire" JSONB');
       await cols('CalendarPublicBookingRequest', 'questionnaire', '"questionnaire" JSONB');
       await cols('CalendarPublicBookingRequest', 'source', `"source" TEXT NOT NULL DEFAULT 'slot'`);
+      await cols('User', 'acceptingClients', '"acceptingClients" BOOLEAN NOT NULL DEFAULT 1');
       await cols('Event', 'isFirstMeeting', '"isFirstMeeting" BOOLEAN NOT NULL DEFAULT 0');
       await cols('Event', 'guestName', '"guestName" TEXT');
       await cols('Event', 'guestEmail', '"guestEmail" TEXT');
@@ -157,8 +159,10 @@ router.get('/public', async (req, res) => {
       },
       orderBy: [{ catalogSortOrder: 'asc' }, { createdAt: 'asc' }]
     });
+    const searchOff = await idsWithSearchOff();
+    const visible = psychologists.filter((p) => !searchOff.has(p.id));
 
-    const psychologistIds = psychologists.map(p => p.id);
+    const psychologistIds = visible.map(p => p.id);
     let profiles: any[] = [];
     if (psychologistIds.length) {
       const placeholders = psychologistIds.map(() => '?').join(',');
@@ -217,7 +221,7 @@ router.get('/public', async (req, res) => {
 
     const { mergeCalendarPrefs, listFreeSlots } = await import('../utils/calendarSlots');
 
-    const result = psychologists.map((psych) => {
+    const result = visible.map((psych) => {
       const profile = profileMap.get(psych.id);
       const card = mapPublicCard(psych, {
         ...profile,
@@ -226,12 +230,14 @@ router.get('/public', async (req, res) => {
         specialization: parseJsonField(profile?.specialization) ?? profile?.specialization,
       });
       const prefs = mergeCalendarPrefs(parseJsonField(profile?.calendarPrefs));
-      const freeSlots = listFreeSlots({
-        prefs,
-        events: eventsByPsych.get(psych.id) || [],
-        daysAhead: 7,
-        limit: 1,
-      });
+      const freeSlots = prefs.bookingByLinkEnabled
+        ? listFreeSlots({
+            prefs,
+            events: eventsByPsych.get(psych.id) || [],
+            daysAhead: 7,
+            limit: 1,
+          })
+        : [];
       const stats = reviewStats.get(psych.id);
       return {
         ...card,
@@ -394,15 +400,19 @@ router.get('/public/:id', async (req, res) => {
     };
 
     const prefs = mergeCalendarPrefs(parseJsonField(profile?.calendarPrefs));
-    const since = new Date();
-    since.setHours(0, 0, 0, 0);
-    const until = new Date(since);
-    until.setDate(until.getDate() + 21);
-    const events = await prisma.event.findMany({
-      where: { createdBy: psychologist.id, startsAt: { gte: since, lte: until } },
-      select: { startsAt: true, endsAt: true },
-    });
-    const freeSlots = listFreeSlots({ prefs, events, daysAhead: 14, limit: 48 });
+    const showSlots = prefs.bookingByLinkEnabled !== false;
+    let freeSlots: ReturnType<typeof listFreeSlots> = [];
+    if (showSlots) {
+      const since = new Date();
+      since.setHours(0, 0, 0, 0);
+      const until = new Date(since);
+      until.setDate(until.getDate() + 21);
+      const events = await prisma.event.findMany({
+        where: { createdBy: psychologist.id, startsAt: { gte: since, lte: until } },
+        select: { startsAt: true, endsAt: true },
+      });
+      freeSlots = listFreeSlots({ prefs, events, daysAhead: 14, limit: 48 });
+    }
 
     await ensurePsychologistReviewsTable();
     const reviews = await prisma.$queryRawUnsafe<any[]>(
@@ -443,6 +453,7 @@ router.get('/public/:id', async (req, res) => {
         nearestSlot: freeSlots[0] || null,
         freeSlots,
         slotIntervalMinutes: prefs.slotIntervalMinutes,
+        showSlots,
       },
       reviews: reviews.map((r) => ({
         id: r.id,
@@ -465,7 +476,7 @@ router.post('/public/:id/book', async (req, res) => {
     const psychologistId = req.params.id;
     const psychologist = await prisma.user.findFirst({
       where: { id: psychologistId, role: 'psychologist', isVerified: true, catalogHidden: false },
-      include: { profile: { select: { name: true } } },
+      include: { profile: { select: { name: true, calendarPrefs: true } } },
     });
     if (!psychologist) return res.status(404).json({ error: 'Психолог не найден' });
 
@@ -477,29 +488,37 @@ router.post('/public/:id/book', async (req, res) => {
       return res.status(400).json({ error: 'Укажите имя и корректный email' });
     }
 
+    const prefs = mergeCalendarPrefs(psychologist.profile?.calendarPrefs);
+    const showSlots = prefs.bookingByLinkEnabled !== false;
+
     const slotStartRaw = req.body?.slotStart;
     const slotEndRaw = req.body?.slotEnd;
     const slotStart = slotStartRaw ? new Date(slotStartRaw) : null;
     const slotEnd = slotEndRaw ? new Date(slotEndRaw) : null;
-    if (!slotStart || Number.isNaN(slotStart.getTime())) {
-      return res.status(400).json({ error: 'Выберите свободный слот' });
-    }
-    if (slotStart.getTime() < Date.now() - 30_000) {
-      return res.status(400).json({ error: 'Нельзя записаться на прошедшее время' });
+    if (showSlots) {
+      if (!slotStart || Number.isNaN(slotStart.getTime())) {
+        return res.status(400).json({ error: 'Выберите свободный слот' });
+      }
+      if (slotStart.getTime() < Date.now() - 30_000) {
+        return res.status(400).json({ error: 'Нельзя записаться на прошедшее время' });
+      }
     }
 
     const whoFor = ['self', 'couple', 'child'].includes(req.body?.whoFor) ? req.body.whoFor : 'self';
     const topics = Array.isArray(req.body?.topics) ? req.body.topics.map(String).slice(0, 12) : [];
     const customTopic = typeof req.body?.customTopic === 'string' ? req.body.customTopic.trim().slice(0, 200) : '';
     const priceBand = PRICE_BANDS.find((b) => b.id === req.body?.priceBand);
-    const timePreference = req.body?.timePreference || 'slot';
-    const slotLabel = slotStart.toLocaleString('ru-RU', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'long',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const timePreference = showSlots ? req.body?.timePreference || 'slot' : 'any';
+    const slotLabel =
+      showSlots && slotStart && !Number.isNaN(slotStart.getTime())
+        ? slotStart.toLocaleString('ru-RU', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'long',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : null;
 
     const questionnaire = {
       whoFor,
@@ -508,8 +527,8 @@ router.post('/public/:id/book', async (req, res) => {
       timePreference,
       priceBand: priceBand?.id || null,
       priceBandLabel: priceBand?.label || null,
-      slotStart: slotStart.toISOString(),
-      slotEnd: slotEnd && !Number.isNaN(slotEnd.getTime()) ? slotEnd.toISOString() : null,
+      slotStart: showSlots && slotStart ? slotStart.toISOString() : null,
+      slotEnd: showSlots && slotEnd && !Number.isNaN(slotEnd.getTime()) ? slotEnd.toISOString() : null,
       slotLabel,
       contactName,
       contactEmail,
@@ -517,17 +536,18 @@ router.post('/public/:id/book', async (req, res) => {
       note: note || null,
     };
 
+    const source = showSlots ? 'match' : 'inquiry';
     const calendarBooking = await prisma.calendarPublicBookingRequest.create({
       data: {
         psychologistId,
-        slotStart,
-        slotEnd: slotEnd && !Number.isNaN(slotEnd.getTime()) ? slotEnd : null,
+        slotStart: showSlots ? slotStart : null,
+        slotEnd: showSlots && slotEnd && !Number.isNaN(slotEnd.getTime()) ? slotEnd : null,
         contactName,
         contactEmail,
         contactPhone: contactPhone || null,
         message: formatQuestionnaireText(questionnaire),
         questionnaire: questionnaire as any,
-        source: 'match',
+        source,
         status: 'pending',
       } as any,
     });
@@ -535,14 +555,15 @@ router.post('/public/:id/book', async (req, res) => {
     const psychName = psychologist.profile?.name || 'специалист';
     if (isEmailTransportConfigured()) {
       try {
+        const timeLine = slotLabel ? `Желаемое время: ${slotLabel}.` : 'Запрос на ведение — без выбора слота.';
         await sendEmail({
           to: contactEmail,
-          subject: 'JungAI — заявка на сессию принята',
+          subject: showSlots ? 'JungAI — заявка на сессию принята' : 'JungAI — запрос на ведение отправлен',
           text: [
             `Здравствуйте, ${contactName}!`,
             '',
             `Мы передали вашу заявку специалисту (${psychName}).`,
-            `Желаемое время: ${slotLabel}.`,
+            timeLine,
             '',
             'Ключевые детали придут на эту почту после подтверждения психологом.',
             'Если нужно что-то уточнить — напишите на inbox@jung-ai.ru.',
@@ -551,7 +572,7 @@ router.post('/public/:id/book', async (req, res) => {
           ].join('\n'),
           html: `<p>Здравствуйте, <strong>${contactName}</strong>!</p>
             <p>Мы передали вашу заявку специалисту (<strong>${psychName}</strong>).</p>
-            <p>Желаемое время: <strong>${slotLabel}</strong>.</p>
+            <p>${timeLine}</p>
             <p>Ключевые детали придут на эту почту после подтверждения психологом.</p>
             <p>Вопросы: <a href="mailto:inbox@jung-ai.ru">inbox@jung-ai.ru</a></p>`,
         });
@@ -563,8 +584,9 @@ router.post('/public/:id/book', async (req, res) => {
     res.json({
       ok: true,
       bookingId: calendarBooking.id,
-      message:
-        'Заявка отправлена. Ключевая информация придёт на email после подтверждения психологом.',
+      message: showSlots
+        ? 'Заявка отправлена. Ключевая информация придёт на email после подтверждения психологом.'
+        : 'Запрос на ведение отправлен. Психолог свяжется с вами после рассмотрения.',
       frontendUrl: config.frontendUrl,
     });
   } catch (e: any) {

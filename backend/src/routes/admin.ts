@@ -4,6 +4,7 @@ import fs from 'fs';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { acceptingClientsByIds } from '../utils/acceptingClients';
 import { runDailyDreamSymbolValidation } from '../jobs/dailyDreamSymbols';
 import { processPendingDreamSymbolsBatch, migrateDreamSymbolsToAi } from '../jobs/dreamSymbolExtraction';
 
@@ -281,6 +282,7 @@ router.get('/psychologists-catalog', async (_req: AuthedRequest, res) => {
       orderBy: [{ catalogSortOrder: 'asc' }, { createdAt: 'asc' }]
     });
     const ids = psychologists.map(p => p.id);
+    const searchMap = await acceptingClientsByIds(ids);
     const profiles = await prisma.profile.findMany({
       where: { userId: { in: ids } },
       select: { userId: true, name: true, avatarUrl: true, specialization: true }
@@ -289,6 +291,7 @@ router.get('/psychologists-catalog', async (_req: AuthedRequest, res) => {
     res.json({
       items: psychologists.map((p, index) => {
         const profile = profileMap.get(p.id);
+        const accepting = searchMap.get(p.id) !== false;
         return {
           id: p.id,
           email: p.email,
@@ -298,7 +301,8 @@ router.get('/psychologists-catalog', async (_req: AuthedRequest, res) => {
           isVerified: p.isVerified,
           sortOrder: p.catalogSortOrder ?? index,
           hidden: Boolean(p.catalogHidden),
-          visibleOnSite: p.isVerified && !p.catalogHidden
+          acceptingClients: accepting,
+          visibleOnSite: p.isVerified && !p.catalogHidden && accepting
         };
       })
     });

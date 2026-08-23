@@ -34,8 +34,8 @@ export function PsyHero({ stats, statsLoading }: PsyHeroProps) {
           </h1>
           <p className="landing-lead" style={{ marginBottom: 28, maxWidth: 540 }}>
             JungAI собирает то, что сейчас разбросано по пяти сервисам: карточки клиентов, календарь с
-            самозаписью, видеосессии, транскрибацию и ИИ, который понимает ваш подход. Без зоопарка
-            Notion, Zoom и Calendly.
+            самозаписью, видеосессии, транскрибацию и ИИ, который понимает ваш подход. Вы не теряете время
+            на разные сервисы: Notion, Zoom и Calendly. С JungAI вы всегда в одном месте.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 36 }}>
             <Link to="/register" className="landing-btn landing-btn--primary">

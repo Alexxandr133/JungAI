@@ -6,6 +6,7 @@ import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import { getUploadsRoot } from '../utils/uploadsRoot';
+import { readAcceptingClients, writeAcceptingClients } from '../utils/acceptingClients';
 
 const router = Router();
 
@@ -233,6 +234,7 @@ router.get('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
       where: { id: req.user!.id },
       select: { isVerified: true, role: true }
     });
+    const acceptingClientsFlag = await readAcceptingClients(req.user!.id);
 
     // Админы всегда считаются верифицированными
     const isVerified = req.user!.role === 'admin' ? true : (user?.isVerified || false);
@@ -275,7 +277,8 @@ router.get('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
         yearFrom: e.yearFrom,
         yearTo: e.yearTo,
       })),
-      isVerified
+      isVerified,
+      acceptingClients: acceptingClientsFlag
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load profile' });
@@ -331,6 +334,7 @@ router.put('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
       audienceFormats,
       calendarPrefs,
       accentColor,
+      acceptingClients,
     } = req.body ?? {};
 
     const worksArr = Array.isArray(worksWith) ? worksWith.map(String).slice(0, 24) : undefined;
@@ -344,8 +348,34 @@ router.put('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
           ? Math.max(0, Math.round(Number(sessionPriceRub)))
           : undefined;
 
+    if (typeof acceptingClients === 'boolean') {
+      try {
+        await writeAcceptingClients(req.user!.id, acceptingClients);
+      } catch (e) {
+        console.warn('acceptingClients update failed', e);
+      }
+    }
+
+    const hasProfileFields =
+      name !== undefined ||
+      phone !== undefined ||
+      location !== undefined ||
+      bio !== undefined ||
+      specialization !== undefined ||
+      experience !== undefined ||
+      sessionPriceRub !== undefined ||
+      therapyMethod !== undefined ||
+      worksWith !== undefined ||
+      audienceFormats !== undefined ||
+      calendarPrefs !== undefined ||
+      accentColor !== undefined;
+
+    if (!hasProfileFields) {
+      return res.json({ success: true });
+    }
+
     const data: any = {
-      name,
+      ...(name !== undefined && { name }),
       ...(phone !== undefined && { phone }),
       ...(location !== undefined && { location }),
       ...(bio !== undefined && { bio }),

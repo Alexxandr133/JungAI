@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { UserMenu } from '../../components/ui';
+import { StarfieldBackground } from '../../components/visuals';
 
 type Dream = {
   id: string;
@@ -87,12 +88,14 @@ export default function DreamDetail() {
   }
 
   return (
-    <div style={{ padding: 12 }}>
+    <div style={{ position: 'relative', minHeight: '100vh', padding: 12, color: '#e8e6f0', background: '#0b0d14' }}>
+      <StarfieldBackground opacity={1} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
       {/* Header */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0 }}>Сон</h3>
-          {dream && <span className="small" style={{ color: 'var(--text-muted)' }}>· {formatDateTime(dream.createdAt)}</span>}
+          {dream && <span className="small" style={{ color: 'rgba(232,230,240,0.65)' }}>· {formatDateTime(dream.createdAt)}</span>}
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <Link to="/dreams" className="button secondary" style={{ padding: '6px 10px', fontSize: 13 }}>Назад</Link>
@@ -102,26 +105,26 @@ export default function DreamDetail() {
 
       <div style={{ marginTop: 12 }}>
         {loading && (
-          <div className="card" style={{ padding: 16 }}>
+          <div className="card" style={{ padding: 16, background: '#151822', borderColor: 'rgba(255,255,255,0.08)' }}>
             <div className="small" style={{ opacity: .8 }}>Загрузка…</div>
           </div>
         )}
         {error && (
-          <div className="card" style={{ padding: 16, border: '1px solid rgba(255,0,0,0.3)' }}>
+          <div className="card" style={{ padding: 16, border: '1px solid rgba(255,0,0,0.3)', background: '#151822' }}>
             <div className="small" style={{ color: '#ff7b7b' }}>Ошибка: {error}</div>
           </div>
         )}
         {dream && !loading && !error && (
-          <div className="card" style={{ padding: 18, display: 'grid', gap: 12 }}>
+          <div className="card" style={{ padding: 18, display: 'grid', gap: 12, background: '#151822', borderColor: 'rgba(255,255,255,0.08)', color: '#e8e6f0' }}>
             <div style={{ fontWeight: 800, fontSize: 20 }}>{dream.title || 'Без названия'}</div>
             {dream.symbols && dream.symbols.length > 0 && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {dream.symbols.map(s => (
-                  <span key={s} className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: 999 }}>{s}</span>
+                  <span key={s} className="small" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 8px', borderRadius: 999 }}>{s}</span>
                 ))}
               </div>
             )}
-            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{dream.content || '—'}</div>
+            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7, fontFamily: "'Lora', Georgia, serif" }}>{dream.content || '—'}</div>
             {canToggleDiscuss && (
               <label
                 style={{
@@ -130,8 +133,8 @@ export default function DreamDetail() {
                   gap: 10,
                   padding: '12px 14px',
                   borderRadius: 12,
-                  background: 'var(--surface-2)',
-                  border: '1px solid var(--navbar-edge)',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
                   cursor: discussSaving ? 'wait' : 'pointer',
                   fontSize: 14,
                   fontWeight: 600,
@@ -153,6 +156,7 @@ export default function DreamDetail() {
             )}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

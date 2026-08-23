@@ -8,7 +8,7 @@ import { io } from '../server';
 import { RtcTokenBuilder, RtcRole } from 'agora-token';
 import { AccessToken } from 'livekit-server-sdk';
 import { config } from '../config';
-import { sendPublicBookingAcceptedEmail, sendPublicBookingDeclinedEmail, isEmailTransportConfigured } from '../utils/email';
+import { sendPublicBookingAcceptedEmail, sendClientRegistrationInviteEmail, sendIntroMeetingScheduledEmail, sendPublicBookingDeclinedEmail, isEmailTransportConfigured } from '../utils/email';
 import { mergeCalendarPrefs } from '../utils/calendarSlots';
 
 const router = Router();
@@ -499,12 +499,17 @@ router.get('/events/incoming-requests', requireAuth, requireRole(['psychologist'
           questionnaire = null;
         }
       }
-      const source = row.source === 'match' || Boolean(questionnaire) ? 'match' : 'slot';
+      const source =
+        row.source === 'inquiry'
+          ? 'inquiry'
+          : row.source === 'match' || Boolean(questionnaire)
+            ? 'match'
+            : 'slot';
       return {
         id: `booking:${row.id}`,
         bookingId: row.id,
         supportRequestId: null as string | null,
-        kind: source === 'match' ? 'match' : 'slot',
+        kind: source === 'inquiry' ? 'inquiry' : source === 'match' ? 'match' : 'slot',
         source,
         contactName: row.contactName,
         contactEmail: row.contactEmail,
@@ -621,7 +626,248 @@ router.post(
       where: { id, psychologistId: req.user!.id, status: 'pending' }
     });
     if (!reqRow) return res.status(404).json({ error: 'Заявка не найдена или уже обработана' });
-    const endsAtResolved = reqRow.slotEnd ?? new Date(reqRow.slotStart.getTime() + 3600000);
+
+    const isInquiry = reqRow.source === 'inquiry' || !reqRow.slotStart;
+    if (isInquiry) {
+      const startsAtRaw = req.body?.startsAt;
+      const startsAt = startsAtRaw ? new Date(startsAtRaw) : null;
+      if (!startsAt || Number.isNaN(startsAt.getTime())) {
+        return res.status(400).json({
+          error: 'Укажите дату и время вводной встречи'
+        });
+      }
+      if (startsAt.getTime() < Date.now() - 60_000) {
+        return res.status(400).json({ error: 'Нельзя назначить встречу в прошлом' });
+      }
+      const durationMin = Math.min(
+        180,
+        Math.max(30, Number(req.body?.durationMin) || 60)
+      );
+      const endsAt =
+        req.body?.endsAt && !Number.isNaN(new Date(req.body.endsAt).getTime())
+          ? new Date(req.body.endsAt)
+          : new Date(startsAt.getTime() + durationMin * 60_000);
+
+      const emailNorm = String(reqRow.contactEmail || '')
+        .trim()
+        .toLowerCase();
+      if (!emailNorm) {
+        return res.status(400).json({ error: 'У заявки нет email' });
+      }
+
+      let client = await prisma.client.findFirst({
+        where: {
+          psychologistId: req.user!.id,
+          email: { equals: emailNorm }
+        }
+      });
+
+      // SQLite email match can be case-sensitive depending on collation — fallback
+      if (!client) {
+        const own = await prisma.client.findMany({
+          where: { psychologistId: req.user!.id },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            registrationToken: true,
+            tokenExpiresAt: true,
+            therapyEndedAt: true
+          }
+        });
+        client =
+          (own.find((c) => (c.email || '').trim().toLowerCase() === emailNorm) as any) ||
+          null;
+        if (client) {
+          client = await prisma.client.findUnique({ where: { id: client.id } });
+        }
+      }
+
+      const registrationToken = randomBytes(32).toString('hex');
+      const tokenExpiresAt = new Date();
+      tokenExpiresAt.setDate(tokenExpiresAt.getDate() + 7);
+
+      const platformUser = await prisma.user.findFirst({
+        where: { email: emailNorm }
+      });
+
+      if (!client) {
+        client = await prisma.client.create({
+          data: {
+            name: reqRow.contactName.trim() || emailNorm.split('@')[0],
+            email: emailNorm,
+            phone: reqRow.contactPhone || undefined,
+            psychologistId: req.user!.id,
+            registrationToken: platformUser ? null : registrationToken,
+            tokenExpiresAt: platformUser ? null : tokenExpiresAt
+          }
+        });
+      } else {
+        const patch: any = {
+          therapyEndedAt: null
+        };
+        if (reqRow.contactName?.trim()) patch.name = reqRow.contactName.trim();
+        if (reqRow.contactPhone) patch.phone = reqRow.contactPhone;
+        if (!platformUser) {
+          patch.registrationToken = registrationToken;
+          patch.tokenExpiresAt = tokenExpiresAt;
+        }
+        client = await prisma.client.update({
+          where: { id: client.id },
+          data: patch
+        });
+      }
+
+      let questionnaire: any = (reqRow as any).questionnaire ?? null;
+      if (typeof questionnaire === 'string') {
+        try {
+          questionnaire = JSON.parse(questionnaire);
+        } catch {
+          questionnaire = null;
+        }
+      }
+
+      const roomId = generateRoomId();
+      const roomUrl = generateRoomUrl(roomId);
+      const title = `Вводная встреча: ${client.name}`;
+      const description = [
+        reqRow.message,
+        reqRow.contactPhone ? `Тел: ${reqRow.contactPhone}` : null
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      try {
+        const event = await prisma.event.create({
+          data: {
+            title,
+            type: 'video',
+            description: description || null,
+            startsAt,
+            endsAt,
+            createdBy: req.user!.id,
+            clientId: client.id,
+            sessionStatus: null,
+            isFirstMeeting: true,
+            guestName: reqRow.contactName,
+            guestEmail: emailNorm,
+            guestPhone: reqRow.contactPhone || null,
+            guestQuestionnaire: questionnaire || undefined,
+            voiceRoom: {
+              create: {
+                roomId,
+                roomUrl
+              }
+            }
+          } as any,
+          include: { voiceRoom: true }
+        });
+
+        await prisma.calendarPublicBookingRequest.update({
+          where: { id },
+          data: {
+            status: 'accepted',
+            decidedAt: new Date(),
+            eventId: event.id,
+            declineReason: null,
+            slotStart: startsAt,
+            slotEnd: endsAt
+          }
+        });
+
+        try {
+          const linked = await prisma.supportRequest.findMany({
+            where: {
+              psychologistId: req.user!.id,
+              status: 'open',
+              client: { email: emailNorm }
+            },
+            select: { id: true }
+          });
+          if (linked.length) {
+            await prisma.supportRequest.updateMany({
+              where: { id: { in: linked.map((x) => x.id) } },
+              data: {
+                status: 'resolved',
+                adminResponse: 'Принято: клиент и вводная встреча',
+                respondedAt: new Date()
+              }
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+
+        const psych = await prisma.user.findUnique({
+          where: { id: req.user!.id },
+          include: { profile: true }
+        });
+        const psychName = psych?.profile?.name || psych?.email || 'Специалист';
+        const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
+        const whenLabel = startsAt.toLocaleString('ru-RU', {
+          timeZone: config.appTimeZone,
+          dateStyle: 'long',
+          timeStyle: 'short'
+        });
+        const guestJoinUrl = `${frontendBase}/room/${roomId}?guest=1`;
+        const inviteToken = client.registrationToken || (!platformUser ? registrationToken : null);
+        const registrationUrl = inviteToken
+          ? `${frontendBase}/register-client?token=${encodeURIComponent(inviteToken)}`
+          : null;
+
+        let registrationEmailSent = false;
+        let meetingEmailSent = false;
+        if (isEmailTransportConfigured()) {
+          if (registrationUrl) {
+            try {
+              await sendClientRegistrationInviteEmail({
+                to: emailNorm,
+                clientName: client.name,
+                psychologistName: psychName,
+                registrationUrl
+              });
+              registrationEmailSent = true;
+            } catch (mailErr: any) {
+              console.error('inquiry registration email failed', mailErr);
+            }
+          }
+          try {
+            await sendIntroMeetingScheduledEmail({
+              to: emailNorm,
+              clientName: client.name,
+              psychologistName: psychName,
+              whenLabel,
+              guestJoinUrl
+            });
+            meetingEmailSent = true;
+          } catch (mailErr: any) {
+            console.error('inquiry intro meeting email failed', mailErr);
+          }
+        }
+
+        return res.json({
+          ok: true,
+          event,
+          client: {
+            id: client.id,
+            name: client.name,
+            email: client.email,
+            registrationToken: inviteToken,
+            registrationPending: Boolean(inviteToken)
+          },
+          registrationEmailSent,
+          meetingEmailSent,
+          emailSent: registrationEmailSent || meetingEmailSent
+        });
+      } catch (e: any) {
+        return res.status(500).json({
+          error: e?.message || 'Не удалось принять запрос и создать встречу'
+        });
+      }
+    }
+
+    const endsAtResolved = reqRow.slotEnd ?? new Date(reqRow.slotStart!.getTime() + 3600000);
     const roomId = generateRoomId();
     const roomUrl = generateRoomUrl(roomId);
     const title = `Встреча: ${reqRow.contactName}`;
@@ -696,7 +942,7 @@ router.post(
         include: { profile: true }
       });
       const psychName = psych?.profile?.name || psych?.email || 'Специалист';
-      const whenLabel = reqRow.slotStart.toLocaleString('ru-RU', {
+      const whenLabel = reqRow.slotStart!.toLocaleString('ru-RU', {
         timeZone: config.appTimeZone,
         dateStyle: 'long',
         timeStyle: 'short'

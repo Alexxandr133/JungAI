@@ -19,7 +19,9 @@ model User {
   aiModel     String?
   isVerified Boolean @default(false) // Верифицирован ли психолог
   catalogSortOrder Int @default(0) // Порядок в публичном каталоге (меньше — выше)
-  catalogHidden Boolean @default(false) // Скрыт из публичного списка психологов
+  catalogHidden Boolean @default(false) // Скрыт из публичного списка психологов (админ)
+  /// Психолог принимает новых клиентов: виден в каталоге и /match
+  acceptingClients Boolean @default(true)
   emailVerified Boolean @default(false)
   emailVerificationCode String?
   emailVerificationExpiresAt DateTime?
@@ -282,7 +284,7 @@ model CalendarPublicBookingRequest {
   id               String    @id @default(cuid())
   createdAt        DateTime  @default(now())
   psychologistId   String
-  slotStart        DateTime
+  slotStart        DateTime?
   slotEnd          DateTime?
   contactName      String
   contactEmail     String
@@ -290,7 +292,7 @@ model CalendarPublicBookingRequest {
   message          String?
   /// Структурированная анкета (подбор) или null для простой записи на слот
   questionnaire    Json?
-  /// slot | match
+  /// slot | match | inquiry
   source           String    @default("slot")
   status           String    @default("pending")
   declineReason    String?
@@ -470,6 +472,7 @@ model JournalEntry {
   clientId  String // ID клиента
   client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   content   String // Содержимое записи
+  moodTag   String? // тег настроения к записи (§26)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

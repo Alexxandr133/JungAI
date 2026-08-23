@@ -332,6 +332,90 @@ export async function sendPublicBookingAcceptedEmail(params: {
   });
 }
 
+export async function sendClientRegistrationInviteEmail(params: {
+  to: string;
+  clientName: string;
+  psychologistName: string;
+  registrationUrl: string;
+}) {
+  const inner = `
+    <div style="padding:16px 18px;border-radius:12px;background:#eef2ff;border:1px solid #c7d2fe;margin-bottom:16px;">
+      <div style="font-size:15px;font-weight:800;color:#312e81;margin-bottom:6px;">Вас пригласили на платформу</div>
+      <div style="font-size:14px;line-height:1.55;color:#3730a3;">
+        <b>${escapeHtml(params.psychologistName)}</b> принял(а) ваш запрос и добавил(а) вас в список клиентов.
+      </div>
+    </div>
+    <p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#374151;">
+      Здравствуйте, <b>${escapeHtml(params.clientName)}</b>! Создайте аккаунт по ссылке ниже — так вы увидите встречи, сможете писать психологу и вести дневник.
+      Ссылка действует 7 дней.
+    </p>
+    <a href="${escapeHtml(params.registrationUrl)}" style="display:inline-block;padding:12px 18px;border-radius:12px;background:#6C5BD4;color:#ffffff;font-weight:800;text-decoration:none;font-size:14px;">Зарегистрироваться на JungAI</a>
+    <p style="margin:14px 0 0;font-size:12px;line-height:1.55;color:#6b7280;">
+      Если кнопка не открывается, скопируйте адрес:<br/>
+      <span style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#374151;word-break:break-all;">${escapeHtml(params.registrationUrl)}</span>
+    </p>
+  `;
+  await sendEmail({
+    to: params.to,
+    subject: 'JungAI: ссылка для регистрации в кабинете клиента',
+    html: renderInfoEmailTemplate({
+      title: 'Регистрация на платформе',
+      subtitle: 'Психолог принял ваш запрос на ведение.',
+      innerHtml: inner
+    }),
+    text: `${params.psychologistName} принял(а) ваш запрос. Зарегистрируйтесь: ${params.registrationUrl}`
+  });
+}
+
+/** @deprecated use sendClientRegistrationInviteEmail + meeting email */
+export async function sendInquiryAcceptedEmail(params: {
+  to: string;
+  psychologistName: string;
+}) {
+  await sendClientRegistrationInviteEmail({
+    to: params.to,
+    clientName: 'клиент',
+    psychologistName: params.psychologistName,
+    registrationUrl: String(process.env.FRONTEND_URL || 'https://jung-ai.ru').replace(/\/$/, '') + '/register'
+  });
+}
+
+export async function sendIntroMeetingScheduledEmail(params: {
+  to: string;
+  clientName: string;
+  psychologistName: string;
+  whenLabel: string;
+  guestJoinUrl: string;
+}) {
+  const inner = `
+    <div style="padding:16px 18px;border-radius:12px;background:#ecfdf5;border:1px solid #6ee7b7;margin-bottom:16px;">
+      <div style="font-size:15px;font-weight:800;color:#065f46;margin-bottom:6px;">Вводная встреча назначена</div>
+      <div style="font-size:14px;line-height:1.55;color:#166534;">
+        <b>${escapeHtml(params.psychologistName)}</b> назначил(а) вводную встречу.<br/>
+        <b>Дата и время:</b> ${escapeHtml(params.whenLabel)}
+      </div>
+    </div>
+    <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#374151;">
+      Здравствуйте, <b>${escapeHtml(params.clientName)}</b>! Встреча пройдёт на платформе JungAI. Можно войти как гость по ссылке ниже — аккаунт для этого не обязателен.
+    </p>
+    <a href="${escapeHtml(params.guestJoinUrl)}" style="display:inline-block;padding:12px 18px;border-radius:12px;background:#6C5BD4;color:#ffffff;font-weight:800;text-decoration:none;font-size:14px;">Открыть комнату встречи</a>
+    <p style="margin:14px 0 0;font-size:12px;line-height:1.55;color:#6b7280;">
+      Адрес вручную:<br/>
+      <span style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:#374151;word-break:break-all;">${escapeHtml(params.guestJoinUrl)}</span>
+    </p>
+  `;
+  await sendEmail({
+    to: params.to,
+    subject: 'JungAI: назначена вводная встреча',
+    html: renderInfoEmailTemplate({
+      title: 'Вводная встреча',
+      subtitle: 'Психолог назначил время первой встречи.',
+      innerHtml: inner
+    }),
+    text: `Вводная встреча с ${params.psychologistName}: ${params.whenLabel}. Комната: ${params.guestJoinUrl}`
+  });
+}
+
 export async function sendPublicBookingDeclinedEmail(params: {
   to: string;
   psychologistName: string;

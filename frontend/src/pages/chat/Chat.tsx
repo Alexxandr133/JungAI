@@ -19,6 +19,7 @@ export default function ChatPage() {
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
 
   const roomId = params.get('roomId') || messengerUi?.roomId || null;
+  const draft = (location.state as { draft?: string } | null)?.draft || null;
 
   useEffect(() => {
     if (params.get('openDrawer') === '1' && messengerUi) {
@@ -59,7 +60,7 @@ export default function ChatPage() {
     >
       <UniversalNavbar />
       <main style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <MessengerPanel mode="full" initialRoomId={roomId} />
+        <MessengerPanel mode="full" initialRoomId={roomId} initialDraft={draft} />
       </main>
     </div>
   );

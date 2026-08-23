@@ -10,6 +10,8 @@ type Props = {
   compact?: boolean;
   saving?: boolean;
   onSave: (next: { mood: number; energy: number; anxiety: number }) => void;
+  /** Разрешить правку уже сохранённой отметки за сегодня */
+  onUnlock?: () => void;
 };
 
 /** Soft muted red → green */
@@ -52,6 +54,7 @@ export function MoodCheckInControl({
   compact,
   saving,
   onSave,
+  onUnlock,
 }: Props) {
   const [draftMood, setDraftMood] = useState<number | null>(mood);
   const [draftEnergy, setDraftEnergy] = useState(energy);
@@ -65,6 +68,7 @@ export function MoodCheckInControl({
 
   const active = draftMood != null ? MOOD_META[draftMood - 1] : null;
   const canEdit = !disabled && !locked && !saving;
+  const hasExisting = mood != null;
 
   return (
     <div className={`mood-tracker${compact ? ' mood-tracker--compact' : ''}${locked ? ' mood-tracker--locked' : ''}`}>
@@ -72,10 +76,10 @@ export function MoodCheckInControl({
         <div className="mood-tracker__title">Трекер настроения</div>
         <div className="mood-tracker__sub">
           {locked
-            ? 'Сегодня уже отмечено. Следующая отметка — завтра.'
+            ? 'Сегодня уже отмечено — можно изменить, если настроение сменилось.'
             : compact
-              ? 'Одна отметка в день'
-              : 'Выберите настроение, энергию и тревогу — затем сохраните. Одна отметка в день.'}
+              ? 'Одна отметка в день, можно обновить'
+              : 'Выберите настроение, энергию и тревогу — затем сохраните. Одну отметку за день можно обновить.'}
         </div>
       </div>
 
@@ -93,7 +97,7 @@ export function MoodCheckInControl({
             onClick={() => setDraftMood(m.n)}
           >
             <MoodFaceIcon level={m.n} color={m.color} />
-            {!compact && <span className="mood-tracker__n">{m.n}</span>}
+            <span className={`mood-tracker__n${compact ? ' mood-tracker__n--compact' : ''}`}>{compact ? m.label : m.n}</span>
           </button>
         ))}
       </div>
@@ -134,7 +138,11 @@ export function MoodCheckInControl({
         </label>
       </div>
 
-      {!locked && (
+      {locked ? (
+        <button type="button" className="button secondary mood-tracker__save" disabled={disabled || saving} onClick={() => onUnlock?.()}>
+          Изменить отметку
+        </button>
+      ) : (
         <button
           type="button"
           className="button mood-tracker__save"
@@ -144,7 +152,7 @@ export function MoodCheckInControl({
             onSave({ mood: draftMood, energy: draftEnergy, anxiety: draftAnxiety });
           }}
         >
-          {saving ? 'Сохраняем…' : 'Сохранить на сегодня'}
+          {saving ? 'Сохраняем…' : hasExisting ? 'Обновить отметку' : 'Сохранить на сегодня'}
         </button>
       )}
     </div>
@@ -163,9 +171,12 @@ const MOOD_DOT = ['', '#c48b8b', '#c9a08a', '#b8ae8e', '#9bb89a', '#7fad8f'];
 export function MoodMiniChart({
   points,
   height = 200,
+  sessionMarkers,
 }: {
   points: MoodDailyPoint[];
   height?: number;
+  /** YYYY-MM-DD keys — дни с сессиями на графике */
+  sessionMarkers?: string[];
 }) {
   if (!points.length) {
     return (
@@ -226,14 +237,6 @@ export function MoodMiniChart({
   return (
     <div className="mood-chart-wrap">
       <svg className="mood-chart" viewBox={`0 0 ${w} ${h}`} width="100%" height={height} role="img" aria-label="График настроения за период">
-        <defs>
-          <linearGradient id="moodLineGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#c48b8b" />
-            <stop offset="50%" stopColor="#b8ae8e" />
-            <stop offset="100%" stopColor="#7fad8f" />
-          </linearGradient>
-        </defs>
-
         {yTicks.map((tick) => {
           const y = yAt(tick);
           return (
@@ -290,8 +293,25 @@ export function MoodMiniChart({
         )}
 
         {lineD && (
-          <path d={lineD.trim()} fill="none" stroke="url(#moodLineGrad)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <path d={lineD.trim()} fill="none" stroke="var(--brand, #6c5bd4)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         )}
+
+        {sessionMarkers?.map((dateKey) => {
+          const i = points.findIndex((p) => p.date === dateKey || p.date.startsWith(dateKey));
+          if (i < 0) return null;
+          const p = points[i];
+          if (p.mood == null) return null;
+          const x = xAt(i);
+          const y = yAt(p.mood as number);
+          return (
+            <g key={`sess-${dateKey}`} aria-hidden>
+              <circle cx={x} cy={y - 14} r="7" fill="var(--sage, #3e8a6e)" fillOpacity="0.9" stroke="#fff" strokeWidth="2" />
+              <text x={x} y={y - 11} textAnchor="middle" className="mood-chart__axis" style={{ fontSize: 9, fill: '#fff', fontWeight: 800 }}>
+                S
+              </text>
+            </g>
+          );
+        })}
 
         {points.map((p, i) => {
           if (p.mood == null) return null;

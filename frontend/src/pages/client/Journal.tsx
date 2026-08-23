@@ -1,27 +1,54 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
+
+const MOOD_TAG_OPTIONS = ['спокойствие', 'тревога', 'усталость', 'надежда', 'радость', 'злость', 'грусть', 'интерес'] as const;
 
 type JournalEntry = {
   id: string;
   createdAt: string;
   updatedAt: string;
   content: string;
+  moodTag?: string | null;
 };
 
 export default function ClientJournal() {
   const { token } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const prefillConsumed = useRef(false);
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [showEditor, setShowEditor] = useState(false);
   const [editorContent, setEditorContent] = useState('');
+  const [editorMoodTag, setEditorMoodTag] = useState<string>('');
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadEntries();
   }, [token]);
+
+  useEffect(() => {
+    const prefill = (location.state as { prefill?: string } | null)?.prefill;
+    if (!prefill || !token || prefillConsumed.current) return;
+    prefillConsumed.current = true;
+    setEditorContent(prefill);
+    setEditorMoodTag('');
+    setSelectedEntry(null);
+    setShowEditor(true);
+    // Сбрасываем state роутера, иначе закрытие модалки снова откроет её
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, token, navigate]);
+
+  function closeEditor() {
+    setShowEditor(false);
+    setEditorContent('');
+    setEditorMoodTag('');
+    setSelectedEntry(null);
+  }
 
   async function loadEntries() {
     if (!token) return;
@@ -58,21 +85,18 @@ export default function ClientJournal() {
         const updated = await api<JournalEntry>(`/api/journal/entries/${selectedEntry.id}`, {
           method: 'PUT',
           token,
-          body: { content: editorContent.trim() }
+          body: { content: editorContent.trim(), moodTag: editorMoodTag || null }
         });
         setEntries(entries.map(e => e.id === selectedEntry.id ? updated : e));
       } else {
-        // Создаем новую запись
         const newEntry = await api<JournalEntry>('/api/journal/entries', {
           method: 'POST',
           token,
-          body: { content: editorContent.trim() }
+          body: { content: editorContent.trim(), moodTag: editorMoodTag || null }
         });
         setEntries([newEntry, ...entries]);
       }
-      setShowEditor(false);
-      setEditorContent('');
-      setSelectedEntry(null);
+      closeEditor();
     } catch (error) {
       console.error('Failed to save journal entry:', error);
       alert('Не удалось сохранить запись. Попробуйте еще раз.');
@@ -83,9 +107,11 @@ export default function ClientJournal() {
     if (entry) {
       setSelectedEntry(entry);
       setEditorContent(entry.content);
+      setEditorMoodTag(entry.moodTag || '');
     } else {
       setSelectedEntry(null);
       setEditorContent('');
+      setEditorMoodTag('');
     }
     setShowEditor(true);
   }
@@ -122,8 +148,10 @@ export default function ClientJournal() {
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 16, marginBottom: 32 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Защищённый дневник</h1>
-            <div className="small" style={{ color: 'var(--text-muted)' }}>🔒 Ваши записи шифруются на устройстве</div>
+            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8, fontFamily: "'Lora', Georgia, serif" }}>Защищённый дневник</h1>
+            <p className="small" style={{ color: 'var(--text-muted)', margin: 0, maxWidth: 420, lineHeight: 1.5 }}>
+              Записи шифруются на вашем устройствах и доступны только вам и вашему психологу.
+            </p>
           </div>
           <button className="button" onClick={() => openEditor()} style={{ padding: '10px 20px' }}>+ Новая запись</button>
         </div>
@@ -144,8 +172,22 @@ export default function ClientJournal() {
             <div style={{ display: 'grid', gap: 12 }}>
               {entries.map(entry => (
                 <div key={entry.id} className="card" style={{ padding: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
                     <div className="small" style={{ color: 'var(--text-muted)' }}>{formatDate(entry.createdAt)}</div>
+                    {entry.moodTag && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          borderRadius: 999,
+                          background: 'var(--brand-soft, rgba(108,91,212,0.12))',
+                          color: 'var(--brand)',
+                        }}
+                      >
+                        {entry.moodTag}
+                      </span>
+                    )}
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button className="button secondary" onClick={() => openEditor(entry)} style={{ padding: '6px 10px', fontSize: 13 }}>Редактировать</button>
                       <button className="button secondary" onClick={() => deleteEntry(entry.id)} style={{ padding: '6px 10px', fontSize: 13, color: '#ff7b7b' }}>Удалить</button>
@@ -160,11 +202,11 @@ export default function ClientJournal() {
 
         {/* Editor Modal */}
         {showEditor && (
-          <div onClick={() => { setShowEditor(false); setEditorContent(''); setSelectedEntry(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', padding: 12, zIndex: 50 }}>
+          <div onClick={closeEditor} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', padding: 12, zIndex: 50 }}>
             <div className="card" onClick={e => e.stopPropagation()} style={{ width: 'min(800px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 16, display: 'grid', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontWeight: 800, fontSize: 18 }}>{selectedEntry ? 'Редактировать запись' : 'Новая запись'}</div>
-                <button className="button secondary" onClick={() => { setShowEditor(false); setEditorContent(''); setSelectedEntry(null); }} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
+                <button className="button secondary" onClick={closeEditor} style={{ padding: '6px 10px', fontSize: 13 }}>Закрыть</button>
               </div>
               <textarea
                 value={editorContent}
@@ -172,8 +214,22 @@ export default function ClientJournal() {
                 placeholder="Ваши мысли, эмоции, события..."
                 style={{ width: '100%', padding: '12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'var(--surface-2)', color: 'var(--text)', minHeight: 300, resize: 'vertical', fontFamily: 'inherit' }}
               />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <span className="small" style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Настроение записи:</span>
+                {MOOD_TAG_OPTIONS.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={editorMoodTag === tag ? 'button' : 'button secondary'}
+                    style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600 }}
+                    onClick={() => setEditorMoodTag(editorMoodTag === tag ? '' : tag)}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button className="button secondary" onClick={() => { setShowEditor(false); setEditorContent(''); setSelectedEntry(null); }} style={{ padding: '8px 12px' }}>Отмена</button>
+                <button className="button secondary" onClick={closeEditor} style={{ padding: '8px 12px' }}>Отмена</button>
                 <button className="button" onClick={saveEntry} style={{ padding: '8px 12px' }}>Сохранить</button>
               </div>
             </div>

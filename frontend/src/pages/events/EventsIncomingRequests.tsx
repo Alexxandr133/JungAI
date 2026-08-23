@@ -6,7 +6,7 @@ export type IncomingRequestItem = {
   id: string;
   bookingId?: string | null;
   supportRequestId?: string | null;
-  kind: 'slot' | 'match';
+  kind: 'slot' | 'match' | 'inquiry';
   source?: string;
   contactName: string;
   contactEmail: string;
@@ -57,11 +57,34 @@ function formatSlot(start?: string | Date | null, end?: string | Date | null) {
   return `${startLabel} – ${endLabel}`;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function defaultIntroLocalValue(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setMinutes(0, 0, 0);
+  if (d.getHours() < 10) d.setHours(10);
+  if (d.getHours() > 20) d.setHours(18);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function localInputToIso(local: string): string | null {
+  if (!local || !local.includes('T')) return null;
+  const d = new Date(local);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 export function EventsIncomingRequests({ token, items, onChanged, onToast }: Props) {
   const { openMessenger } = useMessengerUi();
   const [declineId, setDeclineId] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [acceptInquiryItem, setAcceptInquiryItem] = useState<IncomingRequestItem | null>(null);
+  const [introLocal, setIntroLocal] = useState(defaultIntroLocalValue);
+  const [introDurationMin, setIntroDurationMin] = useState(60);
 
   const sorted = useMemo(
     () =>
@@ -71,13 +94,28 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
     [items]
   );
 
-  async function accept(item: IncomingRequestItem) {
+  function isInquiryItem(item: IncomingRequestItem) {
+    return item.kind === 'inquiry' || (!item.slotStart && item.source === 'inquiry');
+  }
+
+  function openAccept(item: IncomingRequestItem) {
+    if (item.bookingId && isInquiryItem(item)) {
+      setAcceptInquiryItem(item);
+      setIntroLocal(defaultIntroLocalValue());
+      setIntroDurationMin(60);
+      return;
+    }
+    void accept(item);
+  }
+
+  async function accept(item: IncomingRequestItem, body?: { startsAt: string; durationMin: number }) {
     setBusyId(item.id);
     try {
       if (item.bookingId) {
         await api(`/api/events/calendar-booking-requests/${item.bookingId}/accept`, {
           method: 'POST',
           token,
+          body: body || {},
         });
       } else if (item.supportRequestId) {
         await api(`/api/psychologist/requests/${item.supportRequestId}/respond`, {
@@ -88,13 +126,36 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
       } else {
         throw new Error('Неизвестный тип заявки');
       }
-      onToast('success', 'Создана первая встреча. Уведомление отправлено заявителю, если настроена почта.');
+      onToast(
+        'success',
+        isInquiryItem(item)
+          ? 'Клиент добавлен, вводная назначена. На почту ушли ссылка регистрации и детали встречи.'
+          : 'Создана первая встреча. Уведомление отправлено заявителю, если настроена почта.'
+      );
+      setAcceptInquiryItem(null);
       onChanged();
     } catch (e: any) {
       onToast('error', e?.message || 'Не удалось принять заявку');
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function submitInquiryAccept() {
+    if (!acceptInquiryItem) return;
+    const startsAt = localInputToIso(introLocal);
+    if (!startsAt) {
+      onToast('error', 'Укажите дату и время вводной встречи');
+      return;
+    }
+    if (new Date(startsAt).getTime() < Date.now() - 60_000) {
+      onToast('error', 'Нельзя назначить встречу в прошлом');
+      return;
+    }
+    await accept(acceptInquiryItem, {
+      startsAt,
+      durationMin: introDurationMin,
+    });
   }
 
   async function write(item: IncomingRequestItem) {
@@ -155,7 +216,7 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
       <div id="requests" className="events-page__card events-page__requests" data-tour="events-requests">
         <h3 className="events-page__card-title">Заявки и запросы</h3>
         <p className="events-page__requests-lead">
-          Публичный календарь и анкеты подбора клиентов
+          Публичная страница, слоты и анкеты подбора клиентов
         </p>
         <div className="events-page__booking-list">
           {sorted.map((item) => {
@@ -175,6 +236,7 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
               (typeof q?.slotLabel === 'string' && q.slotLabel) ||
               formatSlot(item.slotStart, item.slotEnd);
             const isMatch = item.kind === 'match';
+            const isInquiry = isInquiryItem(item);
 
             return (
               <div key={item.id} className="events-page__booking-item events-page__request-item">
@@ -182,10 +244,14 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
                   <div className="events-page__request-head">
                     <span
                       className={`events-page__badge ${
-                        isMatch ? 'events-page__badge--type' : 'events-page__badge--sage'
+                        isInquiry
+                          ? 'events-page__badge--type'
+                          : isMatch
+                            ? 'events-page__badge--type'
+                            : 'events-page__badge--sage'
                       }`}
                     >
-                      {isMatch ? 'Заявка из подбора' : 'Заявка на слот'}
+                      {isInquiry ? 'Запрос на ведение' : isMatch ? 'Заявка из подбора' : 'Заявка на слот'}
                     </span>
                     <span className="events-page__badge events-page__badge--warning">Новый</span>
                     <span className="events-page__request-date">
@@ -235,12 +301,14 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
                         <div className="events-page__request-label">Бюджет</div>
                         <div className="events-page__request-value">{budget || '—'}</div>
                       </div>
-                      <div>
-                        <div className="events-page__request-label">Желаемый слот</div>
-                        <div className="events-page__request-value events-page__request-value--bold">
-                          {slotLabel || '—'}
+                      {!isInquiry ? (
+                        <div>
+                          <div className="events-page__request-label">Желаемый слот</div>
+                          <div className="events-page__request-value events-page__request-value--bold">
+                            {slotLabel || '—'}
+                          </div>
                         </div>
-                      </div>
+                      ) : null}
                       {comment ? (
                         <div className="events-page__request-comment">
                           <div className="events-page__request-label">Комментарий</div>
@@ -269,7 +337,7 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
                     type="button"
                     className="events-page__btn events-page__btn--sm"
                     disabled={busyId === item.id}
-                    onClick={() => void accept(item)}
+                    onClick={() => openAccept(item)}
                   >
                     Принять
                   </button>
@@ -303,6 +371,71 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
           })}
         </div>
       </div>
+
+      {acceptInquiryItem ? (
+        <div
+          className="events-page__modal-overlay"
+          role="presentation"
+          onClick={() => setAcceptInquiryItem(null)}
+        >
+          <div
+            className="events-page__modal events-page__modal--narrow-dlg"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Принять запрос и назначить вводную"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="events-page__dlg-head">
+              <h3 className="events-page__modal-title">Принять запрос</h3>
+              <p className="events-page__modal-sub">
+                {acceptInquiryItem.contactName} будет добавлен(а) в ваши клиенты. На почту уйдёт ссылка
+                регистрации и приглашение на вводную встречу — время обязательно.
+              </p>
+            </div>
+            <label className="events-page__dlg-label" htmlFor="events-intro-starts">
+              Дата и время вводной
+            </label>
+            <input
+              id="events-intro-starts"
+              className="events-page__field"
+              type="datetime-local"
+              value={introLocal}
+              onChange={(e) => setIntroLocal(e.target.value)}
+              required
+            />
+            <label className="events-page__dlg-label" htmlFor="events-intro-duration" style={{ marginTop: 12 }}>
+              Длительность
+            </label>
+            <select
+              id="events-intro-duration"
+              className="events-page__field"
+              value={introDurationMin}
+              onChange={(e) => setIntroDurationMin(Number(e.target.value))}
+            >
+              <option value={45}>45 минут</option>
+              <option value={60}>60 минут</option>
+              <option value={90}>90 минут</option>
+            </select>
+            <div className="events-page__dlg-actions">
+              <button
+                type="button"
+                className="events-page__btn events-page__btn--secondary"
+                onClick={() => setAcceptInquiryItem(null)}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="events-page__btn"
+                disabled={busyId === acceptInquiryItem.id}
+                onClick={() => void submitInquiryAccept()}
+              >
+                {busyId === acceptInquiryItem.id ? 'Сохраняем…' : 'Принять и назначить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {declineId ? (
         <div

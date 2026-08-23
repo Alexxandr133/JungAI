@@ -4,9 +4,21 @@ import { prisma } from '../db/prisma';
 
 const router = Router();
 
+async function ensureJournalMoodTagColumn() {
+  try {
+    const rows = (await prisma.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info("JournalEntry")`)) as Array<{ name: string }>;
+    if (!rows.some((r) => r.name === 'moodTag')) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "JournalEntry" ADD COLUMN "moodTag" TEXT`);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 // Получить все записи дневника клиента (для самого клиента)
 router.get('/journal/entries', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
+    await ensureJournalMoodTagColumn();
     // Находим клиента по email пользователя
     const client = await prisma.client.findFirst({
       where: { email: req.user!.email },
@@ -31,7 +43,8 @@ router.get('/journal/entries', requireAuth, requireRole(['client', 'admin']), as
 // Создать новую запись дневника
 router.post('/journal/entries', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    const { content } = req.body ?? {};
+    await ensureJournalMoodTagColumn();
+    const { content, moodTag } = req.body ?? {};
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Content is required' });
     }
@@ -46,10 +59,14 @@ router.post('/journal/entries', requireAuth, requireRole(['client', 'admin']), a
       return res.status(404).json({ error: 'Client not found' });
     }
     
+    const tag =
+      typeof moodTag === 'string' && moodTag.trim() ? moodTag.trim().slice(0, 40) : null;
+    
     const entry = await prisma.journalEntry.create({
       data: {
         clientId: client.id,
-        content: content.trim()
+        content: content.trim(),
+        moodTag: tag
       }
     });
     
@@ -62,7 +79,7 @@ router.post('/journal/entries', requireAuth, requireRole(['client', 'admin']), a
 // Обновить запись дневника
 router.put('/journal/entries/:id', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
   try {
-    const { content } = req.body ?? {};
+    const { content, moodTag } = req.body ?? {};
     if (!content || !content.trim()) {
       return res.status(400).json({ error: 'Content is required' });
     }
@@ -90,9 +107,19 @@ router.put('/journal/entries/:id', requireAuth, requireRole(['client', 'admin'])
       return res.status(403).json({ error: 'Forbidden' });
     }
     
+    const tag =
+      moodTag === undefined
+        ? undefined
+        : typeof moodTag === 'string' && moodTag.trim()
+          ? moodTag.trim().slice(0, 40)
+          : null;
+    
     const entry = await prisma.journalEntry.update({
       where: { id: req.params.id },
-      data: { content: content.trim() }
+      data: {
+        content: content.trim(),
+        ...(tag !== undefined ? { moodTag: tag } : {})
+      }
     });
     
     res.json(entry);

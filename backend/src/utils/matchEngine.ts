@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma';
+import { idsWithSearchOff } from './acceptingClients';
 import { dayPartFromDate, listFreeSlots, mergeCalendarPrefs, type FreeSlot } from './calendarSlots';
 
 /** Синхрон со срезом shared MATCH_TOPIC_TAGS (не весь словарь профиля) */
@@ -145,7 +146,9 @@ export async function runPsychologistMatch(query: MatchQuery): Promise<{ matches
     select: { id: true, email: true, catalogSortOrder: true },
     orderBy: [{ catalogSortOrder: 'asc' }, { createdAt: 'asc' }],
   });
-  const ids = psychologists.map((p) => p.id);
+  const searchOff = await idsWithSearchOff();
+  const visible = psychologists.filter((p) => !searchOff.has(p.id));
+  const ids = visible.map((p) => p.id);
   if (!ids.length) return { matches: [], total: 0 };
 
   const placeholders = ids.map(() => '?').join(',');
@@ -186,7 +189,7 @@ export async function runPsychologistMatch(query: MatchQuery): Promise<{ matches
   };
 
   const scored: MatchCard[] = [];
-  for (const psych of psychologists) {
+  for (const psych of visible) {
     const profile = profileMap.get(psych.id);
     if (!profile) continue;
 

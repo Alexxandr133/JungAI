@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, resolvePublicFileUrl } from '../../lib/api';
 import {
@@ -132,6 +132,7 @@ export default function PublicCalendarBookPage() {
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (profileId) return;
     if (!token) {
       setLoading(false);
       setLoadError('В ссылке нет токена доступа.');
@@ -303,6 +304,10 @@ export default function PublicCalendarBookPage() {
         <SlimBookFooter />
       </div>
     );
+  }
+
+  if (profileId) {
+    return <Navigate to={`/psychologists/${profileId}`} replace />;
   }
 
   return (

@@ -12,6 +12,7 @@ export type CalendarPrefs = {
   minFreeSegmentMinutes?: number;
   useCustomDaysOff: boolean;
   customDaysOff: string[];
+  /** Показывать слоты на публичной странице профиля */
   bookingByLinkEnabled: boolean;
 };
 

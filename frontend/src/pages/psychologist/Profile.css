@@ -124,6 +124,63 @@
   color: var(--ink-muted);
 }
 
+.psy-profile-search {
+  margin-top: 14px;
+  max-width: 420px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border, var(--line));
+  background: var(--card);
+}
+
+.psy-profile-search__status {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.psy-profile-search__switch {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.psy-profile-search__btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.psy-profile-search__btn.is-on,
+.psy-profile-search__btn.is-off {
+  border-color: var(--ink);
+  background: var(--paper-soft);
+  color: var(--ink);
+}
+
+.psy-profile-search__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.psy-profile-search__btn:focus-visible {
+  outline: 3px solid var(--brand-soft);
+  outline-offset: 2px;
+}
+
+.psy-profile-search__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
 /* Полнота §13.5 */
 .psy-profile-complete {
   min-width: min(100%, 260px);

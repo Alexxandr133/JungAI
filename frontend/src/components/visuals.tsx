@@ -195,8 +195,13 @@ export const OceanBackground: React.FC<{ opacity?: number }>
   );
 };
 
-export const StarfieldBackground: React.FC<{ opacity?: number }>
-  = ({ opacity = 1 }) => {
+export const StarfieldBackground: React.FC<{
+  opacity?: number;
+  /** Рендер внутри родителя (absolute), не на весь viewport */
+  contained?: boolean;
+  /** §28: ≤60 звёзд, 1–2px, opacity ≤ .5, без плотного фона */
+  sparse?: boolean;
+}> = ({ opacity = 1, contained = false, sparse = false }) => {
   const [mousePos, setMousePos] = React.useState({ x: 0, y: 0 });
 
   React.useEffect(() => {
@@ -227,46 +232,56 @@ export const StarfieldBackground: React.FC<{ opacity?: number }>
     };
   }, []);
 
-  // Generate stars for different layers with memoization
   const stars = React.useMemo(() => {
-    const generateStars = (count: number, size: number, opacity: number) => {
+    const generateStars = (count: number, size: number, baseOpacity: number) => {
       return Array.from({ length: count }, (_, i) => ({
         id: i,
         x: Math.random() * 100,
         y: Math.random() * 100,
-        size: size + Math.random() * size * 0.5,
-        opacity: opacity + Math.random() * 0.3
+        size: sparse ? 1 + Math.random() : size + Math.random() * size * 0.5,
+        opacity: sparse
+          ? 0.15 + Math.random() * 0.35
+          : baseOpacity + Math.random() * 0.3
       }));
     };
+
+    if (sparse) {
+      return {
+        far: generateStars(28, 1, 0.25),
+        mid: generateStars(20, 1.2, 0.35),
+        near: generateStars(12, 1.6, 0.45)
+      };
+    }
 
     return {
       far: generateStars(250, 1, 0.5),
       mid: generateStars(150, 1.5, 0.7),
       near: generateStars(80, 2.5, 0.9)
     };
-  }, []);
+  }, [sparse]);
 
-  // Parallax multipliers for each layer (increased for faster movement)
-  const farMultiplier = 0.5;
-  const midMultiplier = 1.0;
-  const nearMultiplier = 1.8;
+  const farMultiplier = sparse ? 0.2 : 0.5;
+  const midMultiplier = sparse ? 0.4 : 1.0;
+  const nearMultiplier = sparse ? 0.7 : 1.8;
+  const parallax = sparse ? 18 : 50;
 
   return (
     <div style={{ 
-      position: 'fixed', 
+      position: contained ? 'absolute' : 'fixed', 
       inset: 0, 
       zIndex: 0, 
       pointerEvents: 'none', 
       overflow: 'hidden', 
       opacity,
-      background: 'linear-gradient(180deg, #0a0e1a 0%, #050810 50%, #000000 100%)'
+      background: contained || sparse
+        ? 'transparent'
+        : 'linear-gradient(180deg, #0a0e1a 0%, #050810 50%, #000000 100%)'
     }}>
-      {/* Far stars layer - slowest movement */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          transform: `translate(${mousePos.x * farMultiplier * 50}px, ${mousePos.y * farMultiplier * 50}px)`,
+          transform: `translate(${mousePos.x * farMultiplier * parallax}px, ${mousePos.y * farMultiplier * parallax}px)`,
           transition: 'transform 0.08s ease-out'
         }}
       >
@@ -281,19 +296,18 @@ export const StarfieldBackground: React.FC<{ opacity?: number }>
               height: star.size,
               background: '#ffffff',
               borderRadius: '50%',
-              opacity: star.opacity,
-              boxShadow: `0 0 ${star.size * 2}px rgba(255, 255, 255, ${star.opacity})`
+              opacity: Math.min(star.opacity, sparse ? 0.5 : 1),
+              boxShadow: sparse ? 'none' : `0 0 ${star.size * 2}px rgba(255, 255, 255, ${star.opacity})`
             }}
           />
         ))}
       </div>
 
-      {/* Mid stars layer - medium movement */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          transform: `translate(${mousePos.x * midMultiplier * 50}px, ${mousePos.y * midMultiplier * 50}px)`,
+          transform: `translate(${mousePos.x * midMultiplier * parallax}px, ${mousePos.y * midMultiplier * parallax}px)`,
           transition: 'transform 0.06s ease-out'
         }}
       >
@@ -308,19 +322,18 @@ export const StarfieldBackground: React.FC<{ opacity?: number }>
               height: star.size,
               background: '#ffffff',
               borderRadius: '50%',
-              opacity: star.opacity,
-              boxShadow: `0 0 ${star.size * 3}px rgba(255, 255, 255, ${star.opacity})`
+              opacity: Math.min(star.opacity, sparse ? 0.5 : 1),
+              boxShadow: sparse ? 'none' : `0 0 ${star.size * 3}px rgba(255, 255, 255, ${star.opacity})`
             }}
           />
         ))}
       </div>
 
-      {/* Near stars layer - fastest movement */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          transform: `translate(${mousePos.x * nearMultiplier * 50}px, ${mousePos.y * nearMultiplier * 50}px)`,
+          transform: `translate(${mousePos.x * nearMultiplier * parallax}px, ${mousePos.y * nearMultiplier * parallax}px)`,
           transition: 'transform 0.04s ease-out'
         }}
       >
@@ -335,8 +348,10 @@ export const StarfieldBackground: React.FC<{ opacity?: number }>
               height: star.size,
               background: '#ffffff',
               borderRadius: '50%',
-              opacity: star.opacity,
-              boxShadow: `0 0 ${star.size * 4}px rgba(255, 255, 255, ${star.opacity}), 0 0 ${star.size * 8}px rgba(255, 255, 255, ${star.opacity * 0.3})`
+              opacity: Math.min(star.opacity, sparse ? 0.5 : 1),
+              boxShadow: sparse
+                ? `0 0 ${star.size * 2}px rgba(255, 255, 255, ${star.opacity * 0.4})`
+                : `0 0 ${star.size * 4}px rgba(255, 255, 255, ${star.opacity}), 0 0 ${star.size * 8}px rgba(255, 255, 255, ${star.opacity * 0.3})`
             }}
           />
         ))}
