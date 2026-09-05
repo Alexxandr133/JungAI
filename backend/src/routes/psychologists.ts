@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { requireAuth, requireRole, type AuthedRequest } from '../middleware/auth';
+import { parseEventDateInput } from '../utils/eventDate';
 import { listFreeSlots, mergeCalendarPrefs } from '../utils/calendarSlots';
 import {
   PRICE_BANDS,
@@ -12,6 +13,7 @@ import {
 import { isEmailTransportConfigured, sendEmail } from '../utils/email';
 import { config } from '../config';
 import { idsWithSearchOff } from '../utils/acceptingClients';
+import { ensureSeriesHorizon } from '../utils/eventSeries';
 
 const router = Router();
 
@@ -84,6 +86,7 @@ async function ensureMatchCatalogSchema() {
       await cols('Profile', 'worksWith', '"worksWith" JSONB');
       await cols('Profile', 'audienceFormats', '"audienceFormats" JSONB');
       await cols('Profile', 'calendarPrefs', '"calendarPrefs" JSONB');
+      await cols('Profile', 'sessionTestSettings', '"sessionTestSettings" JSONB');
       await cols('Profile', 'coverUrl', '"coverUrl" TEXT');
       await cols('Profile', 'accentColor', '"accentColor" TEXT');
       await cols('SupportRequest', 'questionnaire', '"questionnaire" JSONB');
@@ -403,6 +406,11 @@ router.get('/public/:id', async (req, res) => {
     const showSlots = prefs.bookingByLinkEnabled !== false;
     let freeSlots: ReturnType<typeof listFreeSlots> = [];
     if (showSlots) {
+      try {
+        await ensureSeriesHorizon(psychologist.id);
+      } catch (e) {
+        console.warn('ensureSeriesHorizon on public profile failed', e);
+      }
       const since = new Date();
       since.setHours(0, 0, 0, 0);
       const until = new Date(since);
@@ -493,8 +501,8 @@ router.post('/public/:id/book', async (req, res) => {
 
     const slotStartRaw = req.body?.slotStart;
     const slotEndRaw = req.body?.slotEnd;
-    const slotStart = slotStartRaw ? new Date(slotStartRaw) : null;
-    const slotEnd = slotEndRaw ? new Date(slotEndRaw) : null;
+    const slotStart = slotStartRaw ? parseEventDateInput(slotStartRaw) : null;
+    const slotEnd = slotEndRaw ? parseEventDateInput(slotEndRaw) : null;
     if (showSlots) {
       if (!slotStart || Number.isNaN(slotStart.getTime())) {
         return res.status(400).json({ error: 'Выберите свободный слот' });
@@ -512,6 +520,7 @@ router.post('/public/:id/book', async (req, res) => {
     const slotLabel =
       showSlots && slotStart && !Number.isNaN(slotStart.getTime())
         ? slotStart.toLocaleString('ru-RU', {
+            timeZone: config.appTimeZone,
             weekday: 'short',
             day: 'numeric',
             month: 'long',

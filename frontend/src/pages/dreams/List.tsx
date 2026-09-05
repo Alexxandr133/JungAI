@@ -21,9 +21,15 @@ type Dream = {
   symbols?: string[];
   createdAt: string;
   userId?: string;
+  clientId?: string;
+  client?: { id: string; name?: string };
 };
 
 type Client = { id: string; name?: string };
+
+function dreamWorkspaceClientId(d: Dream): string {
+  return d.client?.id || d.clientId || '';
+}
 
 export default function DreamsList() {
   const { token, user } = useAuth();
@@ -47,6 +53,7 @@ export default function DreamsList() {
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
   const [formClientId, setFormClientId] = useState<string>('');
+  const [editingDreamId, setEditingDreamId] = useState<string | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
 
   useEffect(() => {
@@ -170,12 +177,24 @@ export default function DreamsList() {
 
 
   function openModal() {
+    setEditingDreamId(null);
     setFormTitle('');
     setFormContent('');
     setShowModal(true);
   }
 
-  function closeModal() { setShowModal(false); }
+  function openEditModal(d: Dream) {
+    setEditingDreamId(d.id);
+    setFormTitle(d.title || '');
+    setFormContent(d.content || '');
+    setFormClientId(dreamWorkspaceClientId(d));
+    setShowModal(true);
+  }
+
+  function closeModal() {
+    setShowModal(false);
+    setEditingDreamId(null);
+  }
 
   usePsychologistPlatformTour({
     tourId: 'dreams',
@@ -190,10 +209,24 @@ export default function DreamsList() {
     const payload = {
       title: formTitle.trim() || 'Без названия',
       content: formContent.trim(),
-      symbols: [], // Убрали поле символов
+      symbols: [],
       ...(isClient ? {} : { clientId: formClientId || undefined })
     } as any;
-    // Optimistic add
+    if (editingDreamId && token) {
+      try {
+        const updated = await api<Dream>(`/api/dreams/${editingDreamId}`, {
+          method: 'PUT',
+          token,
+          body: { title: payload.title, content: payload.content },
+        });
+        setItems((prev) => prev.map((d) => (d.id === editingDreamId ? { ...d, ...updated } : d)));
+      } catch (err: any) {
+        setError(err?.message || 'Не удалось сохранить сон');
+        return;
+      }
+      closeModal();
+      return;
+    }
     const tempId = `tmp-${Date.now()}`;
     const optimistic: Dream = { id: tempId, createdAt: new Date().toISOString(), ...payload };
     setItems(prev => [optimistic, ...prev]);
@@ -203,7 +236,7 @@ export default function DreamsList() {
     } catch {
       // Keep optimistic when offline/unauthed
     }
-    setShowModal(false);
+    closeModal();
   }
 
   async function onDeleteDream(dreamId: string, dreamTitle: string) {
@@ -461,8 +494,33 @@ export default function DreamsList() {
                         )}
                         {token && (
                           <div style={{ display: 'flex', gap: 'clamp(4px, 1.5vw, 6px)', marginTop: 'clamp(10px, 3vw, 12px)', paddingTop: 'clamp(10px, 3vw, 12px)', borderTop: '1px solid rgba(255,255,255,0.08)' }} onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className="button secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditModal(d);
+                              }}
+                              style={{ padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 8px)', fontSize: 'clamp(10px, 2.5vw, 11px)' }}
+                              title="Изменить текст сна"
+                            >
+                              Изменить
+                            </button>
                             {!isClient && (
-                              <button className="button secondary" disabled={!d.userId} onClick={(e) => { e.stopPropagation(); d.userId && navigate(`/psychologist/work-area?client=${encodeURIComponent(String(d.userId))}`); }} style={{ padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 8px)', fontSize: 'clamp(10px, 2.5vw, 11px)' }} title={d.userId ? 'Открыть рабочую область клиента' : 'Клиент не указан'}>{t('dreams.toClient')}</button>
+                              <button
+                                type="button"
+                                className="button secondary"
+                                disabled={!dreamWorkspaceClientId(d)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const cid = dreamWorkspaceClientId(d);
+                                  if (cid) navigate(`/psychologist/work-area?client=${encodeURIComponent(cid)}`);
+                                }}
+                                style={{ padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 8px)', fontSize: 'clamp(10px, 2.5vw, 11px)' }}
+                                title={dreamWorkspaceClientId(d) ? 'Открыть рабочую область клиента' : 'Клиент не указан'}
+                              >
+                                {t('dreams.toClient')}
+                              </button>
                             )}
                             <button 
                               className="button secondary" 
@@ -498,9 +556,11 @@ export default function DreamsList() {
               <div style={{ marginBottom: 16, color: 'var(--primary)' }}>
                 <PlatformIcon name="dreams" size={48} strokeWidth={1.25} />
               </div>
-              <div style={{ fontWeight: 800, fontSize: 24, marginBottom: 8 }}>Записать сон</div>
+              <div style={{ fontWeight: 800, fontSize: 24, marginBottom: 8 }}>
+                {editingDreamId ? 'Изменить сон' : 'Записать сон'}
+              </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-                Опишите свой сон во всех деталях
+                {editingDreamId ? 'Можно поправить название и текст — символы пересчитаются сами' : 'Опишите свой сон во всех деталях'}
               </div>
             </div>
             <form onSubmit={onCreateDream} style={{ display: 'grid', gap: 20 }}>
@@ -550,7 +610,7 @@ export default function DreamsList() {
                   }} 
                 />
               </div>
-              {!isClient && token && (
+              {!isClient && token && !editingDreamId && (
                 <div>
                   <label style={{ display: 'block', marginBottom: 10, fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
                     Клиент
@@ -564,7 +624,9 @@ export default function DreamsList() {
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
                 <button type="button" className="button secondary" onClick={closeModal} style={{ padding: '12px 24px', fontSize: 15 }}>Отмена</button>
-                <button type="submit" className="button" style={{ padding: '12px 24px', fontSize: 15, fontWeight: 600 }}>Сохранить сон</button>
+                <button type="submit" className="button" style={{ padding: '12px 24px', fontSize: 15, fontWeight: 600 }}>
+                  {editingDreamId ? 'Сохранить изменения' : 'Сохранить сон'}
+                </button>
               </div>
             </form>
           </div>

@@ -185,6 +185,7 @@ router.get('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
       await cols('worksWith', '"worksWith" JSONB');
       await cols('audienceFormats', '"audienceFormats" JSONB');
       await cols('calendarPrefs', '"calendarPrefs" JSONB');
+      await cols('sessionTestSettings', '"sessionTestSettings" JSONB');
       await cols('coverUrl', '"coverUrl" TEXT');
       await cols('accentColor', '"accentColor" TEXT');
     } catch { /* ignore */ }
@@ -441,6 +442,7 @@ router.put('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
         await cols('worksWith', '"worksWith" JSONB');
         await cols('audienceFormats', '"audienceFormats" JSONB');
         await cols('calendarPrefs', '"calendarPrefs" JSONB');
+        await cols('sessionTestSettings', '"sessionTestSettings" JSONB');
         await cols('coverUrl', '"coverUrl" TEXT');
         await cols('accentColor', '"accentColor" TEXT');
         await prisma.$executeRawUnsafe(`UPDATE "Profile" SET ${sets.join(', ')} WHERE "userId" = ?`, ...vals);
@@ -686,6 +688,82 @@ router.post('/verification/submit', requireAuth, requireRole(['psychologist', 'a
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to submit verification document' });
+  }
+});
+
+function parseAssociationWordBank(raw: unknown): string[] {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      obj = {};
+    }
+  }
+  const list = Array.isArray((obj as { associationWords?: unknown })?.associationWords)
+    ? (obj as { associationWords: unknown[] }).associationWords
+    : [];
+  return list.map((w) => String(w || '').trim()).filter(Boolean);
+}
+
+async function ensureSessionTestSettingsColumn() {
+  try {
+    const rows = (await prisma.$queryRawUnsafe<any[]>(`PRAGMA table_info("Profile")`)) as any[];
+    if (!rows.some((r) => r.name === 'sessionTestSettings')) {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "Profile" ADD COLUMN "sessionTestSettings" JSONB`);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+router.get('/session-test-settings', requireAuth, requireRole(['psychologist', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    await ensureSessionTestSettingsColumn();
+    const profile = await prisma.profile.findUnique({ where: { userId: req.user!.id } });
+    let raw: unknown = (profile as { sessionTestSettings?: unknown } | null)?.sessionTestSettings ?? null;
+    if (raw == null) {
+      try {
+        const ext = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT "sessionTestSettings" FROM "Profile" WHERE "userId" = ? LIMIT 1`,
+          req.user!.id
+        );
+        raw = ext?.[0]?.sessionTestSettings ?? null;
+      } catch {
+        /* ignore */
+      }
+    }
+    res.json({ associationWords: parseAssociationWordBank(raw) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load session test settings' });
+  }
+});
+
+router.put('/session-test-settings', requireAuth, requireRole(['psychologist', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    await ensureSessionTestSettingsColumn();
+    const associationWords = parseAssociationWordBank({ associationWords: req.body?.associationWords });
+    const settings = { associationWords };
+    try {
+      await (prisma as any).profile.upsert({
+        where: { userId: req.user!.id },
+        update: { sessionTestSettings: settings },
+        create: { userId: req.user!.id, interests: [], sessionTestSettings: settings }
+      });
+    } catch {
+      const existing = await prisma.profile.findUnique({ where: { userId: req.user!.id } });
+      if (!existing) {
+        await prisma.profile.create({ data: { userId: req.user!.id, interests: [] } });
+      }
+      await prisma.$executeRawUnsafe(
+        `UPDATE "Profile" SET "sessionTestSettings" = ? WHERE "userId" = ?`,
+        JSON.stringify(settings),
+        req.user!.id
+      );
+    }
+    res.json(settings);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to save session test settings' });
   }
 });
 

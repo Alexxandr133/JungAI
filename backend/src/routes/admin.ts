@@ -453,7 +453,7 @@ router.get('/analytics', async (req: AuthedRequest, res) => {
       clientsActive += 1;
       const email = c.email ? String(c.email).toLowerCase() : '';
       const onPlatform = email && platformEmailSet.has(email);
-      if (onPlatform && !c.registrationToken) {
+      if (onPlatform) {
         inviteRegistered += 1;
       } else if (c.registrationToken) {
         const exp = c.tokenExpiresAt ? c.tokenExpiresAt.getTime() : NaN;

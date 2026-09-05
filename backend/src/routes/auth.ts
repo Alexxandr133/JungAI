@@ -349,6 +349,10 @@ router.post('/auth/register-client', async (req, res) => {
         phone: phone || client.phone
       }
     });
+    await prisma.client.updateMany({
+      where: { email: userEmail, id: { not: client.id } },
+      data: { registrationToken: null, tokenExpiresAt: null }
+    });
     
     // Создаём профиль клиента
     await prisma.profile.upsert({
@@ -446,6 +450,11 @@ router.post('/auth/register', async (req, res) => {
             email: normalizedEmail,
             psychologistId: tempPsychologistId
           }
+        });
+      } else {
+        await prisma.client.updateMany({
+          where: { email: normalizedEmail },
+          data: { registrationToken: null, tokenExpiresAt: null }
         });
       }
       

@@ -7,6 +7,7 @@ import { PsychologistPublicBody } from '../../components/PsychologistPublicBody'
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { usePageMeta } from '../../hooks/usePageMeta';
+import { formatSlotLabel } from '../../lib/eventsCalendarUtils';
 import '../../styles/landing-tokens.css';
 import './PublicProfile.css';
 
@@ -299,13 +300,7 @@ export default function PublicPsychologistProfile() {
                   verified: profile.verified,
                   nearestSlotLabel:
                     showSlots && profile.nearestSlot
-                      ? new Date(profile.nearestSlot.slotStart).toLocaleString('ru-RU', {
-                          weekday: 'short',
-                          day: 'numeric',
-                          month: 'long',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
+                      ? formatSlotLabel(profile.nearestSlot.slotStart)
                       : null,
                 }}
                 onBookClick={scrollToSchedule}
@@ -377,13 +372,7 @@ export default function PublicPsychologistProfile() {
                     {showSlots ? (
                       selectedSlot ? (
                         <p className="landing-small" style={{ marginBottom: 14 }}>
-                          {new Date(selectedSlot.slotStart).toLocaleString('ru-RU', {
-                            weekday: 'long',
-                            day: 'numeric',
-                            month: 'long',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {formatSlotLabel(selectedSlot.slotStart)}
                         </p>
                       ) : (
                         <p className="landing-small" style={{ marginBottom: 14 }}>

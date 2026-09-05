@@ -305,11 +305,11 @@ export const PSYCHOLOGIST_SESSIONS_TOUR_STEPS: DriveStep[] = [
     }
   },
   {
-    element: '[data-tour="events-attention"]',
+    element: '[data-tour="events-my-clients"]',
     popover: {
-      title: 'Требуют внимания',
+      title: 'Мои клиенты',
       description:
-        'Подсказки по клиентам без недавних сессий или с незакрытыми заявками. Удобно не терять follow-up между встречами.',
+        'Список клиентов с ближайшей встречей. «Запланировать» создаёт одну сессию, «Постоянный слот» — еженедельную серию, которая занимает публичный календарь.',
       side: 'bottom'
     }
   },

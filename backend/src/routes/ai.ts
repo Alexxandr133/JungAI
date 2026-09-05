@@ -169,12 +169,79 @@ function formatDreamSymbolsForPrompt(symbols: unknown): string {
 
 const router = Router();
 
-/** Режим с данными клиентов: по умолчанию включён; выключен только при явном false (в т.ч. строка из прокси/клиента). */
+/** Режим одного клиента: явно true, либо есть clientId. Явный false — обобщённый режим. */
 function parsePsychologistClientModeEnabled(body: unknown): boolean {
-  if (!body || typeof body !== 'object') return true;
-  const v = (body as Record<string, unknown>).clientModeEnabled;
+  if (!body || typeof body !== 'object') return false;
+  const rec = body as Record<string, unknown>;
+  const v = rec.clientModeEnabled;
   if (v === false || v === 'false' || v === 0) return false;
-  return true;
+  if (v === true || v === 'true' || v === 1) return true;
+  return Boolean(String(rec.clientId || '').trim());
+}
+
+function parseOptionalClientId(raw: unknown): string | undefined {
+  const id = typeof raw === 'string' ? raw.trim() : '';
+  return id || undefined;
+}
+
+function matchClientIdFromMessage(
+  text: string,
+  clients: Array<{ id: string; name: string | null }>
+): string | undefined {
+  const mentions = [...String(text || '').matchAll(/@([^\n@,.;:!?]+)/g)].map((m) =>
+    String(m[1] || '').trim()
+  );
+  for (const q of mentions) {
+    if (!q) continue;
+    const qn = q.toLowerCase();
+    const exact = clients.find((c) => String(c.name || '').trim().toLowerCase() === qn);
+    if (exact) return exact.id;
+    const starts = clients.find((c) => {
+      const n = String(c.name || '').trim().toLowerCase();
+      return n && (n.startsWith(qn) || qn.startsWith(n));
+    });
+    if (starts) return starts.id;
+  }
+  return undefined;
+}
+
+function messageMentionsAllClients(text: string, body?: unknown): boolean {
+  if (/@все\s+клиенты\b/i.test(String(text || ''))) return true;
+  if (!body || typeof body !== 'object') return false;
+  const v = (body as Record<string, unknown>).mentionedAllClients;
+  return v === true || v === 'true' || v === 1;
+}
+
+function resolvePsychologistFocusClientId(input: {
+  clientModeEnabled: boolean;
+  requestedClientId?: string;
+  mentionedClientId?: string;
+  mentionedAllClients?: boolean;
+  messageText?: string;
+  clients: Array<{ id: string; name: string | null }>;
+}): string | undefined {
+  const ids = new Set(input.clients.map((c) => c.id));
+  if (input.clientModeEnabled) {
+    return input.requestedClientId && ids.has(input.requestedClientId)
+      ? input.requestedClientId
+      : undefined;
+  }
+  if (input.mentionedAllClients || messageMentionsAllClients(input.messageText || '')) {
+    return undefined;
+  }
+  if (input.mentionedClientId && ids.has(input.mentionedClientId)) {
+    return input.mentionedClientId;
+  }
+  const fromAt = matchClientIdFromMessage(input.messageText || '', input.clients);
+  if (fromAt) return fromAt;
+  const text = String(input.messageText || '').toLowerCase();
+  const byName = [...input.clients]
+    .filter((c) => {
+      const n = String(c.name || '').trim().toLowerCase();
+      return n.length >= 3 && text.includes(n);
+    })
+    .sort((a, b) => String(b.name || '').length - String(a.name || '').length);
+  return byName[0]?.id;
 }
 
 const apiKey = getOpenRouterApiKeyOrNull();
@@ -199,16 +266,17 @@ const ALLOWED_AI_MODELS = new Set(
     .filter(Boolean)
 );
 
-const OPENROUTER_REQUEST_TIMEOUT_MS = 180000;
+const OPENROUTER_REQUEST_TIMEOUT_MS = 300000;
 const OPENROUTER_NETWORK_RETRY_DELAY_MS = 1200;
 const OPENROUTER_MAX_ATTEMPTS_PER_MODEL = 2;
 // Контекст чата: нельзя делать «без ограничений» из‑за лимитов токенов модели/провайдера,
 // но можно сделать так, чтобы в обычной работе лимит не ощущался.
 // Ограничиваем историю по общему бюджету символов, а не по количеству сообщений.
-const MAX_TOTAL_HISTORY_CHARS = 120_000;
-const MAX_HISTORY_MESSAGE_CHARS = 12_000;
-const MAX_AI_OUTPUT_TOKENS = 15000;
-const DREAM_ANALYSIS_MAX_OUTPUT_TOKENS = 15000;
+const MAX_TOTAL_HISTORY_CHARS = 240_000;
+const MAX_HISTORY_MESSAGE_CHARS = 64_000;
+const MAX_AI_OUTPUT_TOKENS = 32000;
+const DREAM_ANALYSIS_MAX_OUTPUT_TOKENS = 32000;
+const MAX_COMPLETION_CONTINUATIONS = 3;
 
 function trimConversationHistory(historyRaw: any[]): Array<{ role: 'user' | 'assistant'; content: string }> {
   const safe = (Array.isArray(historyRaw) ? historyRaw : [])
@@ -276,15 +344,12 @@ async function createOpenRouterChatCompletionWithRetry(input: {
   for (const modelForAttempt of modelsInOrder) {
     for (let attempt = 1; attempt <= OPENROUTER_MAX_ATTEMPTS_PER_MODEL; attempt++) {
       try {
-        const maxTokensForAttempt = modelForAttempt === AI_FALLBACK_MODEL
-          ? Math.min(input.maxTokens, 1200)
-          : input.maxTokens;
         return await openRouterClient.chat.completions.create(
           {
             model: modelForAttempt,
             messages: input.messages as any,
             temperature: input.temperature,
-            max_tokens: maxTokensForAttempt,
+            max_tokens: input.maxTokens,
           },
           { timeout: OPENROUTER_REQUEST_TIMEOUT_MS }
         );
@@ -302,6 +367,44 @@ async function createOpenRouterChatCompletionWithRetry(input: {
     }
   }
   throw lastError;
+}
+
+async function completeOpenRouterAllowingContinuation(input: {
+  model: string;
+  messages: OpenRouterChatMessage[];
+  temperature: number;
+  maxTokens: number;
+}) {
+  const messages = [...input.messages];
+  let combined = '';
+  let lastCompletion: any = null;
+  let usageTotal = 0;
+  for (let step = 0; step <= MAX_COMPLETION_CONTINUATIONS; step++) {
+    lastCompletion = await createOpenRouterChatCompletionWithRetry({
+      ...input,
+      messages,
+    });
+    const chunk = String(lastCompletion?.choices?.[0]?.message?.content || '');
+    combined += chunk;
+    usageTotal += Number(lastCompletion?.usage?.total_tokens || 0);
+    const reason = String(lastCompletion?.choices?.[0]?.finish_reason || '');
+    if (reason !== 'length' || !chunk || step === MAX_COMPLETION_CONTINUATIONS) {
+      if (lastCompletion?.choices?.[0]?.message) {
+        lastCompletion.choices[0].message.content = combined;
+      }
+      if (lastCompletion) {
+        lastCompletion._jungaiUsageTotal = usageTotal || lastCompletion?.usage?.total_tokens;
+      }
+      return lastCompletion;
+    }
+    messages.push({ role: 'assistant', content: chunk });
+    messages.push({
+      role: 'user',
+      content:
+        'Продолжи ответ строго с того места, где он оборвался. Не повторяй уже написанное и не сокращай оставшуюся часть.',
+    });
+  }
+  return lastCompletion;
 }
 
 function asUserFacingAiError(error: any): string {
@@ -381,7 +484,9 @@ function buildPsychologistDreamWhere(input: {
 
 router.post('/ai/psychologist/dream-scope-preview', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   try {
-    const requestedClientId = String(req.body?.clientId || '').trim() || undefined;
+    const clientModeEnabled = parsePsychologistClientModeEnabled(req.body);
+    const requestedClientId = parseOptionalClientId(req.body?.clientId);
+    const mentionedClientId = parseOptionalClientId(req.body?.mentionedClientId);
     const includeDreamsInContext =
       req.body?.includeDreamsInContext === undefined || req.body?.includeDreamsInContext === null
         ? true
@@ -404,14 +509,29 @@ router.post('/ai/psychologist/dream-scope-preview', requireAuth, requireRole(['p
       where: { psychologistId: req.user!.id },
       select: { id: true, name: true }
     });
-    const clientIds = clients.map(c => c.id);
+    const focusClientId = resolvePsychologistFocusClientId({
+      clientModeEnabled,
+      requestedClientId,
+      mentionedClientId,
+      mentionedAllClients: messageMentionsAllClients(
+        typeof req.body?.message === 'string' ? req.body.message : '',
+        req.body
+      ),
+      messageText: typeof req.body?.message === 'string' ? req.body.message : '',
+      clients,
+    });
+    const clientIds = focusClientId
+      ? [focusClientId]
+      : clientModeEnabled
+        ? []
+        : clients.map((c) => c.id);
     const ranges: DreamsContextRange[] = ['30d', '90d', '365d', 'all'];
 
     const model = await getPlatformAiModel(req.user?.id);
     const entries = await Promise.all(
       ranges.map(async (range) => {
         const where = buildPsychologistDreamWhere({
-          requestedClientId,
+          requestedClientId: focusClientId,
           clientIds,
           userId: req.user!.id,
           dreamsContextRange: range
@@ -456,8 +576,8 @@ router.post('/ai/psychologist/dream-scope-preview', requireAuth, requireRole(['p
       allCount <= 100 ? 'all' : allCount <= 300 ? '365d' : allCount <= 700 ? '90d' : '30d';
 
     const selectedClient =
-      requestedClientId && clients.find((c) => c.id === requestedClientId)
-        ? clients.find((c) => c.id === requestedClientId)!.name
+      focusClientId && clients.find((c) => c.id === focusClientId)
+        ? clients.find((c) => c.id === focusClientId)!.name
         : null;
 
     res.json({
@@ -697,7 +817,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     const responseStyle = (['concise', 'balanced', 'detailed'].includes(String(responseStyleRaw))
       ? responseStyleRaw
       : 'balanced') as ResponseStyle;
-    const baseMaxTokens = Math.min(MAX_AI_OUTPUT_TOKENS, inferMaxTokensFromResponseStyle(responseStyle));
+    const baseMaxTokens = MAX_AI_OUTPUT_TOKENS;
     let maxTokens = baseMaxTokens;
     const safeConversationHistory = trimConversationHistory(conversationHistory);
     const personalization =
@@ -714,21 +834,31 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         ? analysisMemoryRaw.trim().slice(0, 5000)
         : '';
 
-    // Обобщённый режим (без выбранного клиента): без CRM-карточек/сессий,
-    // но при включённом тумблере — сны всех клиентов психолога.
+    // Обобщённый режим (без выбранного клиента в шапке): без CRM-карточек/сессий.
+    // Сны: всех клиентов, либо только упомянутого (@имя / mentionedClientId).
     if (!clientModeEnabled) {
       const passDreamDataGeneral = includeDreamsInContext && modalityPolicy.allowDreams;
       let dreamsContext = '';
       let dreamCountForAnalysis = 0;
+      const generalClients = await prisma.client.findMany({
+        where: { psychologistId: req.user!.id },
+        select: { id: true, name: true },
+      });
+      const focusClientId = resolvePsychologistFocusClientId({
+        clientModeEnabled: false,
+        mentionedClientId: parseOptionalClientId(req.body?.mentionedClientId),
+        mentionedAllClients: messageMentionsAllClients(messageText, req.body),
+        messageText,
+        clients: generalClients,
+      });
+      const focusedName = focusClientId
+        ? generalClients.find((c) => c.id === focusClientId)?.name || focusClientId
+        : null;
 
       if (passDreamDataGeneral) {
-        const clients = await prisma.client.findMany({
-          where: { psychologistId: req.user!.id },
-          select: { id: true, name: true },
-        });
-        const clientIds = clients.map((c) => c.id);
+        const clientIds = focusClientId ? [focusClientId] : generalClients.map((c) => c.id);
         const dreamWhere = buildPsychologistDreamWhere({
-          requestedClientId: undefined,
+          requestedClientId: focusClientId,
           clientIds,
           userId: req.user!.id,
           dreamsContextRange,
@@ -752,7 +882,11 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
               truncatedNote = `\nВнимание: за период в базе ${totalMatching} снов; в контекст включены первые ${maxDreamRows} (лимит). Сузьте период в настройках или уточните вопрос.\n`;
             }
           }
-          dreamsContext = `\n\nСны для анализа (период: ${rangeLabel}; обобщённый режим — все клиенты; в контексте: ${allDreams.length} записей). Ниже полный текст каждого сна в хронологическом порядке.${truncatedNote}`;
+          dreamsContext = `\n\nСны для анализа (период: ${rangeLabel}; ${
+            focusedName
+              ? `обобщённый режим, выбран клиент: ${focusedName}`
+              : 'обобщённый режим — все клиенты'
+          }; в контексте: ${allDreams.length} записей). Ниже полный текст каждого сна в хронологическом порядке.${truncatedNote}`;
           allDreams.forEach((dream, idx) => {
             const clientName = dream.client?.name || 'Неизвестный клиент';
             const sym = formatDreamSymbolsForPrompt(dream.symbols);
@@ -774,8 +908,10 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       let systemPrompt = appendResponseStyle(buildGeneralModalityPrompt(modality), responseStyle);
       if (!includeDreamsInContext) {
         systemPrompt += `\n\nНастройка психолога: не акцентировать сны и сновидения; тексты снов в этот запрос не включены.`;
+      } else if (passDreamDataGeneral && focusedName) {
+        systemPrompt += `\n\nОбобщённый режим, но психолог указал конкретного клиента: ${focusedName}. Анализируй ТОЛЬКО этого человека. Не упоминай и не разбирай сны или данные других клиентов.`;
       } else if (passDreamDataGeneral) {
-        systemPrompt += `\n\nОбобщённый режим: в запрос включены сны всех клиентов психолога (без карточек/сессий CRM). Указывай имя клиента у каждого сна.`;
+        systemPrompt += `\n\nОбобщённый режим: в запрос включены сны всех клиентов психолога (без карточек/сессий CRM). Указывай имя клиента у каждого сна. Если в вопросе назван конкретный клиент — отвечай только по нему.`;
       }
       systemPrompt = appendPersonalization(systemPrompt, personalization);
       systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
@@ -816,7 +952,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
           dreamsAttached: passDreamDataGeneral,
           dreamCount: dreamCountForAnalysis,
         });
-        const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+        const chatCompletion = await completeOpenRouterAllowingContinuation({
           model,
           messages,
           temperature,
@@ -825,7 +961,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
         assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
         const quota = await consumeAiTokens(req.user!.id, {
-          usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+          usageTotal: (chatCompletion as any)?._jungaiUsageTotal || (chatCompletion as any)?.usage?.total_tokens,
           promptText: messages.map((m) => openRouterContentToString(m.content)).join('\n'),
           completionText: assistantMessage,
         });
@@ -877,12 +1013,22 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       ? Math.max(baseMaxTokens, DREAM_ANALYSIS_MAX_OUTPUT_TOKENS)
       : baseMaxTokens;
 
-    // Получаем клиентов психолога с полной информацией (только если режим работы с клиентами включен)
-    const clients = await prisma.client.findMany({
+    // Режим одного клиента: в контекст попадает ТОЛЬКО выбранный клиент.
+    const allPsychologistClients = await prisma.client.findMany({
       where: { psychologistId: req.user!.id },
       select: { id: true, name: true, email: true, phone: true, createdAt: true },
       orderBy: { createdAt: 'desc' }
     });
+    const focusClientId = resolvePsychologistFocusClientId({
+      clientModeEnabled: true,
+      requestedClientId: parseOptionalClientId(req.body?.clientId),
+      mentionedClientId: parseOptionalClientId(req.body?.mentionedClientId),
+      messageText,
+      clients: allPsychologistClients,
+    });
+    const clients = focusClientId
+      ? allPsychologistClients.filter((c) => c.id === focusClientId)
+      : [];
 
     // Получаем все заметки о клиентах (рабочая область)
     const clientIds = clients.map(c => c.id);
@@ -944,7 +1090,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     // Сны для контекста: период задаётся dreamsContextRange (по умолчанию 30 дней).
     // Если выбран конкретный клиент — только его сны в периоде (полный текст каждого сна).
-    const requestedClientId = req.body?.clientId as string | undefined;
+    const requestedClientId = focusClientId;
     const dreamWhere = buildPsychologistDreamWhere({
       requestedClientId,
       clientIds,
@@ -1144,6 +1290,12 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     systemPrompt = appendPersonalization(systemPrompt, personalization);
     systemPrompt = appendArchetypeLanguageGuard(modality, systemPrompt);
     systemPrompt = appendVisionSystemHint(systemPrompt, chatAttachments);
+    if (focusClientId) {
+      const focusName = clients[0]?.name || focusClientId;
+      systemPrompt += `\n\nРежим одного клиента: работай ТОЛЬКО с клиентом «${focusName}». Не анализируй, не цитируй и не упоминай других клиентов, даже если они встречаются в истории чата.`;
+    } else {
+      systemPrompt += `\n\nРежим одного клиента включён, но клиент не выбран. Не выдумывай данные других клиентов и не делай сводку по всей базе.`;
+    }
     if (!attachDataContext) {
       systemPrompt += dataContextSkippedHint();
     }
@@ -1183,7 +1335,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
     try {
       console.log('Using OpenRouter API...');
-      const chatCompletion = await createOpenRouterChatCompletionWithRetry({
+      const chatCompletion = await completeOpenRouterAllowingContinuation({
         model,
         messages,
         temperature,
@@ -1192,7 +1344,7 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
 
       assistantMessage = chatCompletion.choices[0]?.message?.content || assistantMessage;
       quota = await consumeAiTokens(req.user!.id, {
-        usageTotal: (chatCompletion as any)?.usage?.total_tokens,
+        usageTotal: (chatCompletion as any)?._jungaiUsageTotal || (chatCompletion as any)?.usage?.total_tokens,
         promptText: messages.map((m) => openRouterContentToString(m.content)).join('\n'),
         completionText: assistantMessage
       });

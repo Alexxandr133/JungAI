@@ -60,8 +60,8 @@ const STATUS_LABELS: Record<ClientVisualStatus, string> = {
 
 function resolveVisualStatus(c: ClientCardData, archived: boolean): ClientVisualStatus {
   if (archived || c.registrationStatus === 'archived') return 'archived';
+  if (c.platformRegistered) return 'registered';
   if (c.registrationStatus) return c.registrationStatus;
-  if (c.platformRegistered && !c.registrationPending) return 'registered';
   const expiresAt = c.tokenExpiresAt ? new Date(c.tokenExpiresAt).getTime() : NaN;
   const isExpired = c.registrationPending && Number.isFinite(expiresAt) && expiresAt < Date.now();
   if (isExpired) return 'expired';
@@ -136,10 +136,6 @@ export function ClientCard({
 
   function openProfile() {
     navigate(`/clients/${c.id}/profile`);
-  }
-
-  function openWorkspace() {
-    navigate(`/psychologist/work-area?client=${c.id}`);
   }
 
   return (
@@ -352,19 +348,6 @@ export function ClientCard({
                     }}
                   >
                     Вернуть в активные
-                  </button>
-                )}
-                {clientView === 'active' && (
-                  <button
-                    type="button"
-                    className="client-card__menu-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      openWorkspace();
-                    }}
-                  >
-                    Рабочая область
                   </button>
                 )}
               </div>

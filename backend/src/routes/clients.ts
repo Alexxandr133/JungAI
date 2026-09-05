@@ -352,7 +352,7 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
       platformRegistered?: boolean;
     }): 'registered' | 'pending' | 'expired' | 'archived' {
       if (client.therapyEndedAt) return 'archived';
-      if (client.platformRegistered && !client.registrationToken) return 'registered';
+      if (client.platformRegistered) return 'registered';
       if (client.registrationToken) {
         const exp = client.tokenExpiresAt ? client.tokenExpiresAt.getTime() : NaN;
         if (Number.isFinite(exp) && exp < Date.now()) return 'expired';
@@ -364,20 +364,33 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
     // Обогащаем клиентов данными профиля + CRM meta
     let items = await Promise.all(
       deduped.map(async (client) => {
-        const regTok = client.registrationToken as string | null | undefined;
-        const registrationPending = Boolean(regTok);
-
         let profile = null as any;
         let avatarUrl = null as string | null;
         let platformRegistered = false;
+        let regTok = client.registrationToken as string | null | undefined;
         if (client.email) {
-          const user = await prisma.user.findFirst({
-            where: { email: client.email },
-            include: { profile: true },
-          });
+          const emailNorm = String(client.email).trim().toLowerCase();
+          const user =
+            (await prisma.user.findFirst({
+              where: { email: emailNorm },
+              include: { profile: true },
+            })) ||
+            (emailNorm !== client.email
+              ? await prisma.user.findFirst({
+                  where: { email: client.email },
+                  include: { profile: true },
+                })
+              : null);
           profile = user?.profile || null;
           avatarUrl = user?.profile?.avatarUrl || null;
           platformRegistered = Boolean(user);
+          if (platformRegistered && regTok) {
+            await prisma.client.update({
+              where: { id: client.id },
+              data: { registrationToken: null, tokenExpiresAt: null },
+            });
+            regTok = null;
+          }
         }
 
         const next = nextByClient.get(client.id);
@@ -400,8 +413,8 @@ router.get('/clients', requireAuth, requireRole(['psychologist', 'admin']), requ
           ...client,
           profile,
           avatarUrl,
-          registrationPending,
-          registrationToken: regTok ?? null,
+          registrationPending: Boolean(regTok) && !platformRegistered,
+          registrationToken: platformRegistered ? null : (regTok ?? null),
           platformRegistered,
           registrationStatus,
           nextSessionAt: next?.startsAt ?? null,
@@ -531,14 +544,28 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
     }
     
     // Получаем профиль клиента
-    const user = await prisma.user.findFirst({
-      where: { email: client.email || '' },
-      include: {
-        profile: true
-      }
-    });
-    
-    const regTok = client.registrationToken;
+    const emailNorm = String(client.email || '').trim().toLowerCase();
+    const user = emailNorm
+      ? (await prisma.user.findFirst({
+          where: { email: emailNorm },
+          include: { profile: true },
+        })) ||
+        (emailNorm !== client.email
+          ? await prisma.user.findFirst({
+              where: { email: client.email || '' },
+              include: { profile: true },
+            })
+          : null)
+      : null;
+
+    let regTok = client.registrationToken;
+    if (user && regTok) {
+      await prisma.client.update({
+        where: { id: client.id },
+        data: { registrationToken: null, tokenExpiresAt: null },
+      });
+      regTok = null;
+    }
     const { registrationToken: _reg, ...clientSafe } = client as any;
 
     let lastMoodCheckIn: {
@@ -570,8 +597,8 @@ router.get('/clients/:id', requireAuth, requireRole(['psychologist', 'admin']), 
       profile: user?.profile || null,
       userId: user?.id || null,
       avatarUrl: user?.profile?.avatarUrl || null,
-      registrationPending: Boolean(regTok),
-      registrationToken: regTok ?? null,
+      registrationPending: Boolean(regTok) && !user,
+      registrationToken: user ? null : (regTok ?? null),
       platformRegistered: Boolean(user),
       lastMoodCheckIn,
       discussOnSessionDreams: discussDreams,
@@ -1279,23 +1306,34 @@ router.get('/clients/:id/tabs', requireAuth, requireRole(['psychologist', 'admin
       where: { clientId: req.params.id }
     });
     
+    const defaultTabs = [
+      'Ведение клиента',
+      'запрос',
+      'анамнез',
+      'ценности/кредо',
+      'раздражители',
+      'сны',
+      'Тесты',
+      'записи',
+      'Дневник клиента',
+      'Синхронии'
+    ];
+
     if (!clientTabs) {
-      // Возвращаем дефолтные вкладки
-      const defaultTabs = [
-        'Ведение клиента',
-        'запрос',
-        'анамнез',
-        'ценности/кредо',
-        'раздражители',
-        'сны',
-        'записи',
-        'Дневник клиента',
-        'Синхронии'
-      ];
       return res.json({ tabs: defaultTabs });
     }
-    
-    res.json({ tabs: clientTabs.tabs });
+
+    const stored = Array.isArray(clientTabs.tabs) ? clientTabs.tabs.map(String) : [];
+    if (!stored.includes('Тесты')) {
+      const dreamsIdx = stored.indexOf('сны');
+      const withTests =
+        dreamsIdx >= 0
+          ? [...stored.slice(0, dreamsIdx + 1), 'Тесты', ...stored.slice(dreamsIdx + 1)]
+          : [...stored, 'Тесты'];
+      return res.json({ tabs: withTests });
+    }
+
+    res.json({ tabs: stored });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to load tabs' });
   }

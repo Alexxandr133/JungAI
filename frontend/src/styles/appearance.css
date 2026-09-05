@@ -60,11 +60,11 @@ html[data-theme='light'] .p {
 }
 
 /* Обычные ссылки — не трогаем <a class="button"> (React Router Link), иначе текст сливается с градиентом */
-html[data-theme='light'] a:not(.button) {
+html[data-theme='light'] a:not(.button):not(.client-profile__btn) {
   color: var(--primary);
 }
 
-html[data-theme='light'] a:not(.button):hover {
+html[data-theme='light'] a:not(.button):not(.client-profile__btn):hover {
   color: var(--primary-600);
 }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { resolvePublicFileUrl } from '../lib/api';
-import { formatExperienceYears } from '../lib/ruPlural';
+import { formatSlotLabel } from '../lib/eventsCalendarUtils';
 import './PsychologistMiniCard.css';
 
 export type PsychologistMiniCardData = {
@@ -43,13 +43,7 @@ function slotWithinDays(slotStart: string, days: number): boolean {
 }
 
 function formatSlot(slotStart: string): string {
-  return new Date(slotStart).toLocaleString('ru-RU', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatSlotLabel(slotStart);
 }
 
 /** Общая карточка каталога и результатов подбора (§14–15). */

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { PsychologistNavbar } from '../../components/PsychologistNavbar';
@@ -15,12 +16,13 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  CircleAlert,
   Clock3,
   Info,
   Link2,
   MoreHorizontal,
+  Repeat,
   Settings2,
+  Users,
   Video,
   X
 } from 'lucide-react';
@@ -30,13 +32,26 @@ import { PsychologistTourHelpButton } from '../../components/PsychologistTourHel
 import {
   DEFAULT_CALENDAR_PREFS,
   type CalendarPrefs,
+  WEEKDAY_OPTIONS,
+  addMinutesToWallInput,
   calendarCells,
   clampInt,
   computeDaySummary,
   dayKeyFromDate,
+  dayKeyInAppTz,
+  formatDateTimeInAppTz,
+  formatTimeInAppTz,
   mergeCalendarPrefsFromServer,
+  newCalendarPrefId,
   pad2,
+  SLOT_INTERVAL_MINUTES_MAX,
+  SLOT_INTERVAL_MINUTES_MIN,
   SLOT_INTERVAL_MINUTES_OPTIONS,
+  clampSlotIntervalMinutes,
+  isPresetSlotInterval,
+  slotIntervalLabel,
+  toWallInputValue,
+  weeklyBadgeText,
   type DayCalSummary
 } from '../../lib/eventsCalendarUtils';
 import {
@@ -117,6 +132,40 @@ function isGuestParticipant(ev: any): boolean {
   return Boolean(ev?.isFirstMeeting || (ev?.guestEmail && !ev?.clientId));
 }
 
+type ClientRow = {
+  id: string;
+  name: string;
+  email?: string;
+  nextSessionAt?: string | null;
+  lastContactAt?: string | null;
+  therapyEndedAt?: string | null;
+};
+
+function formatContactAgo(iso?: string | null): string {
+  if (!iso) return 'нет контакта';
+  const d = Math.round((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (d <= 0) return 'сегодня';
+  if (d === 1) return 'вчера';
+  return `${d} дн. назад`;
+}
+
+function formatNextSession(iso?: string | null): string {
+  if (!iso) return 'нет ближайшей';
+  return formatDateTimeInAppTz(new Date(iso));
+}
+
+function formatEventClockRange(startsAt: string, endsAt?: string | null): string {
+  const start = formatTimeInAppTz(new Date(startsAt));
+  if (!endsAt) return start;
+  return `${start}–${formatTimeInAppTz(new Date(endsAt))}`;
+}
+
+function findClientWeeklyEvent(events: any[], clientId: string) {
+  return (events || []).find(
+    (ev) => String(ev.clientId || '') === clientId && ev.recurrence === 'weekly'
+  );
+}
+
 export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
   const isResearcherMode = mode === 'researcher';
   const { token, user } = useAuth();
@@ -137,11 +186,9 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
   const [startDate, setStartDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string>('');
-  const [clients, setClients] = useState<Array<{ id: string; name: string; email?: string }>>([]);
+  const [clients, setClients] = useState<ClientRow[]>([]);
   const [typeFilters, setTypeFilters] = useState<string[]>([]);
-  const [requiresAttention, setRequiresAttention] = useState<{
-    clientsWithoutSessions: Array<{ id: string; name: string }>;
-  } | null>(null);
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -157,6 +204,16 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
   const [calendarPrefs, setCalendarPrefs] = useState<CalendarPrefs>(() => ({ ...DEFAULT_CALENDAR_PREFS }));
   const skipPrefsSaveRef = useRef(true);
   const [dayOffPicker, setDayOffPicker] = useState('');
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
+  const [rangeLabel, setRangeLabel] = useState('');
+  const [rangeOverlapNote, setRangeOverlapNote] = useState<string | null>(null);
+  const [busyWeekday, setBusyWeekday] = useState(1);
+  const [busyStart, setBusyStart] = useState('14:00');
+  const [busyEnd, setBusyEnd] = useState('16:00');
+  const [busyUntil, setBusyUntil] = useState('');
+  const [busyLabel, setBusyLabel] = useState('');
+  const [slotCustomMode, setSlotCustomMode] = useState(false);
   const [toast, setToast] = useState<{ variant: 'success' | 'error'; text: string } | null>(null);
   const [incomingRequests, setIncomingRequests] = useState<IncomingRequestItem[]>([]);
   const [psychSessionDeclineId, setPsychSessionDeclineId] = useState<string | null>(null);
@@ -281,24 +338,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
   async function loadClients() {
     if (!token || (user?.role !== 'psychologist' && user?.role !== 'admin')) return;
     try {
-      const res = await api<{ items: Array<{ id: string; name: string; email?: string }> }>('/api/clients', {
+      const res = await api<{ items: ClientRow[] }>('/api/clients', {
         token
       });
-      setClients(res.items || []);
+      setClients((res.items || []).filter((c) => !c.therapyEndedAt));
     } catch (e: any) {
       console.error('Failed to load clients:', e);
-    }
-  }
-
-  async function loadRequiresAttention() {
-    if (!token || (user?.role !== 'psychologist' && user?.role !== 'admin')) return;
-    try {
-      const res = await api<{
-        requiresAttention: { clientsWithoutSessions: Array<{ id: string; name: string }> };
-      }>('/api/analytics/dashboard', { token });
-      setRequiresAttention(res.requiresAttention);
-    } catch (e: any) {
-      console.error('Failed to load requires attention:', e);
     }
   }
 
@@ -331,10 +376,6 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
 
   useEffect(() => {
     loadClients();
-  }, [token, user]);
-
-  useEffect(() => {
-    loadRequiresAttention();
   }, [token, user]);
 
   useEffect(() => {
@@ -420,6 +461,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     setDurationMin(60);
     setType('video');
     setEditingEventId(null);
+    setRepeatWeekly(false);
   }
 
   function openPlanModal() {
@@ -436,7 +478,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     setSelectedClientId(ev.clientId ? String(ev.clientId) : '');
     const start = new Date(ev.startsAt);
     const end = ev.endsAt ? new Date(ev.endsAt) : null;
-    setStartsAt(toLocalInputValue(start));
+    setStartsAt(toWallInputValue(start));
     if (end && !Number.isNaN(end.getTime())) {
       const mins = Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000));
       setDurationMin(Math.round(mins / 30) * 30 || 60);
@@ -453,13 +495,40 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     if (!title.trim() || !startsAt) return;
     try {
       setSubmitting(true);
+      if (!editingEventId && selectedClientId) {
+        const existingWeekly = findClientWeeklyEvent(items, selectedClientId);
+        if (existingWeekly) {
+          if (repeatWeekly) {
+            const goEdit = window.confirm(
+              `У клиента уже есть постоянный слот (${weeklyBadgeText(existingWeekly.startsAt)}). Открыть его для правки?`
+            );
+            if (goEdit) {
+              setSubmitting(false);
+              openReschedule(existingWeekly);
+              return;
+            }
+            setError('У этого клиента уже есть постоянный слот. Откройте его, чтобы перенести.');
+            setSubmitting(false);
+            return;
+          }
+          const goEdit = window.confirm(
+            `У клиента уже есть постоянный слот (${weeklyBadgeText(existingWeekly.startsAt)}). Открыть его для правки?\n\nОтмена — создать разовую встречу.`
+          );
+          if (goEdit) {
+            setSubmitting(false);
+            openReschedule(existingWeekly);
+            return;
+          }
+        }
+      }
       const body = {
         title: title.trim(),
         type,
         description,
         startsAt,
         endsAt: endsAt || null,
-        clientId: selectedClientId || null
+        clientId: selectedClientId || null,
+        ...(editingEventId ? {} : { repeatWeekly })
       };
       if (editingEventId) {
         await api(`/api/events/${editingEventId}`, {
@@ -477,34 +546,63 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       resetPlanForm();
       setShowModal(false);
       await load();
-      await loadRequiresAttention();
+      await loadClients();
       await loadIncomingRequests();
     } catch (err: any) {
+      const existingId = err?.data?.existingId;
+      if (err?.status === 409 && existingId) {
+        const existing = items.find((ev) => ev.id === existingId);
+        if (existing && window.confirm(`${err.message}\n\nОткрыть существующий слот?`)) {
+          openReschedule(existing);
+          return;
+        }
+      }
       setError(err.message || (editingEventId ? 'Не удалось перенести событие' : 'Не удалось создать событие'));
     } finally {
       setSubmitting(false);
     }
   }
 
-  function openCreateSessionForClient(clientId: string, clientName: string) {
+  function openCreateSessionForClient(clientId: string, clientName: string, weekly = false) {
+    const existingWeekly = findClientWeeklyEvent(items, clientId);
+    if (existingWeekly && weekly) {
+      const goEdit = window.confirm(
+        `У ${clientName} уже есть постоянный слот (${weeklyBadgeText(existingWeekly.startsAt)}). Открыть его для правки?`
+      );
+      if (goEdit) openReschedule(existingWeekly);
+      return;
+    }
+    if (existingWeekly && !weekly) {
+      const goEdit = window.confirm(
+        `У ${clientName} уже есть постоянный слот (${weeklyBadgeText(existingWeekly.startsAt)}). Открыть его для правки?\n\nОтмена — создать разовую встречу.`
+      );
+      if (goEdit) {
+        openReschedule(existingWeekly);
+        return;
+      }
+    }
     resetPlanForm();
     setSelectedClientId(clientId);
     setType('session');
     setTitle(`Сессия с ${clientName}`);
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(10, 0, 0, 0);
+    const tmr = new Date(Date.now() + 86400000);
     setDurationMin(60);
-    setStartsAt(toLocalInputValue(tomorrow));
+    setStartsAt(`${dayKeyInAppTz(tmr)}T10:00`);
+    setRepeatWeekly(weekly);
     setShowModal(true);
   }
 
-  async function deleteEvent(id: string) {
-    if (!confirm('Удалить событие?')) return;
+  async function deleteEvent(id: string, scope: 'one' | 'following' = 'one') {
+    const msg =
+      scope === 'following'
+        ? 'Удалить эту и все следующие встречи серии?'
+        : 'Удалить событие?';
+    if (!confirm(msg)) return;
     setError(null);
     setMenuEventId(null);
     try {
-      await api(`/api/events/${id}`, { method: 'DELETE', token: token ?? undefined });
+      const q = scope === 'following' ? '?scope=following' : '';
+      await api(`/api/events/${id}${q}`, { method: 'DELETE', token: token ?? undefined });
       await load();
     } catch (e: any) {
       setError(e.message || 'Failed to delete');
@@ -515,16 +613,8 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     const roomId = eventRoomId(ev);
     if (!roomId) return;
     const invite = guestInviteHrefFromId(roomId);
-    const timeLabel = `${new Date(ev.startsAt).toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })}${
-      ev.endsAt
-        ? ` – ${new Date(ev.endsAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
-        : ''
+    const timeLabel = `${formatDateTimeInAppTz(new Date(ev.startsAt))}${
+      ev.endsAt ? ` – ${formatTimeInAppTz(new Date(ev.endsAt))}` : ''
     }`;
     const inviteTitle = String(ev.title || 'Видеовстреча').trim() || 'Видеовстреча';
     const body =
@@ -554,8 +644,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
   const canCreate = user?.role === 'psychologist' || user?.role === 'researcher' || user?.role === 'admin';
 
   function toLocalInputValue(d: Date): string {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return toWallInputValue(d);
   }
   function splitLocalInputValue(v: string): { date: string; time: string } {
     if (!v || !v.includes('T')) return { date: '', time: '' };
@@ -572,11 +661,8 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       if (endsAt) setEndsAt('');
       return;
     }
-    const base = new Date(startsAt);
-    if (Number.isNaN(base.getTime())) return;
-    const nextEndDate = new Date(base.getTime() + durationMin * 60000);
-    const nextEnd = toLocalInputValue(nextEndDate);
-    if (nextEnd !== endsAt) setEndsAt(nextEnd);
+    const nextEnd = addMinutesToWallInput(startsAt, durationMin);
+    if (nextEnd && nextEnd !== endsAt) setEndsAt(nextEnd);
   }, [startsAt, durationMin, endsAt]);
 
   useEffect(() => {
@@ -609,6 +695,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
 
   useEffect(() => {
     if (!showCalendarModal) return;
+    setSlotCustomMode(!isPresetSlotInterval(calendarPrefs.slotIntervalMinutes));
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setShowCalendarModal(false);
     };
@@ -643,8 +730,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       filtered = filtered.filter((ev) => eventTypeMatchesFilters(String(ev.type), typeFilters));
     }
     for (const ev of filtered) {
-      const d = new Date(ev.startsAt);
-      const key = d.toISOString().slice(0, 10);
+      const key = dayKeyInAppTz(new Date(ev.startsAt));
       if (!map[key]) map[key] = [];
       map[key].push(ev);
     }
@@ -658,8 +744,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       filtered = filtered.filter((ev) => eventTypeMatchesFilters(String(ev.type), typeFilters));
     }
     for (const ev of filtered) {
-      const d = new Date(ev.startsAt);
-      const key = d.toISOString().slice(0, 10);
+      const key = dayKeyInAppTz(new Date(ev.startsAt));
       if (!map[key]) map[key] = [];
       map[key].push(ev);
     }
@@ -679,7 +764,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
         : items || [];
     const map: Record<string, any[]> = {};
     for (const ev of list) {
-      const k = dayKeyFromDate(new Date(ev.startsAt));
+      const k = dayKeyInAppTz(new Date(ev.startsAt));
       if (!map[k]) map[k] = [];
       map[k].push(ev);
     }
@@ -694,7 +779,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     t.setDate(1);
     t.setHours(0, 0, 0, 0);
     setCalendarMonth(t);
-    setCalendarSelectedDay(dayKeyFromDate(new Date()));
+    setCalendarSelectedDay(dayKeyInAppTz(new Date()));
     setCalendarModalTab(tab);
     setSettingsHelpOpen(false);
     setShowCalendarModal(true);
@@ -851,14 +936,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
   }
 
   function renderUpcomingEventCard(ev: any) {
-    const timeLabel = `${new Date(ev.startsAt).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit'
-    })}${
-      ev.endsAt
-        ? `–${new Date(ev.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-        : ''
-    }`;
+    const timeLabel = formatEventClockRange(ev.startsAt, ev.endsAt);
     const clientBookPending =
       String(ev.type) === 'session' && ev.sessionStatus === 'pending' && Boolean(ev.clientRequestedSession);
     const cName = clientNameFromEvent(ev, clients);
@@ -872,6 +950,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
           <span className="events-page__badge events-page__badge--type">{typeLabel(String(ev.type))}</span>
           {Boolean(ev.isFirstMeeting) && (
             <span className="events-page__badge events-page__badge--peach">Первая встреча</span>
+          )}
+          {Boolean(ev.seriesId && ev.recurrence === 'weekly') && (
+            <span className="events-page__badge events-page__badge--muted">
+              <Repeat size={11} style={{ marginRight: 4 }} />
+              {weeklyBadgeText(ev.startsAt)}
+            </span>
           )}
           {badge}
         </div>
@@ -955,9 +1039,9 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                       type="button"
                       className="events-page__menu-item events-page__menu-item--danger"
                       role="menuitem"
-                      onClick={() => void deleteEvent(ev.id)}
+                      onClick={() => void deleteEvent(ev.id, 'one')}
                     >
-                      Удалить
+                      {ev.recurrence === 'weekly' ? 'Удалить постоянный слот' : 'Удалить'}
                     </button>
                   </div>
                 )}
@@ -980,10 +1064,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       <div key={ev.id} className="events-page__event events-page__event--history">
         <div className="events-page__event-top">
           <span className="events-page__event-time">
-            {new Date(ev.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            {ev.endsAt
-              ? `–${new Date(ev.endsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-              : ''}
+            {formatEventClockRange(ev.startsAt, ev.endsAt)}
           </span>
           <span className="events-page__badge events-page__badge--type">{typeLabel(String(ev.type))}</span>
           {Boolean(ev.isFirstMeeting) && (
@@ -1158,17 +1239,9 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                   Ближайшая
                 </h3>
                 <div className="events-page__nearest-dt">
-                  {new Date(nearestUpcoming.startsAt).toLocaleString('ru-RU', {
-                    day: '2-digit',
-                    month: 'long',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
+                  {formatDateTimeInAppTz(new Date(nearestUpcoming.startsAt))}
                   {nearestUpcoming.endsAt
-                    ? ` – ${new Date(nearestUpcoming.endsAt).toLocaleTimeString('ru-RU', {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}`
+                    ? ` – ${formatTimeInAppTz(new Date(nearestUpcoming.endsAt))}`
                     : ''}
                 </div>
                 <div
@@ -1354,7 +1427,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                         onClick={() => openCalendarModal('settings')}
                       >
                         <Settings2 size={16} />
-                        Настройки доступности
+                        Настройки календаря
                       </button>
                     ) : null}
                   </div>
@@ -1366,32 +1439,82 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                 </div>
               )}
 
-            {!isResearcherMode &&
-              requiresAttention &&
-              requiresAttention.clientsWithoutSessions.length > 0 && (
-                <div className="events-page__card" data-tour="events-attention">
+            {!isResearcherMode && (
+                <div className="events-page__card" data-tour="events-my-clients">
                   <h3 className="events-page__card-title">
-                    <CircleAlert size={16} />
-                    Требуют внимания
+                    <Users size={16} />
+                    Мои клиенты
                   </h3>
                   <div className="events-page__card-micro" style={{ marginTop: 0, marginBottom: 10 }}>
-                    Клиенты без сессий {'>'}2 недель
+                    Запись и постоянный слот на неделю
                   </div>
-                  <div className="events-page__attention-list">
-                    {requiresAttention.clientsWithoutSessions.map((client) => (
-                      <div key={client.id} className="events-page__attention-row">
-                        <span className="events-page__attention-name">{client.name}</span>
-                        <button
-                          type="button"
-                          className="events-page__btn events-page__btn--sm"
-                          onClick={() => openCreateSessionForClient(client.id, client.name)}
-                        >
-                          <CalendarPlus size={13} />
-                          Предложить время
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  {clients.length === 0 ? (
+                    <div className="events-page__card-micro" style={{ marginTop: 0 }}>
+                      Клиентов пока нет.{' '}
+                      <Link to="/clients" className="events-page__inline-link">
+                        Открыть список
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="events-page__attention-list">
+                      {clients.slice(0, 8).map((client) => {
+                        const needsFollowup = !client.nextSessionAt;
+                        const weeklyEvent = findClientWeeklyEvent(items, client.id);
+                        return (
+                          <div key={client.id} className="events-page__client-row">
+                            <div className="events-page__client-meta">
+                              <span className="events-page__attention-name">
+                                {client.name}
+                                {weeklyEvent && (
+                                  <span className="events-page__badge events-page__badge--muted" style={{ marginLeft: 8 }}>
+                                    <Repeat size={11} style={{ marginRight: 4 }} />
+                                    {weeklyBadgeText(weeklyEvent.startsAt)}
+                                  </span>
+                                )}
+                                {needsFollowup && !weeklyEvent && (
+                                  <span className="events-page__badge events-page__badge--warning" style={{ marginLeft: 8 }}>
+                                    без сессии
+                                  </span>
+                                )}
+                              </span>
+                              <span className="events-page__client-sub">
+                                {formatNextSession(client.nextSessionAt)} · {formatContactAgo(client.lastContactAt)}
+                              </span>
+                            </div>
+                            <div className="events-page__client-actions">
+                              {!weeklyEvent && (
+                                <button
+                                  type="button"
+                                  className="events-page__btn events-page__btn--sm"
+                                  onClick={() => openCreateSessionForClient(client.id, client.name, false)}
+                                >
+                                  <CalendarPlus size={13} />
+                                  Запланировать
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="events-page__btn events-page__btn--secondary events-page__btn--sm"
+                                onClick={() =>
+                                  weeklyEvent
+                                    ? openReschedule(weeklyEvent)
+                                    : openCreateSessionForClient(client.id, client.name, true)
+                                }
+                              >
+                                <Repeat size={13} />
+                                {weeklyEvent ? 'Настроить постоянный слот' : 'Постоянный слот'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {clients.length > 8 && (
+                    <Link to="/clients" className="events-page__inline-link" style={{ marginTop: 8, display: 'inline-block' }}>
+                      Все клиенты
+                    </Link>
+                  )}
                 </div>
               )}
 
@@ -1414,7 +1537,8 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
           </div>
         </div>
 
-        {addClientEvent && (
+        {addClientEvent &&
+          createPortal(
           <div
             className="events-page__modal-overlay"
             onClick={() => setAddClientEvent(null)}
@@ -1481,10 +1605,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                 </div>
               </form>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
-        {psychSessionDeclineId && (
+        {psychSessionDeclineId &&
+          createPortal(
           <div
             className="events-page__modal-overlay"
             onClick={() => setPsychSessionDeclineId(null)}
@@ -1531,10 +1657,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
-        {showCalendarModal && (
+        {showCalendarModal &&
+          createPortal(
           <div
             className={`events-page__modal-overlay events-page__modal-overlay--stretch${
               narrowLayout ? ' events-page__modal-overlay--narrow' : ''
@@ -1553,12 +1681,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
               <div className="events-page__modal-head">
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div id="events-calendar-title" className="events-page__modal-title">
-                    {calendarModalTab === 'calendar' ? 'Календарь занятости' : 'Настройки доступности'}
+                    {calendarModalTab === 'calendar' ? 'Календарь занятости' : 'Настройка публичного календаря'}
                   </div>
                   <div className="events-page__modal-sub">
                     {calendarModalTab === 'calendar'
                       ? 'Свободные промежутки считаются по рабочему дню, обеду и перерывам.'
-                      : 'Настройки влияют на ваш календарь и публичную страницу записи.'}
+                      : 'Рабочее время, обед, выходные и еженедельная занятость. Часовой пояс: Europe/Moscow'}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -1566,12 +1694,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                     <div className="events-page__info-tip">
                       <button
                         type="button"
-                        className="events-page__info-btn"
+                        className="events-page__btn events-page__btn--secondary events-page__btn--sm events-page__btn--icon events-page__info-btn"
                         aria-label="Справка по настройкам"
                         aria-expanded={settingsHelpOpen}
                         onClick={() => setSettingsHelpOpen((v) => !v)}
                       >
-                        <Info size={16} />
+                        <Info size={18} strokeWidth={2} aria-hidden />
                       </button>
                       {settingsHelpOpen && (
                         <div className="events-page__info-popover" role="tooltip">
@@ -1663,7 +1791,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                 }}
               >
                 {calendarModalTab === 'settings' ? (
-                  <div style={{ display: 'grid', gap: 18 }}>
+                  <div className="events-page__settings-layout">
+                    <section className="events-page__settings-card">
+                      <div className="events-page__settings-card-head">
+                        <h4>Рабочее время</h4>
+                        <p>Часы приёма и шаг слотов на календаре и публичной странице. Время московское.</p>
+                      </div>
                     <div className="events-page__settings-grid">
                       <label>
                         <span className="events-page__field-label">Начало рабочего дня</span>
@@ -1707,32 +1840,73 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                         <span className="events-page__field-label">Шаг слотов (показ)</span>
                         <select
                           className="events-page__field"
-                          value={calendarPrefs.slotIntervalMinutes}
+                          value={
+                            slotCustomMode || !isPresetSlotInterval(calendarPrefs.slotIntervalMinutes)
+                              ? 'custom'
+                              : String(calendarPrefs.slotIntervalMinutes)
+                          }
                           onChange={(e) => {
-                            const slotIntervalMinutes = Number(
-                              e.target.value
-                            ) as CalendarPrefs['slotIntervalMinutes'];
+                            if (e.target.value === 'custom') {
+                              setSlotCustomMode(true);
+                              return;
+                            }
+                            setSlotCustomMode(false);
+                            const slotIntervalMinutes = clampSlotIntervalMinutes(
+                              e.target.value,
+                              calendarPrefs.slotIntervalMinutes
+                            );
                             setCalendarPrefs((p) => ({
                               ...p,
                               slotIntervalMinutes,
                               minFreeSegmentMinutes: slotIntervalMinutes
                             }));
-                          }
-                          }
+                          }}
                         >
                           {SLOT_INTERVAL_MINUTES_OPTIONS.map((m) => (
                             <option key={m} value={m}>
-                              {m < 60
-                                ? `${m} мин`
-                                : m === 60
-                                  ? '1 час'
-                                  : m === 90
-                                    ? '1 ч 30 мин'
-                                    : '2 часа'}
+                              {slotIntervalLabel(m)}
                             </option>
                           ))}
+                          <option value="custom">Произвольный</option>
                         </select>
                       </label>
+                      {(slotCustomMode || !isPresetSlotInterval(calendarPrefs.slotIntervalMinutes)) && (
+                        <label>
+                          <span className="events-page__field-label">Минут в слоте</span>
+                          <input
+                            className="events-page__field"
+                            type="number"
+                            min={SLOT_INTERVAL_MINUTES_MIN}
+                            max={SLOT_INTERVAL_MINUTES_MAX}
+                            step={1}
+                            value={calendarPrefs.slotIntervalMinutes}
+                            onChange={(e) => {
+                              const v = Math.round(Number(e.target.value));
+                              if (!Number.isFinite(v)) return;
+                              const slotIntervalMinutes = Math.max(
+                                1,
+                                Math.min(SLOT_INTERVAL_MINUTES_MAX, v)
+                              );
+                              setCalendarPrefs((p) => ({
+                                ...p,
+                                slotIntervalMinutes,
+                                minFreeSegmentMinutes: slotIntervalMinutes
+                              }));
+                            }}
+                            onBlur={() => {
+                              const slotIntervalMinutes = clampSlotIntervalMinutes(
+                                calendarPrefs.slotIntervalMinutes
+                              );
+                              setCalendarPrefs((p) => ({
+                                ...p,
+                                slotIntervalMinutes,
+                                minFreeSegmentMinutes: slotIntervalMinutes
+                              }));
+                            }}
+                          />
+                          <span className="events-page__field-hint">От 5 до 180 минут</span>
+                        </label>
+                      )}
                       <label>
                         <span className="events-page__field-label">Перерыв после встречи</span>
                         <input
@@ -1756,7 +1930,13 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                         />
                       </label>
                     </div>
+                    </section>
 
+                    <section className="events-page__settings-card">
+                      <div className="events-page__settings-card-head">
+                        <h4>Выходные и отпуск</h4>
+                        <p>Закрыть дни целиком: выходные, отдельные даты или период без приёма.</p>
+                      </div>
                     <label className="events-page__check">
                       <input
                         type="checkbox"
@@ -1779,10 +1959,111 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                       Произвольные выходные
                     </label>
                     {calendarPrefs.useCustomDaysOff && (
-                      <div style={{ display: 'grid', gap: 10 }}>
+                      <div style={{ display: 'grid', gap: 14 }}>
                         <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontWeight: 600 }}>
-                          Добавьте даты, когда приёма нет (праздники, отпуск и т.д.).
+                          Период без приёма (отпуск) или отдельные даты.
                         </div>
+                        <div className="events-page__settings-grid">
+                          <label>
+                            <span className="events-page__field-label">С</span>
+                            <input
+                              className="events-page__field"
+                              type="date"
+                              value={rangeFrom}
+                              onChange={(e) => setRangeFrom(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            <span className="events-page__field-label">По</span>
+                            <input
+                              className="events-page__field"
+                              type="date"
+                              value={rangeTo}
+                              onChange={(e) => setRangeTo(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            <span className="events-page__field-label">Подпись</span>
+                            <input
+                              className="events-page__field"
+                              placeholder="Отпуск"
+                              value={rangeLabel}
+                              onChange={(e) => setRangeLabel(e.target.value)}
+                            />
+                          </label>
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            className="events-page__btn events-page__btn--secondary events-page__btn--sm"
+                            onClick={() => {
+                              if (!rangeFrom || !rangeTo) return;
+                              const from = rangeFrom <= rangeTo ? rangeFrom : rangeTo;
+                              const to = rangeFrom <= rangeTo ? rangeTo : rangeFrom;
+                              const overlap = items.filter((ev) => {
+                                const k = dayKeyInAppTz(new Date(ev.startsAt));
+                                return k >= from && k <= to;
+                              }).length;
+                              setRangeOverlapNote(
+                                overlap > 0
+                                  ? `В периоде уже ${overlap} встреч — они не отменятся, новые слоты закроются.`
+                                  : null
+                              );
+                              setCalendarPrefs((p) => ({
+                                ...p,
+                                useCustomDaysOff: true,
+                                timeOffRanges: [
+                                  ...(p.timeOffRanges || []),
+                                  {
+                                    id: newCalendarPrefId('off'),
+                                    from,
+                                    to,
+                                    ...(rangeLabel.trim() ? { label: rangeLabel.trim() } : {})
+                                  }
+                                ]
+                              }));
+                              setRangeFrom('');
+                              setRangeTo('');
+                              setRangeLabel('');
+                            }}
+                          >
+                            Добавить период
+                          </button>
+                        </div>
+                        {rangeOverlapNote && (
+                          <div style={{ fontSize: 13, color: 'var(--ink-muted)' }}>{rangeOverlapNote}</div>
+                        )}
+                        {(calendarPrefs.timeOffRanges || []).length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {calendarPrefs.timeOffRanges.map((r) => (
+                              <span key={r.id} className="events-page__dayoff-chip">
+                                {r.label ? `${r.label}: ` : ''}
+                                {new Date(`${r.from}T12:00:00`).toLocaleDateString('ru-RU', {
+                                  day: 'numeric',
+                                  month: 'short'
+                                })}
+                                {' — '}
+                                {new Date(`${r.to}T12:00:00`).toLocaleDateString('ru-RU', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                                <button
+                                  type="button"
+                                  aria-label="Удалить период"
+                                  onClick={() =>
+                                    setCalendarPrefs((p) => ({
+                                      ...p,
+                                      timeOffRanges: (p.timeOffRanges || []).filter((x) => x.id !== r.id)
+                                    }))
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                           <input
                             className="events-page__field"
@@ -1803,7 +2084,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                               setDayOffPicker('');
                             }}
                           >
-                            Добавить дату
+                            Добавить одну дату
                           </button>
                         </div>
                         {calendarPrefs.customDaysOff.length > 0 && (
@@ -1833,7 +2114,13 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                         )}
                       </div>
                     )}
+                    </section>
 
+                    <section className="events-page__settings-card">
+                      <div className="events-page__settings-card-head">
+                        <h4>Обед</h4>
+                        <p>Это окно вычитается из свободных слотов.</p>
+                      </div>
                     <label className="events-page__check">
                       <input
                         type="checkbox"
@@ -1870,6 +2157,118 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                         </label>
                       </div>
                     )}
+                    </section>
+
+                    <section className="events-page__settings-card events-page__settings-card--wide">
+                      <div className="events-page__settings-card-head">
+                        <h4>Занятость каждую неделю</h4>
+                        <p>Супервизия, преподавание и другие часы без комнаты JungAI. Слоты закроются в публичном календаре.</p>
+                      </div>
+                      <div className="events-page__settings-grid">
+                        <label>
+                          <span className="events-page__field-label">День</span>
+                          <select
+                            className="events-page__field"
+                            value={busyWeekday}
+                            onChange={(e) => setBusyWeekday(Number(e.target.value))}
+                          >
+                            {WEEKDAY_OPTIONS.map((w) => (
+                              <option key={w.value} value={w.value}>
+                                {w.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          <span className="events-page__field-label">С</span>
+                          <input
+                            className="events-page__field"
+                            type="time"
+                            value={busyStart}
+                            onChange={(e) => setBusyStart(e.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span className="events-page__field-label">До</span>
+                          <input
+                            className="events-page__field"
+                            type="time"
+                            value={busyEnd}
+                            onChange={(e) => setBusyEnd(e.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span className="events-page__field-label">До даты (необяз.)</span>
+                          <input
+                            className="events-page__field"
+                            type="date"
+                            value={busyUntil}
+                            onChange={(e) => setBusyUntil(e.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span className="events-page__field-label">Подпись</span>
+                          <input
+                            className="events-page__field"
+                            placeholder="Супервизия"
+                            value={busyLabel}
+                            onChange={(e) => setBusyLabel(e.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <button
+                        type="button"
+                        className="events-page__btn events-page__btn--secondary events-page__btn--sm"
+                        style={{ justifySelf: 'start' }}
+                        onClick={() => {
+                          if (!busyStart || !busyEnd || busyEnd <= busyStart) return;
+                          setCalendarPrefs((p) => ({
+                            ...p,
+                            weeklyBusyBlocks: [
+                              ...(p.weeklyBusyBlocks || []),
+                              {
+                                id: newCalendarPrefId('busy'),
+                                weekday: busyWeekday,
+                                startHm: busyStart,
+                                endHm: busyEnd,
+                                ...(busyUntil ? { until: busyUntil } : {}),
+                                ...(busyLabel.trim() ? { label: busyLabel.trim() } : {})
+                              }
+                            ]
+                          }));
+                          setBusyLabel('');
+                        }}
+                      >
+                        Добавить занятость
+                      </button>
+                      {(calendarPrefs.weeklyBusyBlocks || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {calendarPrefs.weeklyBusyBlocks.map((b) => {
+                            const day =
+                              WEEKDAY_OPTIONS.find((w) => w.value === b.weekday)?.label || `День ${b.weekday}`;
+                            return (
+                              <span key={b.id} className="events-page__dayoff-chip">
+                                {b.label ? `${b.label}: ` : ''}
+                                {day} {b.startHm}–{b.endHm}
+                                {b.until ? ` до ${b.until}` : ''}
+                                <button
+                                  type="button"
+                                  aria-label="Удалить занятость"
+                                  onClick={() =>
+                                    setCalendarPrefs((p) => ({
+                                      ...p,
+                                      weeklyBusyBlocks: (p.weeklyBusyBlocks || []).filter((x) => x.id !== b.id)
+                                    }))
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </section>
                   </div>
                 ) : (
                   <>
@@ -1885,13 +2284,16 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                         const key = dayKeyFromDate(d);
                         const sum = calendarDaySummaries[key];
                         const nEv = (eventsByDay[key] || []).length;
-                        const isToday = key === dayKeyFromDate(new Date());
+                        const isToday = key === dayKeyInAppTz(new Date());
                         const isSelected = calendarSelectedDay === key;
                         const isPast = sum.isPast;
                         const cellBusyFull =
-                          !isPast && sum.hasEvents && sum.freeSegments.length === 0 && !sum.weekendBlocked;
+                          !isPast && sum.isFullyBusy && !sum.weekendBlocked;
                         const cellPartial =
-                          !isPast && sum.hasEvents && sum.freeSegments.length > 0 && !sum.weekendBlocked;
+                          !isPast &&
+                          (sum.hasEvents || sum.hasBusyBlock) &&
+                          sum.freeSegments.length > 0 &&
+                          !sum.weekendBlocked;
                         const cellClass = [
                           'events-page__cal-cell',
                           !inMonth ? 'is-out' : '',
@@ -2040,16 +2442,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                             {selectedCalendarEvents.map((ev: any) => (
                               <div key={ev.id} className="events-page__cal-ev">
                                 <div style={{ fontWeight: 800, fontSize: 13 }}>
-                                  {new Date(ev.startsAt).toLocaleTimeString('ru-RU', {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })}
-                                  {ev.endsAt
-                                    ? `–${new Date(ev.endsAt).toLocaleTimeString('ru-RU', {
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })}`
-                                    : ''}
+                                  {formatEventClockRange(ev.startsAt, ev.endsAt)}
                                   <span
                                     style={{
                                       marginLeft: 8,
@@ -2077,10 +2470,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                 )}
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
-        {showModal && (
+        {showModal &&
+          createPortal(
           <div className="events-page__modal-overlay">
             <div
               className="events-page__modal"
@@ -2262,7 +2657,29 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                   />
                 </div>
 
-                <div className="events-page__summary">{planSummary}</div>
+                {!editingEventId && (
+                  <label className="events-page__check">
+                    <input
+                      type="checkbox"
+                      checked={repeatWeekly}
+                      onChange={(e) => setRepeatWeekly(e.target.checked)}
+                    />
+                    Повторять каждую неделю в этот день
+                  </label>
+                )}
+                {editingEventId &&
+                  items.some((ev) => ev.id === editingEventId && ev.recurrence === 'weekly') && (
+                    <div className="events-page__summary">
+                      {weeklyBadgeText(
+                        items.find((ev) => ev.id === editingEventId)?.startsAt || startsAt
+                      )}
+                    </div>
+                  )}
+
+                <div className="events-page__summary">
+                  {planSummary}
+                  {repeatWeekly && !editingEventId ? ` · ${weeklyBadgeText(startsAt || new Date())}` : ''}
+                </div>
 
                 <div className="events-page__modal-foot">
                   <button
@@ -2291,7 +2708,8 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                 </div>
               </form>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </main>
     </div>

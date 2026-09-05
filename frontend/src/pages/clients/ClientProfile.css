@@ -41,6 +41,8 @@
   color: var(--ink);
 }
 
+.client-profile a.client-profile__btn,
+.client-profile button.client-profile__btn,
 .client-profile__btn {
   display: inline-flex;
   align-items: center;
@@ -55,18 +57,33 @@
   border: 1px solid transparent;
   text-decoration: none;
   background: var(--brand);
+  color: #fff !important;
+}
+
+.client-profile a.client-profile__btn,
+html[data-theme='light'] .client-profile a.client-profile__btn {
   color: #fff;
 }
 
 .client-profile__btn:hover {
   background: var(--brand-deep);
+  color: #fff !important;
+}
+
+.client-profile a.client-profile__btn:hover,
+html[data-theme='light'] .client-profile a.client-profile__btn:hover {
   color: #fff;
 }
 
 .client-profile__btn--secondary {
   background: var(--card);
-  color: var(--ink);
+  color: var(--ink) !important;
   border-color: var(--line);
+}
+
+.client-profile a.client-profile__btn--secondary,
+html[data-theme='light'] .client-profile a.client-profile__btn--secondary {
+  color: var(--ink);
 }
 
 .client-profile__btn--secondary:hover {

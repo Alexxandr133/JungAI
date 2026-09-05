@@ -42,6 +42,7 @@ import {
   X,
   MoreHorizontal,
   Bot,
+  NotebookPen,
 } from 'lucide-react';
 import { AITranscriptionPanel } from './AITranscriptionPanel';
 import { getActiveSttJobIds, removeActiveSttJob } from './transcriptionStorage';
@@ -118,6 +119,66 @@ type PendingAiAttachment = {
 
 const AI_CHAT_FILE_ACCEPT = '.pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp,.gif';
 const AI_CHAT_MAX_ATTACHMENTS = 5;
+const WORK_AREA_CARD_TABS = new Set(['Дневник клиента', 'сны', 'Тесты']);
+const WORK_AREA_DEFAULT_TABS = [
+  'Ведение клиента',
+  'запрос',
+  'анамнез',
+  'ценности/кредо',
+  'раздражители',
+  'записи',
+  'Синхронии',
+];
+const CLIENT_WORD_BEFORE_SPACE =
+  /(?:^|[^\p{L}])(?:клиент(?:к(?:а|и|е|у|ой|ами|ах|ам|ок)|а|у|ом|е|ы|ов|ам|ами|ах)?|пациент(?:к(?:а|и|е|у|ой|ами|ах|ам|ок)|а|у|ом|е|ы|ов|ам|ами|ах)?)\s$/iu;
+const ALL_CLIENTS_MENTION = 'все клиенты';
+
+function messageMentionsAllClients(text: string): boolean {
+  return /@все\s+клиенты\b/i.test(String(text || ''));
+}
+
+function parseMentionedClients(
+  text: string,
+  list: Array<{ id: string; name: string; email?: string; avatarUrl?: string }>
+): Array<{ id: string; name: string; email?: string; avatarUrl?: string }> {
+  const found: Array<{ id: string; name: string; email?: string; avatarUrl?: string }> = [];
+  const seen = new Set<string>();
+  const mentions = [...String(text || '').matchAll(/@([^\n@,.;:!?]+)/g)].map((m) =>
+    String(m[1] || '').trim()
+  );
+  for (const q of mentions) {
+    if (!q) continue;
+    const qn = q.toLowerCase();
+    const exact = list.find((c) => (c.name || '').trim().toLowerCase() === qn);
+    const starts = list.find((c) => {
+      const n = (c.name || '').trim().toLowerCase();
+      return n && (n.startsWith(qn) || qn.startsWith(n));
+    });
+    const hit = exact || starts;
+    if (hit && !seen.has(hit.id)) {
+      seen.add(hit.id);
+      found.push(hit);
+    }
+  }
+  return found;
+}
+
+function markdownToWorkAreaHtml(md: string): string {
+  const escaped = String(md || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped
+    .split(/\n{2,}/)
+    .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
+    .join('');
+}
+
+function appendAfterLastChar(existing: string, additionHtml: string): string {
+  const prev = String(existing || '');
+  const hasText = prev.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').trim().length > 0;
+  return hasText ? `${prev}<p><br/></p>${additionHtml}` : additionHtml;
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
@@ -243,9 +304,21 @@ export default function PsychologistAIChat() {
   const [loadingDreamScopePreview, setLoadingDreamScopePreview] = useState(false);
   const [selectedDreamScopeRange, setSelectedDreamScopeRange] = useState<DreamsContextRange>('30d');
   const [dreamScopeStep, setDreamScopeStep] = useState<'idle' | 'counting' | 'ready'>('idle');
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [sendToWa, setSendToWa] = useState<{ content: string } | null>(null);
+  const [sendToWaClientId, setSendToWaClientId] = useState('');
+  const [sendToWaTab, setSendToWaTab] = useState('');
+  const [sendToWaTabs, setSendToWaTabs] = useState<string[]>([]);
+  const [sendToWaLoading, setSendToWaLoading] = useState(false);
+  const [sendToWaError, setSendToWaError] = useState<string | null>(null);
+  const [sendToWaDone, setSendToWaDone] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mentionJustAppliedRef = useRef(false);
   const sendingRef = useRef(false); // Ref для предотвращения двойной отправки
   const currentChatIdRef = useRef<string | null>(null);
   const chatsRef = useRef<Chat[]>([]);
@@ -418,28 +491,21 @@ export default function PsychologistAIChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  function handleAssistantCopy(e: React.ClipboardEvent, content: string) {
+  function handleAssistantCopy(e: React.ClipboardEvent) {
     try {
       const selection = window.getSelection();
+      const selectedText = selection?.toString() ?? '';
+      if (!selectedText) return;
+      e.preventDefault();
+      e.clipboardData.setData('text/plain', selectedText);
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
         const fragment = range.cloneContents();
-        const hasTable = typeof (fragment as any)?.querySelector === 'function'
-          ? Boolean((fragment as any).querySelector('table'))
-          : false;
-        if (hasTable) {
-          e.preventDefault();
-          const wrapper = document.createElement('div');
-          wrapper.appendChild(fragment);
-          e.clipboardData.setData('text/html', wrapper.innerHTML);
-          // В plain оставляем исходный markdown на случай вставки в plain‑редакторы
-          e.clipboardData.setData('text/plain', content || '');
-          return;
-        }
+        const wrapper = document.createElement('div');
+        wrapper.appendChild(fragment);
+        const html = wrapper.innerHTML;
+        if (html) e.clipboardData.setData('text/html', html);
       }
-      // По умолчанию копируем только текст, без фона/HTML-стилей сообщения.
-      e.preventDefault();
-      e.clipboardData.setData('text/plain', content || '');
     } catch {
       // ignore
     }
@@ -773,6 +839,200 @@ export default function PsychologistAIChat() {
     setSelectedClientId(clientId);
     setShowClientsDropdown(false);
     setClientSearchQuery('');
+    setMentionOpen(false);
+  }
+
+  function closeMentionPicker() {
+    setMentionOpen(false);
+    setMentionQuery('');
+    setMentionIndex(0);
+    setMentionStart(null);
+  }
+
+  function mentionedClientIdFromText(text: string): string | undefined {
+    if (selectedClientIdRef.current) return undefined;
+    if (messageMentionsAllClients(text)) return undefined;
+    const fromAt = parseMentionedClients(text, clients)[0]?.id;
+    if (fromAt) return fromAt;
+    const t = String(text || '').toLowerCase();
+    const byName = [...clients]
+      .filter((c) => {
+        const n = (c.name || '').trim().toLowerCase();
+        return n.length >= 3 && t.includes(n);
+      })
+      .sort((a, b) => (b.name || '').length - (a.name || '').length);
+    return byName[0]?.id;
+  }
+
+  const mentionCandidates = clients.filter((c) => {
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q)
+    );
+  });
+  const showAllClientsMention =
+    !mentionQuery.trim() || ALL_CLIENTS_MENTION.includes(mentionQuery.trim().toLowerCase());
+  const mentionOptions: Array<{ id: string; name: string; email?: string; isAll?: boolean }> = [
+    ...(showAllClientsMention
+      ? [{ id: '__all__', name: 'Все клиенты', email: 'Сны и контекст по всей базе', isAll: true }]
+      : []),
+    ...mentionCandidates,
+  ];
+
+  function mentionQueryIsComplete(query: string): boolean {
+    const lower = String(query || '').replace(/\s+$/, '').toLowerCase();
+    if (!lower) return false;
+    if (lower === ALL_CLIENTS_MENTION || lower.startsWith(`${ALL_CLIENTS_MENTION} `)) return true;
+    return clients.some((c) => {
+      const n = (c.name || '').trim().toLowerCase();
+      return n && (lower === n || lower.startsWith(`${n} `));
+    });
+  }
+
+  function applyMention(client: { id: string; name: string; isAll?: boolean }) {
+    const el = inputRef.current;
+    const start = mentionStart ?? (el ? el.selectionStart : input.lastIndexOf('@'));
+    if (start == null || start < 0) return;
+    const cursor = el?.selectionEnd ?? input.length;
+    const name = client.isAll ? ALL_CLIENTS_MENTION : (client.name || 'Клиент').trim();
+    const next = `${input.slice(0, start)}@${name} ${input.slice(cursor)}`;
+    mentionJustAppliedRef.current = true;
+    setInput(next);
+    closeMentionPicker();
+    requestAnimationFrame(() => {
+      const field = inputRef.current;
+      if (!field) return;
+      const pos = start + name.length + 2;
+      field.focus();
+      field.setSelectionRange(pos, pos);
+      field.style.height = 'auto';
+      field.style.height = `${Math.max(40, Math.min(field.scrollHeight, 200))}px`;
+      window.setTimeout(() => {
+        mentionJustAppliedRef.current = false;
+      }, 0);
+    });
+  }
+
+  function handleComposerInput(value: string, cursor: number) {
+    setInput(value);
+    if (mentionJustAppliedRef.current || clientModeEnabled) {
+      if (mentionOpen) closeMentionPicker();
+      return;
+    }
+    const before = value.slice(0, cursor);
+    const atMatch = before.match(/@([^\n@]*)$/);
+    if (atMatch) {
+      const rawQuery = atMatch[1] || '';
+      if (mentionQueryIsComplete(rawQuery)) {
+        if (mentionOpen) closeMentionPicker();
+        return;
+      }
+      setMentionOpen(true);
+      setMentionQuery(rawQuery);
+      setMentionIndex(0);
+      setMentionStart(cursor - atMatch[0].length);
+      return;
+    }
+    if (CLIENT_WORD_BEFORE_SPACE.test(before)) {
+      const insert = before.endsWith(' ') ? '@' : ' @';
+      const next = `${value.slice(0, cursor)}${insert}${value.slice(cursor)}`;
+      setInput(next);
+      setMentionOpen(true);
+      setMentionQuery('');
+      setMentionIndex(0);
+      setMentionStart(cursor + (insert.startsWith(' ') ? 1 : 0));
+      requestAnimationFrame(() => {
+        const field = inputRef.current;
+        if (!field) return;
+        const pos = cursor + insert.length;
+        field.setSelectionRange(pos, pos);
+        field.style.height = 'auto';
+        field.style.height = `${Math.max(40, Math.min(field.scrollHeight, 200))}px`;
+      });
+      return;
+    }
+    if (mentionOpen) closeMentionPicker();
+  }
+
+  async function openSendToWorkArea(content: string) {
+    const text = String(content || '').trim();
+    if (!text || !token) return;
+    const defaultClient = selectedClientId || parseMentionedClients(text, clients)[0]?.id || clients[0]?.id || '';
+    setSendToWa({ content: text });
+    setSendToWaClientId(defaultClient);
+    setSendToWaError(null);
+    setSendToWaDone(false);
+    setSendToWaLoading(Boolean(defaultClient));
+    if (defaultClient) {
+      await loadSendToWaTabs(defaultClient);
+    } else {
+      setSendToWaTabs(WORK_AREA_DEFAULT_TABS);
+      setSendToWaTab(WORK_AREA_DEFAULT_TABS[0] || '');
+      setSendToWaLoading(false);
+    }
+  }
+
+  async function loadSendToWaTabs(clientId: string) {
+    if (!token || !clientId) {
+      setSendToWaTabs(WORK_AREA_DEFAULT_TABS);
+      setSendToWaTab(WORK_AREA_DEFAULT_TABS[0] || '');
+      return;
+    }
+    setSendToWaLoading(true);
+    try {
+      const res = await api<{ tabs: string[] }>(`/api/clients/${clientId}/tabs`, { token });
+      const tabs = (res.tabs || WORK_AREA_DEFAULT_TABS).filter((t) => !WORK_AREA_CARD_TABS.has(t));
+      const nextTabs = tabs.length ? tabs : WORK_AREA_DEFAULT_TABS;
+      setSendToWaTabs(nextTabs);
+      setSendToWaTab((prev) => (nextTabs.includes(prev) ? prev : nextTabs[0] || ''));
+    } catch {
+      setSendToWaTabs(WORK_AREA_DEFAULT_TABS);
+      setSendToWaTab((prev) => (WORK_AREA_DEFAULT_TABS.includes(prev) ? prev : WORK_AREA_DEFAULT_TABS[0] || ''));
+    } finally {
+      setSendToWaLoading(false);
+    }
+  }
+
+  async function confirmSendToWorkArea() {
+    if (!token || !sendToWa || !sendToWaClientId || !sendToWaTab) {
+      setSendToWaError('Выберите клиента и вкладку');
+      return;
+    }
+    setSendToWaLoading(true);
+    setSendToWaError(null);
+    try {
+      let existing = '';
+      try {
+        const doc = await api<{ content?: string }>(
+          `/api/clients/${sendToWaClientId}/documents/${encodeURIComponent(sendToWaTab)}`,
+          { token }
+        );
+        existing = doc?.content || '';
+      } catch (err: any) {
+        const msg = String(err?.message || '');
+        if (!msg.includes('404') && !msg.toLowerCase().includes('not found')) {
+          throw err;
+        }
+      }
+      const next = appendAfterLastChar(existing, markdownToWorkAreaHtml(sendToWa.content));
+      await api(`/api/clients/${sendToWaClientId}/documents`, {
+        method: 'POST',
+        token,
+        body: { tabName: sendToWaTab, content: next },
+      });
+      try {
+        localStorage.setItem(`workarea.content.${sendToWaClientId}.${sendToWaTab}`, next);
+      } catch {
+        /* ignore */
+      }
+      setSendToWaDone(true);
+    } catch (err: any) {
+      setSendToWaError(err?.message || 'Не удалось сохранить в рабочую область');
+    } finally {
+      setSendToWaLoading(false);
+    }
   }
 
   function toggleDreamsInContext() {
@@ -877,17 +1137,22 @@ export default function PsychologistAIChat() {
     return hasDreamKeyword && (hasAnalyzeIntent || asksMany);
   }
 
-  async function loadDreamScopePreview(): Promise<DreamScopePreview | null> {
+  async function loadDreamScopePreview(messageText?: string): Promise<DreamScopePreview | null> {
     if (!token) return null;
     setDreamScopeStep('counting');
     setLoadingDreamScopePreview(true);
     try {
+      const sourceText = messageText || pendingDreamMessage || input;
+      const mentionedClientId = mentionedClientIdFromText(sourceText);
       const res = await api<DreamScopePreview>('/api/ai/psychologist/dream-scope-preview', {
         method: 'POST',
         token,
         body: {
           clientModeEnabled: Boolean(selectedClientIdRef.current),
-          clientId: selectedClientIdRef.current || undefined,
+          clientId: selectedClientIdRef.current || mentionedClientId,
+          mentionedClientId,
+          mentionedAllClients: messageMentionsAllClients(sourceText),
+          message: sourceText,
           includeDreamsInContext: aiSettings.includeDreamsInContext,
         }
       });
@@ -954,7 +1219,7 @@ export default function PsychologistAIChat() {
       setPendingDreamMessage(preparedMessage);
       setShowDreamScopeModal(true);
       setDreamScopeStep('idle');
-      void loadDreamScopePreview();
+      void loadDreamScopePreview(preparedMessage);
       return;
     }
 
@@ -1044,8 +1309,10 @@ export default function PsychologistAIChat() {
           body: {
             message: userMessage,
             conversationHistory: conversationHistory,
-            clientId: selectedClientIdRef.current || undefined,
+            clientId: selectedClientIdRef.current || mentionedClientIdFromText(userMessage) || undefined,
             clientModeEnabled: Boolean(selectedClientIdRef.current),
+            mentionedClientId: mentionedClientIdFromText(userMessage),
+            mentionedAllClients: messageMentionsAllClients(userMessage),
             modality: aiSettings.modality,
             temperature: aiSettings.temperature,
             responseStyle: aiSettings.responseStyle,
@@ -1918,7 +2185,7 @@ export default function PsychologistAIChat() {
                               msg.role === 'user' ? 'is-mine' : msg.isError ? 'is-error' : 'is-theirs'
                             }`}
                             style={{ fontSize: isMobileView ? 13 : 15 }}
-                            onCopy={msg.role === 'assistant' && !msg.isError ? (e) => handleAssistantCopy(e, msg.content) : undefined}
+                            onCopy={msg.role === 'assistant' && !msg.isError ? handleAssistantCopy : undefined}
                           >
                             {msg.role === 'assistant' && msg.isAnalysis && (
                               <div
@@ -1959,7 +2226,19 @@ export default function PsychologistAIChat() {
                                   )}
                                 </div>
                               ) : (
-                                renderAssistantMarkdown(msg.content)
+                                <>
+                                  {renderAssistantMarkdown(msg.content)}
+                                  <div className="ai-chat-bubble-actions">
+                                    <button
+                                      type="button"
+                                      className="ai-chat-bubble-action"
+                                      onClick={() => void openSendToWorkArea(msg.content)}
+                                    >
+                                      <NotebookPen size={14} strokeWidth={2} />
+                                      В рабочую область
+                                    </button>
+                                  </div>
+                                </>
                               )
                             ) : (
                               <>
@@ -2144,6 +2423,33 @@ export default function PsychologistAIChat() {
                   )}
 
                   {/* Input field */}
+                  <div className="ai-chat-composer-wrap">
+                  {mentionOpen && !clientModeEnabled && (
+                    <div className="ai-mention-list" role="listbox" aria-label="Клиенты">
+                      {mentionOptions.length ? (
+                        mentionOptions.map((client, idx) => (
+                          <button
+                            key={client.id}
+                            type="button"
+                            role="option"
+                            aria-selected={idx === mentionIndex}
+                            className={`ai-mention-list__row${idx === mentionIndex ? ' is-active' : ''}${client.isAll ? ' is-all' : ''}`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              applyMention(client);
+                            }}
+                          >
+                            <span className="ai-mention-list__name">{client.name || 'Клиент'}</span>
+                            {client.email ? (
+                              <span className="ai-mention-list__sub">{client.email}</span>
+                            ) : null}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="ai-mention-list__empty">Клиенты не найдены</div>
+                      )}
+                    </div>
+                  )}
                   <div className="ai-chat-composer">
                     <input
                       ref={fileInputRef}
@@ -2177,12 +2483,34 @@ export default function PsychologistAIChat() {
                       className="ai-chat-composer__input"
                       value={input}
                       onChange={(e) => {
-                        setInput(e.target.value);
                         const target = e.target as HTMLTextAreaElement;
+                        handleComposerInput(target.value, target.selectionStart ?? target.value.length);
                         target.style.height = 'auto';
                         target.style.height = `${Math.max(40, Math.min(target.scrollHeight, 200))}px`;
                       }}
                       onKeyDown={(e) => {
+                        if (mentionOpen && !clientModeEnabled && mentionOptions.length) {
+                          if (e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            setMentionIndex((i) => (i + 1) % mentionOptions.length);
+                            return;
+                          }
+                          if (e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
+                            return;
+                          }
+                          if (e.key === 'Enter' || e.key === 'Tab') {
+                            e.preventDefault();
+                            applyMention(mentionOptions[mentionIndex] || mentionOptions[0]);
+                            return;
+                          }
+                          if (e.key === 'Escape') {
+                            e.preventDefault();
+                            closeMentionPicker();
+                            return;
+                          }
+                        }
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
                           if (!loading && !isSending) {
@@ -2190,7 +2518,11 @@ export default function PsychologistAIChat() {
                           }
                         }
                       }}
-                      placeholder="Спросите о клиенте, сне, сессии…"
+                      placeholder={
+                        clientModeEnabled
+                          ? 'Спросите о клиенте, сне, сессии…'
+                          : 'Спросите о клиенте — после «клиента» появится @ и список'
+                      }
                       disabled={loading || isSending}
                       onPaste={(e) => {
                         const items = e.clipboardData?.items;
@@ -2229,6 +2561,7 @@ export default function PsychologistAIChat() {
                         <Send size={18} strokeWidth={2.25} aria-hidden />
                       )}
                     </button>
+                  </div>
                   </div>
                   {aiQuota && (
                     <div className="ai-chat-quota">{formatQuotaUnderInput(aiQuota)}</div>
@@ -2272,8 +2605,11 @@ export default function PsychologistAIChat() {
           >
             <h3 style={{ margin: 0, marginBottom: 8, fontSize: 20 }}>Выберите объем анализа снов</h3>
             <p style={{ margin: 0, marginBottom: 14, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              Запрос похож на полный анализ снов. Перед отправкой выберите диапазон, чтобы AI точно понимал,
-              сколько записей анализировать.
+              {dreamScopePreview?.selectedClient
+                ? `Считаем сны только клиента «${dreamScopePreview.selectedClient}». Выберите период анализа.`
+                : selectedClient
+                  ? `Считаем сны только клиента «${selectedClient.name}». Выберите период анализа.`
+                  : 'Обобщённый режим: в подсчёт входят сны всех клиентов (@все клиенты или без @имени). Выберите период анализа.'}
             </p>
             {loadingDreamScopePreview ? (
               <div style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
@@ -2327,9 +2663,10 @@ export default function PsychologistAIChat() {
                 })}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div className="ai-dream-scope__actions">
               <button
-                className="button secondary"
+                type="button"
+                className="ai-modal-btn ai-modal-btn--secondary"
                 onClick={() => {
                   setShowDreamScopeModal(false);
                   setPendingDreamMessage('');
@@ -2340,12 +2677,86 @@ export default function PsychologistAIChat() {
                 Отмена
               </button>
               <button
-                className="button"
+                type="button"
+                className="ai-modal-btn"
                 onClick={() => confirmDreamScopeAndSend(selectedDreamScopeRange)}
                 disabled={loadingDreamScopePreview || !dreamScopePreview || dreamScopeStep !== 'ready'}
               >
                 Продолжить анализ
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sendToWa && (
+        <div
+          className="ai-send-wa-backdrop"
+          onClick={() => {
+            if (!sendToWaLoading) setSendToWa(null);
+          }}
+        >
+          <div className="ai-send-wa" onClick={(e) => e.stopPropagation()}>
+            <h3>Отправить в рабочую область</h3>
+            <p>Текст добавится в конец выбранной вкладки через пустую строку.</p>
+            <label>
+              Клиент
+              <select
+                value={sendToWaClientId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setSendToWaClientId(id);
+                  setSendToWaDone(false);
+                  void loadSendToWaTabs(id);
+                }}
+                disabled={sendToWaLoading}
+              >
+                <option value="">Выберите клиента</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name || 'Клиент'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Вкладка
+              <select
+                value={sendToWaTab}
+                onChange={(e) => {
+                  setSendToWaTab(e.target.value);
+                  setSendToWaDone(false);
+                }}
+                disabled={sendToWaLoading || !sendToWaClientId}
+              >
+                {sendToWaTabs.map((tab) => (
+                  <option key={tab} value={tab}>
+                    {tab}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {sendToWaError ? <div className="ai-send-wa__error">{sendToWaError}</div> : null}
+            {sendToWaDone ? <div className="ai-send-wa__ok">Сохранено в рабочую область</div> : null}
+            <div className="ai-send-wa__actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setSendToWa(null)}
+                disabled={sendToWaLoading}
+              >
+                {sendToWaDone ? 'Закрыть' : 'Отмена'}
+              </button>
+              {!sendToWaDone ? (
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => void confirmSendToWorkArea()}
+                  disabled={sendToWaLoading || !sendToWaClientId || !sendToWaTab}
+                >
+                  {sendToWaLoading ? 'Сохраняю…' : 'Отправить'}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

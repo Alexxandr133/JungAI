@@ -10,6 +10,8 @@ import { AccessToken } from 'livekit-server-sdk';
 import { config } from '../config';
 import { sendPublicBookingAcceptedEmail, sendClientRegistrationInviteEmail, sendIntroMeetingScheduledEmail, sendPublicBookingDeclinedEmail, isEmailTransportConfigured } from '../utils/email';
 import { mergeCalendarPrefs } from '../utils/calendarSlots';
+import { parseEventDateInput } from '../utils/eventDate';
+import { attachSeriesMeta, createWeeklySeries, ensureEventSeriesColumns, ensureSeriesHorizon, findClientWeeklyEvent, readEventSeries } from '../utils/eventSeries';
 
 const router = Router();
 
@@ -35,9 +37,12 @@ async function ensureFirstMeetingColumns() {
       await cols('Event', 'guestQuestionnaire', '"guestQuestionnaire" TEXT');
       await cols('CalendarPublicBookingRequest', 'questionnaire', '"questionnaire" TEXT');
       await cols('CalendarPublicBookingRequest', 'source', `"source" TEXT NOT NULL DEFAULT 'slot'`);
+      await cols('Event', 'seriesId', '"seriesId" TEXT');
+      await cols('Event', 'recurrence', '"recurrence" TEXT');
     })();
   }
   await firstMeetingSchemaReady;
+  await ensureEventSeriesColumns();
 }
 
 // Agora App ID и App Certificate
@@ -73,33 +78,6 @@ function slotOverlapsExisting(
   return false;
 }
 
-function parseEventDateInput(value: unknown): Date | null {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-  if (typeof value !== 'string') return null;
-  const raw = value.trim();
-  if (!raw) return null;
-
-  // datetime-local приходит без таймзоны: 2026-05-07T18:00
-  // На проде (UTC) это нельзя парсить через new Date(raw), иначе будет сдвиг.
-  const localMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (localMatch) {
-    const [, y, m, d, hh, mm, ss] = localMatch;
-    const year = Number(y);
-    const month = Number(m) - 1;
-    const day = Number(d);
-    const hour = Number(hh);
-    const minute = Number(mm);
-    const second = Number(ss || '0');
-    const utcMs = Date.UTC(year, month, day, hour, minute, second) - (config.eventTimezoneOffsetMinutes * 60 * 1000);
-    const result = new Date(utcMs);
-    return Number.isNaN(result.getTime()) ? null : result;
-  }
-
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
 function isGuestAccessibleType(eventType: string | null | undefined): boolean {
   return eventType === 'video' || eventType === 'call';
 }
@@ -209,6 +187,7 @@ router.get('/events/public-calendar', async (req, res) => {
     if (decoded.typ !== 'cal_share_v1' || !decoded.pid || typeof decoded.pid !== 'string') {
       return res.status(403).json({ error: 'Invalid calendar link' });
     }
+    await ensureSeriesHorizon(decoded.pid);
     const since = new Date(Date.now() - 120 * 86400000);
     const items = await prisma.event.findMany({
       where: { createdBy: decoded.pid, startsAt: { gte: since } },
@@ -317,6 +296,7 @@ router.get('/events/psychologist-calendar-for-client', requireAuth, requireRole(
       include: { profile: { select: { name: true } } }
     });
     if (!psychologist) return res.status(404).json({ error: 'Психолог не найден' });
+    await ensureSeriesHorizon(psychologist.id);
     const since = new Date(Date.now() - 120 * 86400000);
     const items = await prisma.event.findMany({
       where: { createdBy: psychologist.id, startsAt: { gte: since } },
@@ -630,7 +610,7 @@ router.post(
     const isInquiry = reqRow.source === 'inquiry' || !reqRow.slotStart;
     if (isInquiry) {
       const startsAtRaw = req.body?.startsAt;
-      const startsAt = startsAtRaw ? new Date(startsAtRaw) : null;
+      const startsAt = startsAtRaw ? parseEventDateInput(startsAtRaw) : null;
       if (!startsAt || Number.isNaN(startsAt.getTime())) {
         return res.status(400).json({
           error: 'Укажите дату и время вводной встречи'
@@ -643,9 +623,10 @@ router.post(
         180,
         Math.max(30, Number(req.body?.durationMin) || 60)
       );
+      const parsedEndsAt = req.body?.endsAt ? parseEventDateInput(req.body.endsAt) : null;
       const endsAt =
-        req.body?.endsAt && !Number.isNaN(new Date(req.body.endsAt).getTime())
-          ? new Date(req.body.endsAt)
+        parsedEndsAt && !Number.isNaN(parsedEndsAt.getTime())
+          ? parsedEndsAt
           : new Date(startsAt.getTime() + durationMin * 60_000);
 
       const emailNorm = String(reqRow.contactEmail || '')
@@ -709,7 +690,10 @@ router.post(
         };
         if (reqRow.contactName?.trim()) patch.name = reqRow.contactName.trim();
         if (reqRow.contactPhone) patch.phone = reqRow.contactPhone;
-        if (!platformUser) {
+        if (platformUser) {
+          patch.registrationToken = null;
+          patch.tokenExpiresAt = null;
+        } else {
           patch.registrationToken = registrationToken;
           patch.tokenExpiresAt = tokenExpiresAt;
         }
@@ -1020,6 +1004,11 @@ router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
   const where: any = {};
   if (req.user?.role === 'psychologist' || req.user?.role === 'researcher') {
     where.createdBy = req.user.id;
+    try {
+      await ensureSeriesHorizon(req.user.id);
+    } catch (e) {
+      console.warn('ensureSeriesHorizon failed', e);
+    }
   }
   const items = await prisma.event.findMany({
     where,
@@ -1028,7 +1017,7 @@ router.get('/events', requireAuth, async (req: AuthedRequest, res) => {
       voiceRoom: true
     }
   });
-  res.json({ items });
+  res.json({ items: await attachSeriesMeta(items) });
 });
 
 router.post('/events/instant-call', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
@@ -1062,7 +1051,7 @@ router.post('/events/instant-call', requireAuth, requireRole(['psychologist', 'r
 });
 
 router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
-  const { title, type, description, startsAt, endsAt, clientId } = req.body ?? {};
+  const { title, type, description, startsAt, endsAt, clientId, repeatWeekly } = req.body ?? {};
   const parsedStartsAt = parseEventDateInput(startsAt);
   const parsedEndsAt = endsAt ? parseEventDateInput(endsAt) : null;
   if (!parsedStartsAt) {
@@ -1083,59 +1072,85 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
       return res.status(403).json({ error: 'Forbidden' });
     }
   }
-  
-  // Генерируем данные для голосовой комнаты
-  const roomId = generateRoomId();
-  const roomUrl = generateRoomUrl(roomId);
-  
-  // Создаем событие с голосовой комнатой
-  const event = await prisma.event.create({ 
-    data: { 
-      title, 
-      type, 
-      description, 
-      startsAt: parsedStartsAt,
-      endsAt: parsedEndsAt,
+
+  const weekly = Boolean(repeatWeekly);
+  let event: any;
+
+  if (weekly && clientId) {
+    const existingWeekly = await findClientWeeklyEvent(req.user!.id, String(clientId));
+    if (existingWeekly) {
+      return res.status(409).json({
+        error: 'У этого клиента уже есть постоянный слот. Откройте его, чтобы перенести или изменить.',
+        existingId: existingWeekly.id
+      });
+    }
+  }
+
+  if (weekly) {
+    await ensureFirstMeetingColumns();
+    const series = await createWeeklySeries({
+      title,
+      type,
+      description: description || null,
       createdBy: req.user!.id,
       clientId: clientId || null,
-      sessionStatus: clientId ? 'pending' : null,
-      voiceRoom: {
-        create: {
-          roomId,
-          roomUrl
+      startsAt: parsedStartsAt,
+      endsAt: parsedEndsAt
+    });
+    event = series.first;
+  } else {
+    const roomId = generateRoomId();
+    const roomUrl = generateRoomUrl(roomId);
+    event = await prisma.event.create({ 
+      data: { 
+        title, 
+        type, 
+        description, 
+        startsAt: parsedStartsAt,
+        endsAt: parsedEndsAt,
+        createdBy: req.user!.id,
+        clientId: clientId || null,
+        sessionStatus: clientId ? 'pending' : null,
+        voiceRoom: {
+          create: {
+            roomId,
+            roomUrl
+          }
         }
+      } as any,
+      include: {
+        voiceRoom: true
       }
-    } as any,
-    include: {
-      voiceRoom: true
-    }
-  });
+    });
 
-  // Если это сессия с клиентом, создаем TherapySession и уведомление
-  if (clientId && client) {
-    try {
-      if (type === 'session') {
-      // Создаем сессию
-      await prisma.therapySession.create({
-        data: {
-          clientId: clientId,
-          date: parsedStartsAt,
-          summary: description || title,
-          videoUrl: null,
-          eventId: event.id
-        }
-      });
+    if (clientId && client && type === 'session') {
+      try {
+        await prisma.therapySession.create({
+          data: {
+            clientId: clientId,
+            date: parsedStartsAt,
+            summary: description || title,
+            videoUrl: null,
+            eventId: event.id
+          }
+        });
+      } catch (error: any) {
+        console.error('Failed to create therapy session:', error);
       }
-      // Получаем информацию о психологе для уведомления
+    }
+  }
+
+  if (clientId && client) {
+      try {
       const psychologist = await prisma.user.findUnique({
         where: { id: req.user!.id },
         include: { profile: true }
       });
 
       const psychologistName = psychologist?.profile?.name || psychologist?.email || 'Психолог';
+      const whenLabel = parsedStartsAt.toLocaleString('ru-RU', { timeZone: config.appTimeZone });
+      const seriesNote = weekly ? ' (каждую неделю в это время, пока не удалят серию)' : '';
 
-      // Создаем уведомление для клиента
-      // Находим User ID клиента по email (если клиент зарегистрирован)
       try {
         if (client.email) {
           const clientUser = await prisma.user.findFirst({
@@ -1147,25 +1162,22 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
               data: {
                 userId: clientUser.id,
                 type: 'session_invitation',
-                title: 'Приглашение на сессию',
-                message: `${psychologistName} приглашает вас на сессию "${title}" ${parsedStartsAt.toLocaleString('ru-RU', { timeZone: config.appTimeZone })}`,
+                title: weekly ? 'Приглашение на регулярную сессию' : 'Приглашение на сессию',
+                message: `${psychologistName} приглашает вас на сессию «${title}» ${whenLabel}${seriesNote}`,
                 entityType: 'event',
                 entityId: event.id,
                 read: false
               }
             });
           } else {
-            // Клиент еще не зарегистрирован, уведомление будет создано при регистрации или показано на странице сессий
             console.log(`Client ${client.email} is not registered yet, notification will be shown on sessions page`);
           }
         }
       } catch (notifError: any) {
         console.error('Failed to create notification:', notifError);
-        // Не прерываем создание события, если не удалось создать уведомление
       }
     } catch (error: any) {
-      console.error('Failed to create therapy session:', error);
-      // Не прерываем создание события, если не удалось создать сессию
+      console.error('Failed to notify client about event:', error);
     }
   }
 
@@ -1446,7 +1458,8 @@ router.get('/events/room/:roomId/livekit-token', requireAuth, async (req: Authed
       room: roomId,
       roomJoin: true,
       canPublish: true,
-      canSubscribe: true
+      canSubscribe: true,
+      canPublishData: true
     });
 
     const token = await at.toJwt();
@@ -1501,7 +1514,8 @@ router.post('/events/room/:roomId/guest-livekit-token', async (req, res) => {
       room: roomId,
       roomJoin: true,
       canPublish: true,
-      canSubscribe: true
+      canSubscribe: true,
+      canPublishData: true
     });
 
     const token = await at.toJwt();
@@ -1774,63 +1788,72 @@ router.put('/events/:id', requireAuth, requireRole(['psychologist', 'researcher'
   }
 });
 
+async function deleteEventWithSideEffects(event: { id: string; type: string; clientId?: string | null; startsAt: Date }, actor: { id: string; role: string }) {
+  const eventWithClientId = event as typeof event & { clientId?: string | null };
+  if (eventWithClientId.type === 'session' && eventWithClientId.clientId) {
+    try {
+      const client = await prisma.client.findUnique({ where: { id: eventWithClientId.clientId } });
+      if (client && (actor.role === 'admin' || client.psychologistId === actor.id)) {
+        const eventDate = new Date(eventWithClientId.startsAt);
+        const oneMinute = 60 * 1000;
+        const sessions = await prisma.therapySession.findMany({
+          where: {
+            clientId: eventWithClientId.clientId,
+            date: {
+              gte: new Date(eventDate.getTime() - oneMinute),
+              lte: new Date(eventDate.getTime() + oneMinute)
+            }
+          }
+        });
+        for (const session of sessions) {
+          await prisma.therapySession.delete({ where: { id: session.id } });
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to delete therapy session:', error);
+    }
+  }
+
+  const eventWithRoom = await prisma.event.findUnique({
+    where: { id: event.id },
+    include: { voiceRoom: true }
+  });
+  const roomId = eventWithRoom?.voiceRoom?.roomId;
+  await prisma.event.delete({ where: { id: event.id } });
+  if (roomId) {
+    notifyEventDeleted(io, roomId);
+  }
+}
+
 router.delete('/events/:id', requireAuth, requireRole(['psychologist', 'researcher', 'admin']), requireVerification, async (req: AuthedRequest, res) => {
   const id = String(req.params.id);
+  const scope = String(req.query.scope || 'one') === 'following' ? 'following' : 'one';
   try {
-    // Получаем событие перед удалением
     const event = await prisma.event.findUnique({ where: { id } });
     if (!event) {
       return res.status(404).json({ error: 'Not found' });
     }
+    if (req.user!.role !== 'admin' && event.createdBy !== req.user!.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
-    // Если это сессия с клиентом, нужно найти и удалить соответствующую TherapySession
-    const eventWithClientId = event as typeof event & { clientId?: string | null };
-    if (eventWithClientId.type === 'session' && eventWithClientId.clientId) {
-      try {
-        // Проверяем, что клиент принадлежит психологу (для безопасности)
-        const client = await prisma.client.findUnique({ where: { id: eventWithClientId.clientId } });
-        if (client && (req.user!.role === 'admin' || client.psychologistId === req.user!.id)) {
-          // Ищем TherapySession по clientId и дате (с небольшой погрешностью в 1 минуту)
-          const eventDate = new Date(eventWithClientId.startsAt);
-          const oneMinute = 60 * 1000; // 1 минута в миллисекундах
-
-          const sessions = await prisma.therapySession.findMany({
-            where: {
-              clientId: eventWithClientId.clientId,
-              date: {
-                gte: new Date(eventDate.getTime() - oneMinute),
-                lte: new Date(eventDate.getTime() + oneMinute)
-              }
-            }
-          });
-
-          // Удаляем найденные сессии
-          for (const session of sessions) {
-            await prisma.therapySession.delete({ where: { id: session.id } });
-          }
-        }
-      } catch (error: any) {
-        console.error('Failed to delete therapy session:', error);
-        // Продолжаем удаление события даже если не удалось удалить сессию
+    const actor = { id: req.user!.id, role: req.user!.role };
+    const extra = await readEventSeries(event.id);
+    if (scope === 'following' && extra.seriesId) {
+      const toDeleteRows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+        `SELECT "id" FROM "Event" WHERE "seriesId" = ? AND "createdBy" = ? AND "startsAt" >= ? ORDER BY "startsAt" ASC`,
+        extra.seriesId,
+        event.createdBy,
+        event.startsAt.toISOString()
+      );
+      for (const row of toDeleteRows) {
+        const ev = await prisma.event.findUnique({ where: { id: row.id } });
+        if (ev) await deleteEventWithSideEffects(ev as any, actor);
       }
+    } else {
+      await deleteEventWithSideEffects(event as any, actor);
     }
 
-    // Получаем roomId перед удалением для уведомления
-    const eventWithRoom = await prisma.event.findUnique({
-      where: { id },
-      include: { voiceRoom: true }
-    });
-    
-    const roomId = eventWithRoom?.voiceRoom?.roomId;
-    
-    // Удаляем событие
-    await prisma.event.delete({ where: { id } });
-    
-    // Уведомляем всех участников комнаты об удалении события
-    if (roomId) {
-      notifyEventDeleted(io, roomId);
-    }
-    
     res.status(204).end();
   } catch (e) {
     console.error('Error deleting event:', e);

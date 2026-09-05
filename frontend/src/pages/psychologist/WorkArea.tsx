@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useI18n } from '../../context/I18nContext';
 import { useAppearance } from '../../context/AppearanceContext';
@@ -11,6 +11,7 @@ import type { VerificationStatus } from '../../utils/verification';
 import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
 import { PSYCHOLOGIST_WORK_AREA_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
+import { BookOpen, Brain, ChevronDown, Moon } from 'lucide-react';
 import './WorkAreaEditor.css';
 
 type Client = { 
@@ -30,10 +31,85 @@ const DEFAULT_TABS = [
   'ценности/кредо',
   'раздражители',
   'сны',
+  'Тесты',
   'записи',
   'Дневник клиента',
   'Синхронии'
 ];
+
+const CARD_TABS = new Set(['Дневник клиента', 'сны', 'Тесты']);
+
+function isCardTab(tab: string) {
+  return CARD_TABS.has(tab);
+}
+
+type WorkAreaTestResult = {
+  id: string;
+  testType: string;
+  result: any;
+  createdAt: string;
+};
+
+function testTypeLabel(testType: string) {
+  if (testType === 'association-session') return 'Ассоциативный тест';
+  if (testType === 'pyramid-session') return 'Пирамида ассоциаций';
+  return testType;
+}
+
+function testResultSummary(row: WorkAreaTestResult) {
+  const result = row.result && typeof row.result === 'object' ? row.result : {};
+  if (row.testType === 'association-session') {
+    const report = result.report || {};
+    const run1 = Number(report.run1 || 0);
+    const avg = Number(report.avg || 0);
+    const outliers = Number(report.outliers || 0);
+    if (run1) {
+      return `${run1} ответов · среднее ${(avg / 1000).toFixed(2)} с · задержек ${outliers}`;
+    }
+    const responses = Array.isArray(result.responses) ? result.responses.length : 0;
+    return responses ? `${responses} ответов` : 'Результат сохранён';
+  }
+  if (row.testType === 'pyramid-session') {
+    const key = result.levels?.[5]?.[0] || result.levels?.['5']?.[0];
+    const query = typeof result.query === 'string' ? result.query.trim() : '';
+    if (key && query) return `«${query}» → ${key}`;
+    if (key) return `Ключевое слово: ${key}`;
+    if (query) return query;
+    return 'Результат сохранён';
+  }
+  return 'Результат сохранён';
+}
+
+type AssociationLogRow = {
+  word_index?: number;
+  word?: string;
+  response_text?: string;
+  reaction_time_ms?: number;
+  run_number?: 1 | 2;
+  therapist_flag?: string | null;
+  is_reproduction_match?: boolean | null;
+};
+
+function associationLogRows(result: unknown): AssociationLogRow[] {
+  const responses = result && typeof result === 'object' && Array.isArray((result as { responses?: unknown }).responses)
+    ? ((result as { responses: AssociationLogRow[] }).responses)
+    : [];
+  return [...responses].sort((a, b) => {
+    const run = (a.run_number || 1) - (b.run_number || 1);
+    if (run) return run;
+    return (a.word_index || 0) - (b.word_index || 0);
+  });
+}
+
+function reactionLabel(row: AssociationLogRow) {
+  if (row.run_number === 2) {
+    if (row.is_reproduction_match === true) return 'совпало';
+    if (row.is_reproduction_match === false) return 'другое';
+    return '—';
+  }
+  const ms = Number(row.reaction_time_ms || 0);
+  return `${(ms / 1000).toFixed(2)} с`;
+}
 
 const HIGHLIGHT_COLORS = [
   { id: 'peach', label: 'Персиковый', color: '#fde8d8' },
@@ -169,10 +245,12 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const { t } = useI18n();
   const { appearance } = useAppearance();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const clientFromQuery = searchParams.get('client');
   const [showClientsDropdown, setShowClientsDropdown] = useState(false);
 
   const [clients, setClients] = useState<Client[]>([]);
-  const [currentClientId, setCurrentClientId] = useState<string | null>(null);
+  const [currentClientId, setCurrentClientId] = useState<string | null>(() => clientFromQuery);
   const [activeTab, setActiveTab] = useState<string>('Ведение клиента');
   const editorRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState<boolean>(() => localStorage.getItem('workarea.expanded') === '1');
@@ -198,10 +276,14 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   const [renamingTab, setRenamingTab] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const saveTimeoutRef = useRef<number | null>(null);
+  const contentHydratedRef = useRef(false);
   const [journalEntries, setJournalEntries] = useState<Array<{ id: string; content: string; createdAt: string; updatedAt: string }>>([]);
   const [loadingJournal, setLoadingJournal] = useState(false);
   const [clientDreams, setClientDreams] = useState<Array<{ id: string; title: string; content: string; createdAt: string; symbols?: unknown }>>([]);
   const [loadingDreams, setLoadingDreams] = useState(false);
+  const [clientTests, setClientTests] = useState<WorkAreaTestResult[]>([]);
+  const [loadingTests, setLoadingTests] = useState(false);
+  const [expandedTestIds, setExpandedTestIds] = useState<string[]>([]);
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
   const [dragOverTab, setDragOverTab] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
@@ -384,13 +466,22 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
           avatarUrl: it.avatarUrl || it.profile?.avatarUrl || null,
           profile: it.profile || null
         })) as any[];
-        setClients(items); // КРИТИЧНО: показываем только реальных клиентов, без fallback на демо
-        setCurrentClientId(prev => {
-          const newId = prev || (items[0]?.id || '');
-          if (newId && newId !== prev) {
-            setExpanded(false); // Показываем панель вкладок при автоматическом выборе клиента
+        setClients(items);
+        let resolvedQuery = clientFromQuery && items.some((c) => c.id === clientFromQuery)
+          ? clientFromQuery
+          : '';
+        if (clientFromQuery && !resolvedQuery) {
+          try {
+            const one = await api<{ id: string }>(`/api/clients/${clientFromQuery}`, { token });
+            if (one?.id) resolvedQuery = String(one.id);
+          } catch {
+            resolvedQuery = '';
           }
-          return newId;
+        }
+        setCurrentClientId((prev) => {
+          const next = resolvedQuery || (prev && items.some((c) => c.id === prev) ? prev : items[0]?.id || '');
+          if (next && next !== prev) setExpanded(false);
+          return next;
         });
       } catch (error: any) {
         console.error('[WorkArea] Failed to load clients:', error);
@@ -401,33 +492,34 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
         setCurrentClientId('');
       }
     })();
-  }, [token, restrictedClientId, isVerified]);
+  }, [token, restrictedClientId, isVerified, clientFromQuery]);
 
-  // Preselect client from query parameter
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const clientFromQuery = url.searchParams.get('client');
     if (!clientFromQuery) return;
-    setCurrentClientId(prev => {
-      const newId = prev || clientFromQuery;
-      if (newId && newId !== prev) {
-        setExpanded(false); // Показываем панель вкладок при выборе клиента из query
-      }
-      return newId;
+    setCurrentClientId((prev) => {
+      if (prev === clientFromQuery) return prev;
+      setExpanded(false);
+      return clientFromQuery;
     });
-  }, []);
+  }, [clientFromQuery]);
 
   const [tabsFromDB, setTabsFromDB] = useState<string[] | null>(null);
 
   // Функция для замены "паранормальное" на "Синхронии"
   const normalizeTabs = (tabsList: string[]): string[] => {
-    return tabsList.map(tab => {
+    const mapped = tabsList.map(tab => {
       // Заменяем различные варианты написания "паранормальное" на "Синхронии"
       if (tab.toLowerCase().includes('паранормальн') || tab === 'паранормальное' || tab === 'Паранормальное') {
         return 'Синхронии';
       }
       return tab;
     });
+    if (!mapped.includes('Тесты')) {
+      const dreamsIdx = mapped.indexOf('сны');
+      if (dreamsIdx >= 0) mapped.splice(dreamsIdx + 1, 0, 'Тесты');
+      else mapped.push('Тесты');
+    }
+    return mapped;
   };
 
   // Load tabs from API
@@ -531,9 +623,18 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }, [activeTab, currentClientId, token, isVerified]);
 
+  useEffect(() => {
+    if (activeTab === 'Тесты' && currentClientId && token && isVerified !== false) {
+      loadClientTests();
+    } else {
+      setClientTests([]);
+      setExpandedTestIds([]);
+    }
+  }, [activeTab, currentClientId, token, isVerified]);
+
   // Не допускаем «просачивания» текста редактора во вкладки с карточками
   useEffect(() => {
-    if (activeTab === 'Дневник клиента' || activeTab === 'сны') {
+    if (isCardTab(activeTab)) {
       if (editorRef.current) editorRef.current.innerHTML = '';
       setLoading(false);
     }
@@ -579,6 +680,26 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
   }
 
+  async function loadClientTests() {
+    if (!currentClientId || !token || isVerified === false) return;
+    setLoadingTests(true);
+    try {
+      const res = await api<{ items: WorkAreaTestResult[] }>(
+        `/api/tests/results/${encodeURIComponent(currentClientId)}`,
+        { token }
+      );
+      setClientTests(res.items || []);
+    } catch (error: any) {
+      if (error.message?.includes('Verification required') || error.status === 403) {
+        setIsVerified(false);
+      }
+      console.error('Failed to load client tests:', error);
+      setClientTests([]);
+    } finally {
+      setLoadingTests(false);
+    }
+  }
+
   function normalizeDreamSymbols(symbols: unknown): string[] {
     if (!symbols) return [];
     if (Array.isArray(symbols)) return symbols.map(String).filter(Boolean);
@@ -598,19 +719,19 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     }
     
     // Пропускаем загрузку для вкладок без текстового редактора
-    if (activeTab === 'Дневник клиента' || activeTab === 'сны') return;
+    if (isCardTab(activeTab)) return;
     
     if (!currentClientId || !editorRef.current || !token) return;
     
     const loadContent = async () => {
+      contentHydratedRef.current = false;
       setLoading(true);
       try {
         // Сначала пытаемся загрузить из API
         try {
           const doc = await api<{ content: string }>(`/api/clients/${currentClientId}/documents/${encodeURIComponent(activeTab)}`, { token });
-          if (doc && doc.content) {
+          if (doc && typeof doc.content === 'string') {
             editorRef.current!.innerHTML = doc.content;
-            // Также сохраняем в localStorage как кэш
             const key = storageKey(currentClientId, activeTab);
             try { localStorage.setItem(key, doc.content); } catch {}
             setLastSavedAt(new Date());
@@ -639,6 +760,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
         console.error('Error loading content:', error);
         editorRef.current!.innerHTML = '';
       } finally {
+        contentHydratedRef.current = true;
         setLoading(false);
         window.setTimeout(() => {
           const ed = editorRef.current;
@@ -659,6 +781,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   }, [currentClientId, activeTab, token, isVerified]);
 
   async function saveToAPI(immediate = false) {
+    if (!contentHydratedRef.current) return;
+    if (isCardTab(activeTab)) return;
     if (!currentClientId || !editorRef.current || !token || isVerified === false) return;
     
     // Отменяем предыдущий таймер сохранения
@@ -699,6 +823,8 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
   }
 
   function persistContent() {
+    if (!contentHydratedRef.current) return;
+    if (isCardTab(activeTab)) return;
     if (!currentClientId || !editorRef.current) return;
 
     // Сохраняем в localStorage сразу (для быстрого доступа)
@@ -903,7 +1029,18 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
     const text = e.clipboardData.getData('text/plain');
-    if (html) {
+    const strippedHtml = html
+      ? html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      : '';
+    const plain = (text || '').trim();
+    // Если в HTML попал весь пузырь, а в plain — выделенный фрагмент, вставляем фрагмент.
+    const htmlIsWholeMessage = Boolean(
+      html &&
+      plain &&
+      (strippedHtml.length > plain.length * 1.5 ||
+        (/ai-chat-bubble|ai-md/i.test(html) && strippedHtml.length > plain.length))
+    );
+    if (html && !htmlIsWholeMessage) {
       document.execCommand('insertHTML', false, sanitizePastedRichHtml(html));
     } else {
       document.execCommand('insertHTML', false, plainTextToBlockHtml(text || ''));
@@ -1814,7 +1951,7 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
             )}
 
             {/* Toolbar (скрыт для вкладок без редактора) */}
-            {activeTab !== 'Дневник клиента' && activeTab !== 'сны' && (
+            {!isCardTab(activeTab) && (
               <div className="wa-toolbar" style={{ background: ui.panel2, borderBottom: `1px solid ${ui.border}` }}>
                 <select
                   className="wa-tb-select"
@@ -1986,9 +2123,11 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     <div className="small" style={{ color: 'var(--text-muted)' }}>Загрузка записей дневника...</div>
                   </div>
                 ) : journalEntries.length === 0 ? (
-                  <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-                    <div style={{ fontSize: 48, marginBottom: 12 }}>📔</div>
-                    <div style={{ fontWeight: 600, marginBottom: 8 }}>Дневник клиента пуст</div>
+                  <div className="card wa-empty">
+                    <div className="wa-empty__icon" aria-hidden>
+                      <BookOpen size={22} strokeWidth={1.75} />
+                    </div>
+                    <div className="wa-empty__title">Дневник клиента пуст</div>
                     <div className="small" style={{ color: 'var(--text-muted)' }}>Клиент еще не создал записей в дневнике</div>
                   </div>
                 ) : (
@@ -2024,9 +2163,11 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                     <div className="small" style={{ color: 'var(--text-muted)' }}>Загрузка снов...</div>
                   </div>
                 ) : clientDreams.length === 0 ? (
-                  <div className="card" style={{ padding: 24, textAlign: 'center' }}>
-                    <div style={{ fontSize: 48, marginBottom: 12 }}>🌙</div>
-                    <div style={{ fontWeight: 600, marginBottom: 8 }}>Снов пока нет</div>
+                  <div className="card wa-empty">
+                    <div className="wa-empty__icon" aria-hidden>
+                      <Moon size={22} strokeWidth={1.75} />
+                    </div>
+                    <div className="wa-empty__title">Снов пока нет</div>
                     <div className="small" style={{ color: 'var(--text-muted)' }}>Клиент ещё не добавил записи сновидений</div>
                   </div>
                 ) : (
@@ -2092,6 +2233,129 @@ export default function WorkArea({ restrictedClientId, hideNavbar = false, noPad
                           ) : (
                             <div className="small" style={{ color: 'var(--text-muted)' }}>Нет текста</div>
                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : activeTab === 'Тесты' ? (
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '24px',
+                minHeight: 0
+              }}>
+                {loadingTests ? (
+                  <div className="card" style={{ padding: 24, textAlign: 'center' }}>
+                    <div className="small" style={{ color: 'var(--text-muted)' }}>Загрузка тестов...</div>
+                  </div>
+                ) : clientTests.length === 0 ? (
+                  <div className="card wa-empty">
+                    <div className="wa-empty__icon" aria-hidden>
+                      <Brain size={22} strokeWidth={1.75} />
+                    </div>
+                    <div className="wa-empty__title">Тестов пока нет</div>
+                    <div className="small" style={{ color: 'var(--text-muted)' }}>
+                      Сохранённые результаты сессионных тестов появятся здесь
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 16, maxWidth: 900, margin: '0 auto' }}>
+                    {clientTests.map((row) => {
+                      const notes = typeof row.result?.notes === 'string' ? row.result.notes.trim() : '';
+                      const log = associationLogRows(row.result);
+                      const run1 = log.filter((r) => (r.run_number || 1) === 1);
+                      const run2 = log.filter((r) => r.run_number === 2);
+                      const pyramidLevels = row.testType === 'pyramid-session' && row.result?.levels
+                        ? ([1, 2, 3, 4, 5] as const).map((level) => ({
+                            level,
+                            words: (row.result.levels[level] || row.result.levels[String(level)] || [])
+                              .map((w: unknown) => String(w || '').trim())
+                              .filter(Boolean)
+                          }))
+                        : [];
+                      const open = expandedTestIds.includes(row.id);
+                      return (
+                        <div key={row.id} className="card wa-test-card">
+                          <button
+                            type="button"
+                            className="wa-test-card__head"
+                            aria-expanded={open}
+                            onClick={() =>
+                              setExpandedTestIds((ids) =>
+                                ids.includes(row.id) ? ids.filter((id) => id !== row.id) : [...ids, row.id]
+                              )
+                            }
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div className="wa-test-card__title">{testTypeLabel(row.testType)}</div>
+                              <div className="small" style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                                {new Date(row.createdAt).toLocaleDateString('ru-RU', {
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </div>
+                              <div className="wa-test-card__sum">{testResultSummary(row)}</div>
+                            </div>
+                            <ChevronDown size={18} className={`wa-test-card__chevron${open ? ' is-open' : ''}`} aria-hidden />
+                          </button>
+                          {open ? (
+                            <div className="wa-test-card__body">
+                              {notes ? (
+                                <div className="small" style={{ marginBottom: 10, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>
+                                  {notes}
+                                </div>
+                              ) : null}
+                              {row.testType === 'association-session' && log.length > 0 ? (
+                                <>
+                                  {([
+                                    { title: run2.length ? 'Круг 1' : null, rows: run1 },
+                                    { title: run2.length ? 'Круг 2' : null, rows: run2 }
+                                  ] as const).filter((block) => block.rows.length).map((block) => (
+                                    <div key={block.title || 'run'}>
+                                      {block.title ? <div className="wa-test-log__run">{block.title}</div> : null}
+                                      <table className="wa-test-log">
+                                        <thead>
+                                          <tr>
+                                            <th>№</th>
+                                            <th>Слово</th>
+                                            <th>Ответ</th>
+                                            <th>Время</th>
+                                            <th>Пометка</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {block.rows.map((r, i) => (
+                                            <tr key={`${r.run_number || 1}-${r.word_index ?? i}`}>
+                                              <td>{(r.word_index ?? i) + 1}</td>
+                                              <td>{r.word || '—'}</td>
+                                              <td>{r.response_text || '—'}</td>
+                                              <td>{reactionLabel(r)}</td>
+                                              <td>{r.therapist_flag || '—'}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ))}
+                                </>
+                              ) : null}
+                              {pyramidLevels.length > 0 ? (
+                                <div style={{ marginTop: 4, display: 'grid', gap: 8 }}>
+                                  {pyramidLevels.map((level) => (
+                                    <div key={level.level} className="small" style={{ color: 'var(--text)', lineHeight: 1.5 }}>
+                                      <span style={{ color: 'var(--text-muted)' }}>{level.level}.</span>{' '}
+                                      {level.words.length ? level.words.join(', ') : '—'}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}

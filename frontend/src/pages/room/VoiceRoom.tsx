@@ -20,6 +20,8 @@ import { DisconnectReason, Room, Track } from 'livekit-client';
 import { PlatformIcon } from '../../components/icons';
 import { Check, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip, PhoneOff, SendHorizontal, Users, Video, VideoOff } from 'lucide-react';
 import { isJwtExpired } from '../../utils/authSession';
+import { SessionTestsButton, SessionTestsLayerRoot, SessionTestsProvider, SessionTestsStageGate, useSessionTestsOverlay } from './sessionTests/SessionTestsLayer';
+import { SessionTestPip } from './sessionTests/SessionTestPip';
 
 const ROOM_PARTICIPANT_KEY = 'jingai_room_participant_key';
 const MAX_AUTO_RECONNECT = 8;
@@ -73,6 +75,7 @@ interface EventData {
   endsAt?: string;
   type: string;
   hostName?: string | null;
+  clientId?: string | null;
 }
 
 interface LiveKitTokenResponse {
@@ -227,6 +230,8 @@ type ConferenceProps = {
   eventTitle: string;
   eventStartsAt: string;
   eventEndsAt?: string;
+  eventId?: string | null;
+  clientId?: string | null;
   roomId: string;
   selfDisplayName?: string;
   selfAvatarUrl?: string | null;
@@ -264,7 +269,8 @@ function ParticipantNameBadge({ displayName, avatarUrl, micEnabled, suffix }: { 
   );
 }
 
-function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt, roomId, selfDisplayName, selfAvatarUrl, onLeave }: ConferenceProps) {
+function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt, eventId, clientId, roomId, selfDisplayName, selfAvatarUrl, onLeave }: ConferenceProps) {
+  const { user } = useAuth();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const [sidebarMode, setSidebarMode] = useState<'chat' | 'participants' | null>(null);
   const [deviceMenuOpen, setDeviceMenuOpen] = useState(false);
@@ -531,8 +537,11 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
   const participantsOpen = sidebarMode === 'participants';
   const participantCount = participantTiles.length;
   const gridLayoutClass = getGridLayoutClass(participantCount);
+  const testsEnabled = eventType === 'session';
+  const isTherapist = user?.role === 'psychologist';
+  const testsOverlay = useSessionTestsOverlay();
 
-  return (
+  const conference = (
     <div className={`voice-room-call${sidebarMode && !isMobile ? ' voice-room-call--with-sidebar' : ''}${isMobile ? ' voice-room-call--mobile' : ''}`}>
       <div className="voice-room-stage-wrap">
         {!canPlayAudio && (
@@ -544,34 +553,36 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
         )}
 
         <div className={`voice-room-stage${!soloView && !hasScreenShare ? ' voice-room-stage--grid' : ''}${hasScreenShare ? ' voice-room-stage--screenshare' : ''}`}>
-          {hasScreenShare ? (
-            <div className="voice-room-screenshare">
-              <div className="voice-room-screenshare__frame voice-room-tile-host">
-                <ParticipantTile trackRef={screenTracks[0]} className="voice-room-tile__video voice-room-tile__video--contain" title={getConnectionQualityLabel(screenTracks[0].participant)} />
-                {(() => {
-                  const { avatarUrl, displayName } = getParticipantMeta(screenTracks[0].participant);
-                  return (
-                    <ParticipantNameBadge
-                      displayName={displayName}
-                      avatarUrl={avatarUrl}
-                      micEnabled={screenTracks[0].participant.isMicrophoneEnabled}
-                      suffix="экран"
-                    />
-                  );
-                })()}
+          <SessionTestsStageGate>
+            {hasScreenShare ? (
+              <div className="voice-room-screenshare">
+                <div className="voice-room-screenshare__frame voice-room-tile-host">
+                  <ParticipantTile trackRef={screenTracks[0]} className="voice-room-tile__video voice-room-tile__video--contain" title={getConnectionQualityLabel(screenTracks[0].participant)} />
+                  {(() => {
+                    const { avatarUrl, displayName } = getParticipantMeta(screenTracks[0].participant);
+                    return (
+                      <ParticipantNameBadge
+                        displayName={displayName}
+                        avatarUrl={avatarUrl}
+                        micEnabled={screenTracks[0].participant.isMicrophoneEnabled}
+                        suffix="экран"
+                      />
+                    );
+                  })()}
+                </div>
               </div>
-            </div>
-          ) : soloView ? (
-            renderSoloView()
-          ) : (
-            <div className={`voice-room-grid ${gridLayoutClass}`}>
-              {participantTiles.map((trackRef, idx) => renderParticipantTile(trackRef, `${trackRef.participant.identity}-${idx}`))}
-            </div>
-          )}
+            ) : soloView ? (
+              renderSoloView()
+            ) : (
+              <div className={`voice-room-grid ${gridLayoutClass}`}>
+                {participantTiles.map((trackRef, idx) => renderParticipantTile(trackRef, `${trackRef.participant.identity}-${idx}`))}
+              </div>
+            )}
 
-          {extraParticipants.length > 0 && !soloView && (
-            <div className="voice-room-extra-hint">+{extraParticipants.length} участник(ов)</div>
-          )}
+            {extraParticipants.length > 0 && !soloView && (
+              <div className="voice-room-extra-hint">+{extraParticipants.length} участник(ов)</div>
+            )}
+          </SessionTestsStageGate>
 
           {sidebarMode && isMobile && (
             <aside className="voice-room-sidebar voice-room-sidebar--overlay" style={{ gridTemplateRows: chatOpen ? 'auto minmax(0,1fr) auto' : 'auto minmax(0,1fr)', display: 'grid' }}>
@@ -592,6 +603,9 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
             <div ref={mobileDeviceMenuRef}>{renderDeviceMenuPanel(true)}</div>
           </>
         )}
+
+        {hasScreenShare && !testsOverlay && <SessionTestPip />}
+        {testsEnabled && <SessionTestsLayerRoot />}
 
         <div className="voice-room-toolbar">
           <div className="voice-room-toolbar__group voice-room-toolbar__group--left">
@@ -659,6 +673,7 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
               <MessageSquare size={18} />
               <span className="voice-room-ctrl-label">Чат</span>
             </button>
+            <SessionTestsButton />
             <div ref={deviceMenuRef} className="voice-room-device-menu-anchor">
               <button
                 type="button"
@@ -697,6 +712,23 @@ function LiveKitConferenceRu({ eventType, eventTitle, eventStartsAt, eventEndsAt
         </aside>
       )}
     </div>
+  );
+
+  if (!testsEnabled) return conference;
+
+  return (
+    <SessionTestsProvider
+      isTherapist={isTherapist}
+      enabled
+      clientId={clientId}
+      eventId={eventId}
+      onOpenChat={() => {
+        setDeviceMenuOpen(false);
+        setSidebarMode('chat');
+      }}
+    >
+      {conference}
+    </SessionTestsProvider>
   );
 }
 
@@ -1347,6 +1379,8 @@ export default function VoiceRoom() {
                 eventTitle={event.title}
                 eventStartsAt={event.startsAt}
                 eventEndsAt={event.endsAt}
+                eventId={event.id}
+                clientId={event.clientId}
                 roomId={roomId!}
                 onLeave={handleLeave}
                 selfDisplayName={

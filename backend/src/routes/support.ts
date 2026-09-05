@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { requireAuth, AuthedRequest, requireVerification } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { parseEventDateInput } from '../utils/eventDate';
 
 const router = Router();
 
@@ -377,10 +378,10 @@ router.post('/psychologist/requests/:id/respond', requireAuth, requireRole(['psy
 
       const slotStartRaw = questionnaire?.slotStart;
       const slotEndRaw = questionnaire?.slotEnd;
-      const startsAt = slotStartRaw ? new Date(slotStartRaw) : new Date(Date.now() + 3600000);
-      const endsAt = slotEndRaw
-        ? new Date(slotEndRaw)
-        : new Date(startsAt.getTime() + 3600000);
+      const startsAt = (slotStartRaw ? parseEventDateInput(slotStartRaw) : null) || new Date(Date.now() + 3600000);
+      const endsAt =
+        (slotEndRaw ? parseEventDateInput(slotEndRaw) : null) ||
+        new Date(startsAt.getTime() + 3600000);
       const roomId = generateRoomId();
       const roomUrl = generateRoomUrl(roomId);
       const guestName = request.client?.name || questionnaire?.contactName || 'Гость';

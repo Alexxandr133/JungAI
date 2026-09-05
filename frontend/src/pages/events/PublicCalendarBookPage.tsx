@@ -8,8 +8,9 @@ import {
   calendarCells,
   computeDaySummary,
   dayKeyFromDate,
+  dayKeyInAppTz,
   mergeCalendarPrefsFromServer,
-  pad2
+  slotRangeWallIso
 } from '../../lib/eventsCalendarUtils';
 import { BrandLogo } from '../../components/BrandLogo';
 import { OPERATOR_INFO } from '../../content/operatorInfo';
@@ -29,13 +30,7 @@ type PublicHost = {
 };
 
 function localSlotRangeIso(dayKey: string, startHm: string, durationMin: number) {
-  const [H, M] = startHm.split(':').map(Number);
-  const [y, mo, da] = dayKey.split('-').map(Number);
-  const start = new Date(y, mo - 1, da, H, M, 0, 0);
-  const end = new Date(start.getTime() + durationMin * 60000);
-  const iso = (d: Date) =>
-    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  return { slotStart: iso(start), slotEnd: iso(end) };
+  return slotRangeWallIso(dayKey, startHm, durationMin);
 }
 
 function hostIdFromToken(token: string): string | null {
@@ -186,7 +181,7 @@ export default function PublicCalendarBookPage() {
   const eventsByDay = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const ev of items || []) {
-      const k = dayKeyFromDate(new Date(ev.startsAt));
+      const k = dayKeyInAppTz(new Date(ev.startsAt));
       if (!map[k]) map[k] = [];
       map[k].push(ev);
     }
@@ -214,14 +209,14 @@ export default function PublicCalendarBookPage() {
     const map: Record<string, ReturnType<typeof computeDaySummary>> = {};
     for (const { d } of cells) {
       const key = dayKeyFromDate(d);
-      map[key] = computeDaySummary(key, prefs, eventsByDay[key] || []);
+      map[key] = computeDaySummary(key, prefs, eventsByDay[key] || [], { applyBookingRules: true });
     }
     return map;
   }, [calendarMonth, eventsByDay, prefs]);
 
   const selectedCalendarEvents = calendarSelectedDay ? eventsByDay[calendarSelectedDay] || [] : [];
   const selectedDaySummary = calendarSelectedDay
-    ? computeDaySummary(calendarSelectedDay, prefs, selectedCalendarEvents)
+    ? computeDaySummary(calendarSelectedDay, prefs, selectedCalendarEvents, { applyBookingRules: true })
     : null;
 
   const canProceedStep1 =
@@ -253,8 +248,10 @@ export default function PublicCalendarBookPage() {
       setFormError('Выберите день и слот.');
       return;
     }
-    const sum = computeDaySummary(calendarSelectedDay, prefs, selectedCalendarEvents);
-    if (sum.isPast || sum.weekendBlocked) {
+    const sum = computeDaySummary(calendarSelectedDay, prefs, selectedCalendarEvents, {
+      applyBookingRules: true
+    });
+    if (sum.isPast || sum.weekendBlocked || sum.beyondHorizon) {
       setFormError('Этот день недоступен для записи.');
       return;
     }
@@ -462,11 +459,14 @@ export default function PublicCalendarBookPage() {
                       const sum = calendarDaySummaries[key];
                       const nEv = (eventsByDay[key] || []).length;
                       const isSelected = calendarSelectedDay === key;
-                      const isPast = sum.isPast;
+                      const isPast = sum.isPast || sum.beyondHorizon;
                       const cellBusyFull =
-                        !isPast && sum.hasEvents && sum.freeSegments.length === 0 && !sum.weekendBlocked;
+                        !isPast && sum.isFullyBusy && !sum.weekendBlocked;
                       const cellPartial =
-                        !isPast && sum.hasEvents && sum.freeSegments.length > 0 && !sum.weekendBlocked;
+                        !isPast &&
+                        (sum.hasEvents || sum.hasBusyBlock) &&
+                        sum.freeSegments.length > 0 &&
+                        !sum.weekendBlocked;
                       const className = [
                         'pub-book__cell',
                         !inMonth ? 'is-out' : '',

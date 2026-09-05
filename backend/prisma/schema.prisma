@@ -64,6 +64,8 @@ model Profile {
   audienceFormats Json?
   /// Настройки календаря занятости (как CalendarPrefs на фронте)
   calendarPrefs Json?
+  /// Банк слов и настройки сессионных тестов психолога
+  sessionTestSettings Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -277,6 +279,12 @@ model Event {
   guestEmail   String?
   guestPhone   String?
   guestQuestionnaire Json?
+  /// Повторяющаяся встреча: общий id серии; recurrence = weekly
+  seriesId     String?
+  recurrence   String?
+
+  @@index([createdBy, seriesId])
+  @@index([seriesId])
 }
 
 /// Заявка на слот с публичной страницы календаря / подбора (гость без аккаунта)

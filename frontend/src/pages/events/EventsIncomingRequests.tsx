@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
+import { formatDateTimeInAppTz, formatTimeInAppTz, toWallInputValue } from '../../lib/eventsCalendarUtils';
 
 export type IncomingRequestItem = {
   id: string;
@@ -43,38 +45,26 @@ function formatSlot(start?: string | Date | null, end?: string | Date | null) {
   if (!start) return null;
   const s = new Date(start);
   if (Number.isNaN(s.getTime())) return null;
-  const startLabel = s.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const startLabel = formatDateTimeInAppTz(s);
   if (!end) return startLabel;
   const e = new Date(end);
   if (Number.isNaN(e.getTime())) return startLabel;
-  const endLabel = e.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  return `${startLabel} – ${endLabel}`;
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, '0');
+  return `${startLabel} – ${formatTimeInAppTz(e)}`;
 }
 
 function defaultIntroLocalValue(): string {
   const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setMinutes(0, 0, 0);
-  if (d.getHours() < 10) d.setHours(10);
-  if (d.getHours() > 20) d.setHours(18);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  d.setTime(d.getTime() + 24 * 60 * 60 * 1000);
+  const wall = toWallInputValue(d);
+  const [date, time] = wall.split('T');
+  const hh = Number((time || '10:00').slice(0, 2));
+  const hm = hh < 10 ? '10:00' : hh > 20 ? '18:00' : `${String(hh).padStart(2, '0')}:00`;
+  return `${date}T${hm}`;
 }
 
 function localInputToIso(local: string): string | null {
-  if (!local || !local.includes('T')) return null;
-  const d = new Date(local);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+  if (!local || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(local)) return null;
+  return local.slice(0, 16);
 }
 
 export function EventsIncomingRequests({ token, items, onChanged, onToast }: Props) {
@@ -255,12 +245,7 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
                     </span>
                     <span className="events-page__badge events-page__badge--warning">Новый</span>
                     <span className="events-page__request-date">
-                      {new Date(item.createdAt).toLocaleString('ru-RU', {
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {formatDateTimeInAppTz(new Date(item.createdAt))}
                     </span>
                   </div>
 
@@ -372,7 +357,8 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
         </div>
       </div>
 
-      {acceptInquiryItem ? (
+      {acceptInquiryItem
+        ? createPortal(
         <div
           className="events-page__modal-overlay"
           role="presentation"
@@ -434,10 +420,12 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
 
-      {declineId ? (
+      {declineId
+        ? createPortal(
         <div
           className="events-page__modal-overlay"
           role="presentation"
@@ -485,7 +473,8 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </>
   );
