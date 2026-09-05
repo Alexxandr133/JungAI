@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
-import { ConnectionState, RoomEvent } from 'livekit-client';
+import { ConnectionState, RoomEvent, type RemoteParticipant } from 'livekit-client';
 import { SESSION_TEST_TOPIC, type SessionTestMessage, type SessionTestState } from './types';
 
 const encoder = new TextEncoder();
@@ -72,10 +72,16 @@ export function useSessionTestSync(
   );
 
   useEffect(() => {
-    const onData = (...args: unknown[]) => {
-      const { msg, topic } = decodePayload(args);
+    const onData = (
+      payload: Uint8Array,
+      _participant?: RemoteParticipant,
+      _kind?: unknown,
+      topic?: string
+    ) => {
+      const { msg, topic: decodedTopic } = decodePayload([payload, _participant, _kind, topic]);
+      const dataTopic = decodedTopic || topic;
       if (!isSessionTestMessage(msg)) return;
-      if (topic && topic !== SESSION_TEST_TOPIC) return;
+      if (dataTopic && dataTopic !== SESSION_TEST_TOPIC) return;
 
       if (msg.type === 'hello') {
         if (isTherapist && stateRef.current) publish({ type: 'state', state: stateRef.current });
@@ -112,15 +118,14 @@ export function useSessionTestSync(
       if (isTherapist && stateRef.current) publish({ type: 'state', state: stateRef.current });
     };
 
-    const onPacket = onData as Parameters<typeof room.on>[1];
-    room.on(RoomEvent.DataReceived, onPacket);
+    room.on(RoomEvent.DataReceived, onData);
     room.on(RoomEvent.Connected, flush);
     room.on(RoomEvent.Reconnected, flush);
     room.on(RoomEvent.ParticipantConnected, onRemoteJoined);
     flush();
 
     return () => {
-      room.off(RoomEvent.DataReceived, onPacket);
+      room.off(RoomEvent.DataReceived, onData);
       room.off(RoomEvent.Connected, flush);
       room.off(RoomEvent.Reconnected, flush);
       room.off(RoomEvent.ParticipantConnected, onRemoteJoined);

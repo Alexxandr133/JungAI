@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { resolvePublicFileUrl } from '../lib/api';
 import { formatSlotLabel } from '../lib/eventsCalendarUtils';
+import { formatExperienceYears } from '../lib/ruPlural';
 import './PsychologistMiniCard.css';
 
 export type PsychologistMiniCardData = {
