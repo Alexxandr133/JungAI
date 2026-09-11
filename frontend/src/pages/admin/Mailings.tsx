@@ -5,6 +5,7 @@ import { AdminNavbar } from '../../components/AdminNavbar';
 import { MailHtmlEditor } from '../../components/MailHtmlEditor';
 import { renderMailVarsPreview, wrapCampaignEmailPreview } from '../../lib/mailPreview';
 import './Mailings.css';
+import './admin.css';
 
 type Tab = 'groups' | 'templates' | 'campaigns';
 
@@ -338,14 +339,18 @@ export default function AdminMailings() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="admin-shell">
       <AdminNavbar />
-      <main className="admin-mailings">
-        <h1>Рассылки</h1>
-        <p className="admin-mailings__hint">
-          Только email через SMTP. Лимит 500 адресатов / кампания, пауза ~2.5 с между письмами, обязательная отписка.
-          Не используйте сторонние базы без согласия.
-        </p>
+      <main className="admin-main admin-mailings">
+        <header className="admin-head">
+          <div>
+            <p className="admin-head__eyebrow">Коммуникации</p>
+            <h1 className="admin-head__title">Рассылки</h1>
+            <p className="admin-head__lead">
+              Группы, шаблоны и кампании. Лимит 500 адресатов / кампания, обязательная отписка.
+            </p>
+          </div>
+        </header>
 
         {!smtpConfigured && (
           <div className="admin-mailings__warn">SMTP не настроен — создание черновиков возможно, отправка недоступна.</div>

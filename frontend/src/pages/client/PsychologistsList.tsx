@@ -1,674 +1,370 @@
-import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { LANDING_TOPIC_TAGS, PROFILE_TAGS, searchProfileTags } from 'jungai-shared';
 import { useAuth } from '../../context/AuthContext';
 import { useMessengerUi } from '../../context/MessengerUiContext';
-import { api } from '../../lib/api';
+import { api, resolvePublicFileUrl } from '../../lib/api';
 import { yearsWord } from '../../lib/ruPlural';
 import { ClientNavbar } from '../../components/ClientNavbar';
-import '../../styles/tokens.css';
+import { PsychologistMiniCard } from '../../components/PsychologistMiniCard';
+import '../../styles/landing-tokens.css';
+import '../psychologists/Catalog.css';
+import './PsychologistsList.css';
 
-type Psychologist = {
+type CatalogItem = {
   id: string;
   name: string;
-  email: string;
-  bio?: string;
+  email?: string;
+  bio?: string | null;
+  therapyMethod?: string | null;
   specialization?: string | string[];
+  worksWith?: string[];
+  audienceFormats?: string[];
   experience?: number;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
+  sessionPriceRub?: number | null;
+  nearestSlot?: { slotStart: string } | null;
   verified?: boolean;
-  rating?: number;
-  reviewsCount?: number;
+  rating?: number | null;
+  reviewsCount?: number | null;
 };
+
+const PRICE_OPTIONS = [
+  { id: '', label: 'Любая стоимость' },
+  { id: 'budget', label: 'до 3 500 ₽', min: 0, max: 3500 },
+  { id: 'mid', label: '3 500 – 5 500 ₽', min: 3500, max: 5500 },
+  { id: 'premium', label: 'от 5 500 ₽', min: 5500, max: null as number | null },
+];
+
+const FORMAT_OPTIONS = [
+  { id: '', label: 'Любой формат' },
+  { id: 'self', label: 'Индивидуально' },
+  { id: 'couple', label: 'С парами' },
+  { id: 'child', label: 'С детьми' },
+];
+
+const FILTER_TAGS = LANDING_TOPIC_TAGS.length ? LANDING_TOPIC_TAGS : PROFILE_TAGS.slice(0, 12);
+
+function asSpecList(value: string | string[] | undefined): string[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string' && value.trim()) return [value];
+  return [];
+}
 
 export default function ClientPsychologistsList() {
   const { token } = useAuth();
   const { openMessenger } = useMessengerUi();
   const navigate = useNavigate();
-  const [psychologists, setPsychologists] = useState<Psychologist[]>([]);
-  const [myPsychologist, setMyPsychologist] = useState<Psychologist | null>(null);
+  const location = useLocation();
+
+  const [myPsychologist, setMyPsychologist] = useState<CatalogItem | null>(null);
+  const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState('');
-  const [selectedPsychologist, setSelectedPsychologist] = useState<Psychologist | null>(null);
-  const [showRequestModal, setShowRequestModal] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [requestMessage, setRequestMessage] = useState('');
-  const [requestType, setRequestType] = useState<'chat' | 'session'>('chat');
-  const [hasAttachedPsychologist, setHasAttachedPsychologist] = useState(false);
+  const [search, setSearch] = useState('');
+  const [tag, setTag] = useState<string | null>(null);
+  const [format, setFormat] = useState('');
+  const [price, setPrice] = useState('');
+  const [tagSearch, setTagSearch] = useState('');
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
-    setLoading(true);
-    try {
-      // Сначала проверяем, есть ли у клиента прикрепленный психолог
-      let hasAttached = false;
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
       try {
-        const myPsych = await api<Psychologist>('/api/clients/my-psychologist', { token: token ?? undefined });
-        if (myPsych && myPsych.id) {
-          // Преобразуем specialization в массив, если это строка
-          const specialization = typeof myPsych.specialization === 'string' 
-            ? (myPsych.specialization ? [myPsych.specialization] : [])
-            : (myPsych.specialization || []);
-          
-          setMyPsychologist({
-            ...myPsych,
-            specialization,
-            verified: true // Прикрепленный психолог считается верифицированным
-          });
-          hasAttached = true;
-          setHasAttachedPsychologist(true);
-        }
-      } catch (e: any) {
-        // Если психолог еще не выбран, это штатный сценарий — просто показываем общий список.
-        const noPsychologistSelected =
-          e?.status === 404 ||
-          e?.code === 'NO_PSYCHOLOGIST' ||
-          String(e?.message || '').toLowerCase().includes('not selected');
-        if (!noPsychologistSelected) {
-          console.error('Failed to load attached psychologist:', e);
-        }
-        if (e.status === 403) {
-          console.warn('Access denied to /my-psychologist endpoint. User may not be properly authenticated or may not have client role.');
-        }
-        hasAttached = false;
-        setHasAttachedPsychologist(false);
-      }
-
-      // Если нет прикрепленного психолога, загружаем всех психологов
-      if (!hasAttached) {
+        let mine: CatalogItem | null = null;
         try {
-          const res = await api<{ psychologists: Psychologist[] }>('/api/psychologists/public', { token: token ?? undefined });
-          setPsychologists(res.psychologists || []);
-        } catch (e) {
-          // Если API не вернул данные, оставляем пустой список
-          console.error('Failed to load psychologists:', e);
-          setPsychologists([]);
+          const myPsych = await api<CatalogItem>('/api/clients/my-psychologist', {
+            token: token ?? undefined,
+          });
+          if (myPsych?.id) {
+            mine = {
+              ...myPsych,
+              specialization: asSpecList(myPsych.specialization),
+              verified: true,
+            };
+          }
+        } catch (e: unknown) {
+          const err = e as { status?: number; code?: string; message?: string };
+          const noPsych =
+            err?.status === 404 ||
+            err?.code === 'NO_PSYCHOLOGIST' ||
+            String(err?.message || '')
+              .toLowerCase()
+              .includes('not selected');
+          if (!noPsych) console.error('Failed to load attached psychologist:', e);
         }
+
+        const res = await api<{ psychologists: CatalogItem[] }>('/api/psychologists/public', {
+          token: token ?? undefined,
+        }).catch(() => ({ psychologists: [] as CatalogItem[] }));
+
+        if (cancelled) return;
+        setMyPsychologist(mine);
+        setItems(res.psychologists || []);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } catch (e) {
-      console.error('Failed to load data:', e);
-    } finally {
-      setLoading(false);
-    }
-  }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
-  const filtered = hasAttachedPsychologist 
-    ? (myPsychologist ? [myPsychologist] : [])
-    : psychologists.filter(p => 
-        p.name.toLowerCase().includes(query.toLowerCase()) ||
-        p.bio?.toLowerCase().includes(query.toLowerCase()) ||
-        (Array.isArray(p.specialization) && p.specialization.some(s => s.toLowerCase().includes(query.toLowerCase())))
-      );
+  useEffect(() => {
+    if (location.hash !== '#catalog') return;
+    const el = document.getElementById('catalog');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [location.hash, loading]);
 
-  function handleRequestChat(psych: Psychologist) {
-    setSelectedPsychologist(psych);
-    setRequestType('chat');
-    setRequestMessage('');
-    setShowRequestModal(true);
-  }
+  const tagFilterChips = useMemo(() => {
+    const q = tagSearch.trim();
+    if (q) return searchProfileTags(q, 12);
+    return FILTER_TAGS as readonly string[];
+  }, [tagSearch]);
 
-  function handleRequestSession(psych: Psychologist) {
-    setSelectedPsychologist(psych);
-    setRequestType('session');
-    setRequestMessage('');
-    setShowRequestModal(true);
-  }
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const band = PRICE_OPTIONS.find((p) => p.id === price);
+    return items.filter((p) => {
+      if (myPsychologist && p.id === myPsychologist.id) return false;
+      if (q) {
+        const specs = asSpecList(p.specialization);
+        const hay = `${p.name} ${p.bio || ''} ${p.therapyMethod || ''} ${specs.join(' ')} ${(p.worksWith || []).join(' ')}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (tag) {
+        const tags = (p.worksWith || []).map((t) => t.toLowerCase());
+        const t = tag.toLowerCase();
+        if (!tags.some((w) => w === t || w.includes(t) || t.includes(w))) return false;
+      }
+      if (format) {
+        const formats = p.audienceFormats || [];
+        if (!formats.includes(format)) return false;
+      }
+      if (band && band.id) {
+        const pr = p.sessionPriceRub;
+        if (pr == null) return false;
+        if (band.min != null && pr < band.min) return false;
+        if (band.max != null && pr > band.max) return false;
+      }
+      return true;
+    });
+  }, [items, search, tag, format, price, myPsychologist]);
 
-  function handleViewProfile(psych: Psychologist) {
-    setSelectedPsychologist(psych);
-    setShowProfileModal(true);
-  }
+  const filtersActive = Boolean(search || tag || format || price);
+  const avatarSrc = resolvePublicFileUrl(myPsychologist?.avatarUrl || null);
 
-  async function submitRequest() {
-    if (!selectedPsychologist || !requestMessage.trim() || !token) return;
-    
+  async function writeTo(psychId: string) {
+    if (!token) return;
     try {
       const created = await api<{ chatRoomId?: string }>('/api/support/request', {
         method: 'POST',
-        token: token,
+        token,
         body: {
-          psychologistId: selectedPsychologist.id,
-          type: requestType,
-          message: requestMessage,
-          allowWorkAreaAccess: false
-        }
+          psychologistId: psychId,
+          type: 'chat',
+          message: 'Здравствуйте! Хочу связаться через каталог JungAI.',
+          allowWorkAreaAccess: false,
+        },
       });
-      
-      alert('Запрос отправлен! Психолог свяжется с вами.');
-      setShowRequestModal(false);
-      setSelectedPsychologist(null);
-      setRequestMessage('');
-      if (requestType === 'chat' && created?.chatRoomId) {
+      if (created?.chatRoomId) {
         openMessenger({ roomId: created.chatRoomId });
       }
-    } catch (e: any) {
-      alert('Ошибка: ' + (e.message || 'Не удалось отправить запрос'));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Не удалось написать специалисту');
     }
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="client-psych">
       <ClientNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: 1400,
-          margin: '0 auto',
-          width: '100%'
-        }}
-      >
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>
-            {hasAttachedPsychologist ? 'Мой психолог' : 'Психологи'}
-          </h1>
-          <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
-            {hasAttachedPsychologist 
-              ? 'Ваш прикрепленный психолог'
-              : 'Найдите подходящего психолога и запишитесь на консультацию'
-            }
-          </p>
-
-          {!hasAttachedPsychologist && (
-            <div
-              className="card"
-              style={{
-                padding: 16,
-                marginBottom: 24,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                flexWrap: 'wrap',
-                background: 'linear-gradient(135deg, rgba(124,92,255,0.14), rgba(25,224,255,0.08))',
-                border: '1px solid rgba(124,92,255,0.3)',
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 700 }}>Не знаете, с кого начать?</div>
-                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
-                  Короткая анкета подберёт 3–5 специалистов под ваш запрос
-                </div>
-              </div>
-              <Link to="/client/match" className="button" style={{ whiteSpace: 'nowrap' }}>
-                Подобрать по анкете
-              </Link>
-            </div>
-          )}
-          
-          {/* Search - только для неприкрепленных клиентов */}
-          {!hasAttachedPsychologist && (
-            <div style={{ position: 'relative', maxWidth: 600, marginBottom: 32 }}>
-              <span style={{ position: 'absolute', left: 12, top: 10, opacity: .7 }}></span>
-              <input
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="Поиск по имени, специализации..."
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 34px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'var(--surface-2)',
-                  color: 'var(--text)',
-                  fontSize: 14
-                }}
-              />
-            </div>
-          )}
-        </div>
+      <main className="client-psych__main">
+        <header className="client-psych__head">
+          <div>
+            <p className="client-psych__eyebrow">Работа с специалистом</p>
+            <h1 className="client-psych__h1">Мой психолог</h1>
+            <p className="client-psych__lead">
+              {myPsychologist
+                ? 'Текущий специалист и каталог — можно посмотреть других или записаться заново.'
+                : 'Выберите специалиста из каталога или пройдите короткий подбор.'}
+            </p>
+          </div>
+          {!myPsychologist ? (
+            <Link to="/client/match" className="button">
+              Подобрать по анкете
+            </Link>
+          ) : null}
+        </header>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
-            <div style={{ color: 'var(--text-muted)' }}>Загрузка...</div>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🔍</div>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Психологи не найдены</div>
-            <div style={{ color: 'var(--text-muted)' }}>Попробуйте изменить параметры поиска</div>
-          </div>
+          <p className="client-psych__status">Загрузка…</p>
         ) : (
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: hasAttachedPsychologist ? '1fr' : 'repeat(auto-fill, minmax(350px, 1fr))', 
-            gap: 24,
-            maxWidth: hasAttachedPsychologist ? 600 : '100%',
-            margin: hasAttachedPsychologist ? '0 auto' : 0
-          }}>
-            {filtered.map(psych => (
-              <div
-                key={psych.id}
-                className="card card-hover-shimmer"
-                style={{
-                  padding: 24,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  boxShadow: '0 12px 28px rgba(0,0,0,0.18)',
-                  cursor: 'pointer'
-                }}
-                onClick={() => navigate(`/psychologists/${psych.id}`)}
-              >
-                <div style={{ display: 'flex', alignItems: 'start', gap: 16, marginBottom: 16 }}>
-                  <div 
-                    onClick={hasAttachedPsychologist ? () => handleViewProfile(psych) : undefined}
-                    style={{
-                      width: 80,
-                      height: 80,
-                      borderRadius: '50%',
-                      background: 'var(--surface-2)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      fontSize: 24,
-                      fontWeight: 600,
-                      color: 'var(--text)',
-                      flexShrink: 0,
-                      overflow: 'hidden',
-                      border: '2px solid rgba(255,255,255,0.1)',
-                      cursor: hasAttachedPsychologist ? 'pointer' : 'default',
-                      transition: hasAttachedPsychologist ? 'transform 0.2s, box-shadow 0.2s' : 'none'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (hasAttachedPsychologist) {
-                        e.currentTarget.style.transform = 'scale(1.05)';
-                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(91, 124, 250, 0.3)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (hasAttachedPsychologist) {
-                        e.currentTarget.style.transform = 'scale(1)';
-                        e.currentTarget.style.boxShadow = 'none';
-                      }
-                    }}
-                    title={hasAttachedPsychologist ? 'Посмотреть профиль' : undefined}
+          <>
+            {myPsychologist ? (
+              <section className="client-psych__mine" aria-labelledby="my-psych-title">
+                <p className="client-psych__section-label">Сейчас с вами</p>
+                <div className="client-psych__mine-card">
+                  <button
+                    type="button"
+                    className="client-psych__mine-avatar"
+                    onClick={() => navigate(`/psychologists/${myPsychologist.id}`)}
+                    aria-label={`Профиль ${myPsychologist.name}`}
                   >
-                    {psych.avatarUrl ? (
-                      <img 
-                        src={psych.avatarUrl.startsWith('http') 
-                          ? psych.avatarUrl 
-                          : (psych.avatarUrl.startsWith('/') 
-                              ? `${window.location.origin}${psych.avatarUrl}`
-                              : `${window.location.origin}/${psych.avatarUrl}`)} 
-                        alt={psych.name} 
-                        style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent) {
-                            parent.innerHTML = `<span>${psych.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>`;
-                          }
-                        }}
-                      />
+                    {avatarSrc ? (
+                      <img src={avatarSrc} alt="" />
                     ) : (
-                      <span>{psych.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
+                      <span>
+                        {myPsychologist.name
+                          .split(' ')
+                          .map((n) => n[0])
+                          .join('')
+                          .toUpperCase()
+                          .slice(0, 2)}
+                      </span>
                     )}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, minWidth: 0 }}>
-                      <h3
-                        style={{
-                          margin: 0,
-                          fontSize: 18,
-                          fontWeight: 700,
-                          color: 'var(--text)',
-                          minWidth: 0,
-                          flex: 1,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }}
-                        title={psych.name}
-                      >
-                        {psych.name}
-                      </h3>
-                      {psych.verified && (
-                        <span
-                          title="верифицирован"
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            color: '#22c55e',
-                            background: 'rgba(34,197,94,0.12)',
-                            border: '1px solid rgba(34,197,94,0.35)',
-                            borderRadius: 999,
-                            padding: '2px 8px',
-                            lineHeight: 1.2,
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0
-                          }}
-                        >
-                          верифицирован
-                        </span>
-                      )}
+                  </button>
+                  <div className="client-psych__mine-body">
+                    <div className="client-psych__mine-title-row">
+                      <h2 id="my-psych-title">{myPsychologist.name}</h2>
+                      <span className="client-psych__badge">Ваш психолог</span>
                     </div>
-                    {psych.experience && (
-                      <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Опыт: {psych.experience} {yearsWord(psych.experience)}
-                      </div>
-                    )}
+                    {myPsychologist.experience != null ? (
+                      <p className="client-psych__meta">
+                        Опыт: {myPsychologist.experience} {yearsWord(myPsychologist.experience)}
+                      </p>
+                    ) : null}
+                    {myPsychologist.bio ? <p className="client-psych__bio">{myPsychologist.bio}</p> : null}
+                    <div className="client-psych__mine-actions">
+                      <Link to={`/psychologists/${myPsychologist.id}`} className="button">
+                        Открыть профиль
+                      </Link>
+                      <button type="button" className="button secondary" onClick={() => void writeTo(myPsychologist.id)}>
+                        Написать
+                      </button>
+                      <Link to="/client/sessions" className="button secondary">
+                        Сессии
+                      </Link>
+                    </div>
                   </div>
                 </div>
-                
-                {psych.bio && (
-                  <p style={{ 
-                    fontSize: 14, 
-                    color: 'var(--text-muted)', 
-                    lineHeight: 1.6, 
-                    marginBottom: 16,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden'
-                  }}>
-                    {psych.bio}
+              </section>
+            ) : (
+              <section className="client-psych__empty-mine">
+                <h2>Психолог ещё не выбран</h2>
+                <p>Можно пройти анкету или выбрать специалиста в каталоге ниже.</p>
+                <Link to="/client/match" className="button">
+                  Подобрать по анкете
+                </Link>
+              </section>
+            )}
+
+            <section id="catalog" className="client-psych__catalog landing psy-catalog-page">
+              <div className="psy-catalog" style={{ padding: 0, maxWidth: 'none' }}>
+                <header className="client-psych__catalog-head">
+                  <h2 className="client-psych__h2">Каталог</h2>
+                  <p className="client-psych__lead">
+                    {items.length ? `${items.length} специалистов` : 'Каталог загружается…'}
                   </p>
-                )}
-                
-                {psych.specialization && Array.isArray(psych.specialization) && psych.specialization.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {psych.specialization.slice(0, 3).map((spec, idx) => (
-                        <span
-                          key={idx}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: 6,
-                            background: 'var(--surface-2)',
-                            color: 'var(--text-muted)',
-                            fontSize: 12,
-                            fontWeight: 500
-                          }}
-                        >
-                          {spec}
-                        </span>
+                </header>
+
+                <div className="psy-catalog__toolbar">
+                  <input
+                    className="psy-catalog__search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Поиск по имени, методу, теме…"
+                    type="search"
+                  />
+                  <div className="psy-catalog__selects">
+                    <select
+                      className="psy-catalog__select"
+                      value={format}
+                      onChange={(e) => setFormat(e.target.value)}
+                      aria-label="Формат"
+                    >
+                      {FORMAT_OPTIONS.map((o) => (
+                        <option key={o.id || 'any'} value={o.id}>
+                          {o.label}
+                        </option>
                       ))}
-                    </div>
-                  </div>
-                )}
-                
-                {!hasAttachedPsychologist && (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRequestChat(psych); }}
-                      className="button secondary"
-                      style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
+                    </select>
+                    <select
+                      className="psy-catalog__select"
+                      value={price}
+                      onChange={(e) => setPrice(e.target.value)}
+                      aria-label="Стоимость"
                     >
-                      💬 Написать
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRequestSession(psych); }}
-                      className="button"
-                      style={{ flex: 1, padding: '10px 16px', fontSize: 14 }}
-                    >
-                      📅 Записаться
-                    </button>
+                      {PRICE_OPTIONS.map((o) => (
+                        <option key={o.id || 'any'} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Profile Modal */}
-        {showProfileModal && selectedPsychologist && (
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.7)',
-              display: 'grid',
-              placeItems: 'center',
-              zIndex: 2000,
-              padding: 24
-            }}
-            onClick={() => setShowProfileModal(false)}
-          >
-            <div
-              className="card"
-              style={{
-                maxWidth: 600,
-                width: '100%',
-                padding: 32,
-                background: 'var(--surface)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                maxHeight: '90vh',
-                overflow: 'auto'
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div style={{ display: 'flex', alignItems: 'start', gap: 20, marginBottom: 24 }}>
-                <div style={{
-                  width: 120,
-                  height: 120,
-                  borderRadius: '50%',
-                  background: 'var(--surface-2)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  fontSize: 36,
-                  fontWeight: 600,
-                  color: 'var(--text)',
-                  flexShrink: 0,
-                  overflow: 'hidden',
-                  border: '2px solid rgba(255,255,255,0.1)'
-                }}>
-                  {selectedPsychologist.avatarUrl ? (
-                    <img 
-                      src={selectedPsychologist.avatarUrl.startsWith('http') 
-                        ? selectedPsychologist.avatarUrl 
-                        : (selectedPsychologist.avatarUrl.startsWith('/') 
-                            ? `${window.location.origin}${selectedPsychologist.avatarUrl}`
-                            : `${window.location.origin}/${selectedPsychologist.avatarUrl}`)} 
-                      alt={selectedPsychologist.name} 
-                      style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const parent = target.parentElement;
-                        if (parent) {
-                          parent.innerHTML = `<span>${selectedPsychologist.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>`;
-                        }
-                      }}
-                    />
-                  ) : (
-                    <span>{selectedPsychologist.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
-                  )}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, minWidth: 0 }}>
-                    <h2
-                      style={{
-                        margin: 0,
-                        fontSize: 24,
-                        fontWeight: 700,
-                        color: 'var(--text)',
-                        minWidth: 0,
-                        flex: 1
-                      }}
-                    >
-                      {selectedPsychologist.name}
-                    </h2>
-                    {selectedPsychologist.verified && (
-                      <span
-                        title="верифицирован"
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: '#22c55e',
-                          background: 'rgba(34,197,94,0.12)',
-                          border: '1px solid rgba(34,197,94,0.35)',
-                          borderRadius: 999,
-                          padding: '2px 8px',
-                          lineHeight: 1.2,
-                          whiteSpace: 'nowrap',
-                          flexShrink: 0
-                        }}
+
+                <div className="psy-catalog__tags-wrap">
+                  <input
+                    className="psy-catalog__tag-search"
+                    value={tagSearch}
+                    onChange={(e) => setTagSearch(e.target.value)}
+                    placeholder="Найти тему…"
+                    aria-label="Поиск темы"
+                  />
+                  <div className="psy-catalog__tags" role="list">
+                    {tagFilterChips.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        role="listitem"
+                        className={`psy-catalog__tag${tag === t ? ' is-on' : ''}`}
+                        onClick={() => setTag((prev) => (prev === t ? null : t))}
                       >
-                        верифицирован
-                      </span>
-                    )}
-                  </div>
-                  {selectedPsychologist.email && (
-                    <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 8 }}>
-                      {selectedPsychologist.email}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {selectedPsychologist.bio && (
-                <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>О психологе</h3>
-                  <p style={{ 
-                    fontSize: 14, 
-                    color: 'var(--text-muted)', 
-                    lineHeight: 1.6,
-                    margin: 0
-                  }}>
-                    {selectedPsychologist.bio}
-                  </p>
-                </div>
-              )}
-
-              {selectedPsychologist.specialization && Array.isArray(selectedPsychologist.specialization) && selectedPsychologist.specialization.length > 0 && (
-                <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Специализация</h3>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {selectedPsychologist.specialization.map((spec, idx) => (
-                      <span
-                        key={idx}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: 8,
-                          background: 'var(--surface-2)',
-                          color: 'var(--text)',
-                          fontSize: 13,
-                          fontWeight: 500,
-                          border: '1px solid rgba(255,255,255,0.08)'
-                        }}
-                      >
-                        {spec}
-                      </span>
+                        {t}
+                      </button>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {selectedPsychologist.experience && (
-                <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>Опыт работы</h3>
-                  <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: 0 }}>
-                    {selectedPsychologist.experience} {yearsWord(selectedPsychologist.experience)}
-                  </p>
-                </div>
-              )}
+                {filtersActive ? (
+                  <button
+                    type="button"
+                    className="landing-btn landing-btn--ghost psy-catalog__reset"
+                    onClick={() => {
+                      setSearch('');
+                      setTag(null);
+                      setFormat('');
+                      setPrice('');
+                      setTagSearch('');
+                    }}
+                  >
+                    Сбросить фильтры
+                  </button>
+                ) : null}
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
-                <button
-                  onClick={() => setShowProfileModal(false)}
-                  className="button secondary"
-                  style={{ padding: '10px 20px' }}
-                >
-                  Закрыть
-                </button>
-                <button
-                  onClick={() => {
-                    setShowProfileModal(false);
-                    handleRequestChat(selectedPsychologist);
-                  }}
-                  className="button"
-                  style={{ padding: '10px 20px' }}
-                >
-                  💬 Написать
-                </button>
+                {filtered.length === 0 ? (
+                  <p className="client-psych__status">Никого не нашли — сбросьте фильтры или измените запрос.</p>
+                ) : (
+                  <div className="psy-catalog__grid">
+                    {filtered.map((p) => (
+                      <PsychologistMiniCard
+                        key={p.id}
+                        data={{
+                          ...p,
+                          specialization: asSpecList(p.specialization),
+                        }}
+                        profileTo={`/psychologists/${p.id}`}
+                        showWrite
+                        onWrite={() => void writeTo(p.id)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Request Modal */}
-        {showRequestModal && selectedPsychologist && (
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.7)',
-              display: 'grid',
-              placeItems: 'center',
-              zIndex: 2000,
-              padding: 24
-            }}
-            onClick={() => setShowRequestModal(false)}
-          >
-            <div
-              className="card"
-              style={{
-                maxWidth: 500,
-                width: '100%',
-                padding: 24,
-                background: 'var(--surface)',
-                border: '1px solid rgba(255,255,255,0.12)'
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2 style={{ margin: '0 0 16px 0', fontSize: 20, fontWeight: 700 }}>
-                {requestType === 'chat' ? 'Запрос на чат' : 'Запрос на сессию'}
-              </h2>
-              <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted)', fontSize: 14 }}>
-                Психолог: <strong>{selectedPsychologist.name}</strong>
-              </p>
-              <p style={{ margin: '0 0 16px 0', color: 'var(--text-muted)', fontSize: 14 }}>
-                Укажите цель вашего запроса:
-              </p>
-              <textarea
-                value={requestMessage}
-                onChange={e => setRequestMessage(e.target.value)}
-                placeholder="Опишите, с какой целью вы хотите связаться с психологом..."
-                style={{
-                  width: '100%',
-                  minHeight: 120,
-                  padding: 12,
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  background: 'var(--surface-2)',
-                  color: 'var(--text)',
-                  fontSize: 14,
-                  fontFamily: 'inherit',
-                  resize: 'vertical',
-                  marginBottom: 16
-                }}
-              />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setShowRequestModal(false)}
-                  className="button secondary"
-                  style={{ padding: '10px 20px' }}
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={submitRequest}
-                  disabled={!requestMessage.trim()}
-                  className="button"
-                  style={{ padding: '10px 20px' }}
-                >
-                  Отправить запрос
-                </button>
-              </div>
-            </div>
-          </div>
+            </section>
+          </>
         )}
       </main>
     </div>
   );
 }
-

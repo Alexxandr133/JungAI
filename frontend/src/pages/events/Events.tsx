@@ -58,6 +58,7 @@ import {
   EventsIncomingRequests,
   type IncomingRequestItem
 } from './EventsIncomingRequests';
+import { SessionDurationField, capSessionDurationMin } from './SessionDurationField';
 import './Events.css';
 
 type EventsPageProps = { mode?: 'psychologist' | 'researcher' };
@@ -480,8 +481,8 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
     const end = ev.endsAt ? new Date(ev.endsAt) : null;
     setStartsAt(toWallInputValue(start));
     if (end && !Number.isNaN(end.getTime())) {
-      const mins = Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000));
-      setDurationMin(Math.round(mins / 30) * 30 || 60);
+      const mins = Math.round((end.getTime() - start.getTime()) / 60000);
+      setDurationMin(mins > 0 ? mins : 60);
     } else {
       setDurationMin(60);
     }
@@ -661,7 +662,7 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
       if (endsAt) setEndsAt('');
       return;
     }
-    const nextEnd = addMinutesToWallInput(startsAt, durationMin);
+    const nextEnd = addMinutesToWallInput(startsAt, capSessionDurationMin(durationMin));
     if (nextEnd && nextEnd !== endsAt) setEndsAt(nextEnd);
   }, [startsAt, durationMin, endsAt]);
 
@@ -2590,20 +2591,12 @@ export default function EventsPage({ mode = 'psychologist' }: EventsPageProps) {
                       required
                     />
                   </div>
-                  <div>
-                    <label className="events-page__field-label">Продолжительность</label>
-                    <select
-                      className="events-page__field"
-                      value={String(durationMin)}
-                      onChange={(e) => setDurationMin(Number(e.target.value))}
-                    >
-                      {Array.from({ length: 12 }, (_, i) => (i + 1) * 30).map((m) => (
-                        <option key={m} value={m}>
-                          {m / 60} ч
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <SessionDurationField
+                    key={editingEventId ?? 'create'}
+                    id="events-plan-duration"
+                    value={durationMin}
+                    onChange={setDurationMin}
+                  />
                 </div>
 
                 <div>

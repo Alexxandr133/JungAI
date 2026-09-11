@@ -88,7 +88,7 @@ JingAI — monorepo-платформа для психологов и клиен
 
 ### 5.3 Сообщества/публикации
 - In-memory заменён на Prisma (`Community`, `PublicationPost`, …) — подробности в **§21**.
-- Маршруты: `/publications` (мои посты/сообщества), `/feed` (общая лента), `/publications/post/:id` (статья + комментарии).
+- Маршруты: `/communities` (хаб ленты и сообществ), `/publications/post/:id` (пост + комментарии). `/feed` и `/publications` редиректят в хаб.
 - Постинг от сообщества — только owner/moderator; `authorMode`: `account` | `community`.
 - Реакции на посты в UI убраны; комментарии только на странице полной публикации.
 
@@ -102,7 +102,10 @@ JingAI — monorepo-платформа для психологов и клиен
 ### 5.5 Админ: рассылки и аналитика
 - Навбар админа: `AdminNavbar` (через `UniversalNavbar` для роли `admin`).
 - Рассылки: `/admin/mailings` — группы, шаблоны, кампании, SMTP-очередь — см. **§25**.
-- Аналитика: `/admin/analytics` — сводка users/clients — см. **§25**.
+- Аналитика: `/admin/analytics` — сводка users/clients **+ продуктовая аналитика экранов** — см. **§25** и **§31**.
+- Пользователи `/admin/users`: клик по строке → модалка (действия, CRM-клиенты, переназначение, usage) — **§31**.
+- Каталог психологов `/admin/psychologists-catalog`: визуал как публичный `/psychologists` + скрытие/порядок — **§31**.
+- Трекинг: `PageVisitTracker` → `POST /api/analytics/page-visit` → `UserPageVisit` / `User.lastSeenAt` — **§31**.
 
 ### 5.6 CRM клиентов (психолог) и wellness клиента
 - Список `/clients`: фильтры (`filter`/`q`/`tags`), карточки с `nextSessionAt`, `lastContactAt`, `openTasksCount`, `registrationStatus`.
@@ -580,43 +583,51 @@ pm2 restart jingai-backend --update-env
 - `20260426122000_add_publications_communities_mvp` — `Community`, `CommunityMember`, `PublicationPost`, `PublicationComment`, `PublicationReaction`.
 - `20260426123500_add_publication_post_image_url` — `PublicationPost.imageUrl`.
 - `20260426125500_add_publication_post_author_mode` — `PublicationPost.authorMode` (`account` | `community`).
+- `20260910180000_publication_post_flair_pin` — `PublicationPost.flair`, `isPinned`.
+- `20260910193000_publication_comment_parent` — `PublicationComment.parentId` (nullable, 1 уровень вложенности).
 
 ### 21.2 Backend (`backend/src/routes/community.ts`)
 
 Основные endpoint’ы (префикс `/api`):
 - `GET/POST /communities`, `GET /communities/:slug`, `PATCH /communities/:id`
 - `POST /communities/:id/subscription` — подписка/отписка
-- `GET /publications/feed` — лента (`communityId`, `authorId`)
-- `GET /publications/discovery`, `GET /publications/me`
-- `POST /publications/posts`, `PATCH /publications/posts/:id`, `POST .../publish`
-- `GET /publications/posts/:id`, `POST .../comments`
-- Публично (гость): `GET /public/publications/discovery`, `GET /public/publications/posts/:id`
+- `GET /publications/feed` — лента (`sort=new|active|top`, `scope=all|subs|mine`, `flair`, `communityId`); в скоупе сообщества pinned-first; `mine` = посты текущего автора
+- `GET /publications/discovery` — `managed` (owner/mod) + `subscriptions` (member) + `recommended`; legacy `mine` = managed∪subscriptions
+- `GET /publications/me` — свои посты + свои комментарии
+- `POST /publications/posts`, `PATCH /publications/posts/:id` (`flair`, `isPinned`, `communityId`), `POST .../publish`
+- `GET /communities/id/:id` — управление (community + members), только owner/mod/admin
+- `PATCH /communities/:id/members/:userId` — роль member|moderator (владелец)
+- `DELETE /communities/:id/members/:userId` — исключить участника
+- `DELETE /publications/posts/:id` — автор **или** модератор/владелец сообщества **или** admin
+- `DELETE /publications/comments/:id` — автор ответа или модератор сообщества (с поддеревом)
+- Пост в сообществе: только если пользователь **участник** (подписан)
+- Ответы: вложенная ветка (depth ≤ 8), UI «Ответы» / «Показать ветку»
+- `GET /publications/posts/:id` — первая страница комментариев (`comments`, `commentsCount`, `commentsHasMore`); не весь тред сразу
+- `GET /publications/posts/:id/comments?offset=&limit=` — догрузка корневых комментариев (новые сверху) + их replies
+- `POST .../comments` (`parentId`; глубже 1 уровня — плоско с `@Имя`)
+- Публично: `GET /public/publications/discovery`, `GET /public/publications/posts/:id`, `GET /public/publications/posts/:id/comments`
 - Legacy: `GET /community/feed|events|courses` — прокси/заглушки для старых клиентов
 
-**Грабля:** `POST /publications/posts` → 500 `Unknown argument imageUrl` / `authorMode`, если на сервере не выполнен `prisma generate` после миграции. В роуте есть **fallback**: повторный `create` без неизвестных полей.
+**Грабля:** `POST /publications/posts` → 500 `Unknown argument imageUrl` / `authorMode` / `flair`, если на сервере не выполнен `prisma generate` после миграции. В роуте есть **fallback** и runtime ALTER для `flair`/`isPinned`/`parentId`.
 
-Создание сообществ/постов: роли `psychologist`, `researcher`, `admin`. Клиент — чтение.
+Создание сообществ/постов: роли `psychologist`, `researcher`, `admin`. Клиент — чтение. От лица сообщества — owner/moderator. Excerpt считается на клиенте (strip tags, 220).
 
 ### 21.3 Frontend
 
 | Путь | Файл | Назначение |
 |------|------|------------|
-| `/publications` | `Publications.tsx` | Профиль, мои сообщества, composer, черновики/публикация |
-| `/feed` | `Feed.tsx` | Общая лента, фильтры, авторы |
-| `/publications/community/:slug` | `CommunityView.tsx` | Шапка (cover+avatar), лента сообщества, подписчики, inline-управление |
-| `/publications/community/:id/manage` | `CommunityManage.tsx` | Расширенное управление |
-| `/publications/post/:id` | `PostView.tsx` | Полная статья + комментарии (единственное место для комментариев) |
+| `/communities` | `CommunitiesCatalog.tsx` | Reddit-хаб full-bleed: Мои / Подписки / Другие(+каталог); лента list-rows; справа черновики |
+| `/communities/catalog` | `CommunitiesDirectory.tsx` | Полный каталог сообществ (поиск + фильтр) |
+| `/feed` | redirect | → `/communities` |
+| `/publications` | redirect | → `/communities?scope=mine` |
+| `/publications/community/:slug` | `CommunityView.tsx` | Cover full-width + инфострока на фоне, фильтр типа, pin в ⋯ |
+| `/publications/community/:id/manage` | `CommunityManage.tsx` | Зоны: публичный профиль (лого/обложка), участники/роли, удаление |
+| `/publications/post/:id` | `PostView.tsx` | Split: пост + ответы (ветки, collapse); удаление поста/ответов для модов |
+| `/publications/new` | `NewPost.tsx` | Новый пост: dropzone, сегмент Редактор/Превью, тип поста |
 
-Навигация: в `PsychologistNavbar` / `ResearcherNavbar` выпадающий пункт **«Сообщества»** → Публикации / Лента.
+Навигация: один пункт **Сообщества** → `/communities`. Иерархия: сообщество → посты → обсуждения. «Мои сообщества» ≠ подписки. В UI: пост / комментарии / тип поста (не тред/ответы/флейр).
 
-UX-решения:
-- Карточки сообществ с `avatar`/`cover`; кнопка «Создать сообщество» — отдельный dashed-блок.
-- Посты с `imageUrl` (часто data URL из FileReader, без отдельного upload-endpoint).
-- Реакции на посты в UI скрыты; в ленте нет формы комментария.
-- Черновики: `status` draft → `POST .../publish`.
-- Rich composer: `PublicationComposer.tsx` (contentEditable + toolbar).
-
-Seed: `backend/src/seed.ts` — демо-сообщества и стартовый пост.
+Модалка поста (`PostModal`) удалена. Кнопки `.button` — solid, без градиента. Лента хаба — без card-коробок.
 
 ---
 
@@ -1668,4 +1679,102 @@ SELECT id, email, role FROM User WHERE email LIKE '%…%';
 - С карточки сна в рабочую область уходит `dream.client.id` / `clientId`, **не** `userId`. Иначе открывался чужой/пустой документ и автосейв мог затереть вкладку.
 - `WorkArea` берёт `?client=` сразу и не пишет в API, пока документ не загрузился (`contentHydratedRef`).
 - Кнопка «Рабочая область» только в **профиле** клиента (не на карточке в `/clients`). Текст белый: `a:not(.button)` больше не красит её в `--primary` на брендовом фоне.
+
+---
+
+## 31) Сессия 2026-09-11 — админка mist, аналитика экранов, форум, клиентский кабинет
+
+Кратко для ассистента: большой фронтовый/админский пласт + **3 миграции Prisma**. На проде обязательны backup `prod.db`, `prisma:migrate:deploy`, `prisma:generate`, сборка **backend + frontend**, restart PM2.
+
+### 31.1 Миграции
+
+| Миграция | Суть |
+|----------|------|
+| `20260910180000_publication_post_flair_pin` | `PublicationPost.flair`, `isPinned` |
+| `20260910193000_publication_comment_parent` | `PublicationComment.parentId` (вложенные ответы) |
+| `20260911180000_user_page_visits` | `User.lastSeenAt`, таблица `UserPageVisit` |
+
+Runtime-страховка: `backend/src/utils/pageAnalytics.ts` → `ensurePageAnalyticsTables()` (ALTER/CREATE IF NOT EXISTS), вызывается из analytics/admin. На Windows `prisma generate` может дать EPERM, пока backend держит query engine — код page visits читает/пишет **raw SQL**, чтобы жить без свежего client.
+
+### 31.2 Трекинг и продуктовая аналитика
+
+- Фронт: `PageVisitTracker` в `main.tsx` под `AuthProvider` — heartbeat ~20с + flush при смене маршрута / hide вкладки.
+- API: `POST /api/analytics/page-visit` `{ path, durationMs, visitId }` — upsert визита, обновляет `lastSeenAt`.
+- Нормализация путей: `normalizePathKey` / `featureMeta` (лейблы зон: client / psychologist / researcher / admin / shared / marketing / auth).
+- Админ аналитика `GET /api/admin/analytics`: блок **`product`** — зоны и топ экранов (время, визиты, unique users).
+- UI: `/admin/analytics` — «Продуктовая аналитика»; пусто, пока пользователи не походили по кабинету после деплоя.
+
+### 31.3 Админ «Люди → Пользователи»
+
+- Список кликабельный; сортировка по колонкам: имя, роль, заход, клиенты, AI-токены, дата регистрации.
+- Модалка `AdminUserDetailModal`: действия (email/пароль/верификация/AI-план/модель/удаление), CRM-клиенты психолога + **переназначение**, usage по страницам (7/30/90 дн.).
+- Старый DnD/таблица «все клиенты» на странице убраны — перенос только из модалки.
+- API: `GET /api/admin/users/:id/detail?days=`.
+
+### 31.4 Админ каталог психологов
+
+- `/admin/psychologists-catalog`: сетка как публичный `/psychologists` (`PsychologistMiniCard` + `Catalog.css`), фильтры все/на сайте/скрытые, ↑↓ порядок, скрыть/вернуть, «Сохранить».
+- API каталога отдаёт bio/method/tags/price/rating для карточек.
+
+### 31.5 Админ shell (mist)
+
+- Общий `frontend/src/pages/admin/admin.css`.
+- Dashboard / Support / Analytics / Verification / Mailings / OpenAccess — в `admin-shell`.
+- Support: повторное редактирование ответа/статуса (не one-shot).
+
+### 31.6 Сообщества / форум
+
+- Клиенты могут создавать/вступать/постить (роль `client` в create-rights).
+- Хаб `/communities`, каталог, composer, thread cards, flair/pin, nested comments (`parentId`).
+- Имя автора: fallback на `Client.name`, если `Profile.name` пуст.
+- `PostModal` удалён — пост на полной странице.
+
+### 31.7 Клиентский кабинет (UX)
+
+- Профиль, сессии, тесты, психологи, AI-чат — mist-зоны / отдельные CSS.
+- «Мой психолог»: каталог + прикреплённый; навбар упрощён; Match редиректит, если психолог уже есть.
+- Аватар клиента: WEBP ok.
+
+### 31.8 Ключевые файлы
+
+| Зона | Путь |
+|------|------|
+| Трекинг | `frontend/src/components/PageVisitTracker.tsx`, `backend/src/utils/pageAnalytics.ts`, `backend/src/routes/analytics.ts` |
+| Админ users | `frontend/src/pages/admin/UserManagement.tsx`, `AdminUserDetailModal.tsx`, `backend/src/routes/adminUsers.ts` |
+| Админ analytics | `frontend/src/pages/admin/Analytics.tsx`, `backend/src/routes/admin.ts` (`buildProductUsage`) |
+| Каталог | `frontend/src/pages/admin/PsychologistsCatalog.tsx` |
+| Admin CSS | `frontend/src/pages/admin/admin.css` |
+| Forum | `community.ts`, `CommunitiesCatalog.tsx`, `PublicationComposer.tsx`, `ThreadCard.tsx`, … |
+| Schema | `backend/prisma/schema.prisma` + 3 миграции выше |
+
+### 31.9 Деплой на прод (копировать на сервер)
+
+```bash
+cd /var/www/jingai
+pm2 stop jingai-backend
+
+# backup БД (путь сверить с DATABASE_URL в backend/.env)
+# типично: backend/prisma/prod.db
+cp -a backend/prisma/prod.db "backend/prisma/prod.db.backup-$(date +%Y%m%d-%H%M%S)"
+
+git pull --ff-only origin main
+
+npm ci --include=dev
+npm -w backend run prisma:generate
+npm -w backend run prisma:migrate:deploy
+npm run build:backend && npm run build:frontend
+
+pm2 restart jingai-backend --update-env
+pm2 logs jingai-backend --lines 80
+```
+
+Проверки после деплоя:
+- [ ] В SQLite есть таблица `UserPageVisit`; у `User` есть `lastSeenAt`
+- [ ] Зайти под любым юзером → походить 1–2 минуты → в `/admin/users` клик → «Активность»
+- [ ] `/admin/analytics` → блок «Продуктовая аналитика»
+- [ ] `/admin/psychologists-catalog` — карточки как на сайте; скрытие + сохранить → `/psychologists`
+- [ ] Сообщества: клиент создаёт/комментирует; pin/flair у модератора
+- [ ] Ctrl+F5 на админке и кабинете клиента
+
+**Не делать:** `prisma db push`, `migrate dev`, nested `npm ci` в `backend/` или `frontend/`.
 

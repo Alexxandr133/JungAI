@@ -4,6 +4,7 @@ import { api } from '../../lib/api';
 import { AdminNavbar } from '../../components/AdminNavbar';
 import { Link, useSearchParams } from 'react-router-dom';
 import WorkArea from '../psychologist/WorkArea';
+import './admin.css';
 
 type SupportRequest = {
   id: string;
@@ -92,11 +93,17 @@ export default function AdminOpenAccess() {
   if (selectedClientId) {
 
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="admin-shell">
         <AdminNavbar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Header с информацией о запросе */}
-          <div style={{ padding: '16px 48px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'var(--surface)', flexShrink: 0 }}>
+          <div
+            style={{
+              padding: '16px clamp(16px, 4vw, 40px)',
+              borderBottom: '1px solid var(--line)',
+              background: 'var(--card)',
+              flexShrink: 0,
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -142,66 +149,51 @@ export default function AdminOpenAccess() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="admin-shell">
       <AdminNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: '100%',
-          overflowX: 'hidden'
-        }}
-      >
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Открытый функционал</h1>
-          <div className="small" style={{ color: 'var(--text-muted)' }}>
-            Доступ к рабочим областям клиентов для решения проблем
+      <main className="admin-main">
+        <header className="admin-head">
+          <div>
+            <p className="admin-head__eyebrow">Операции</p>
+            <h1 className="admin-head__title">Открытый функционал</h1>
+            <p className="admin-head__lead">
+              Доступ к рабочим областям клиентов по запросам техподдержки
+            </p>
           </div>
-        </div>
+          <Link to="/admin/support" className="button secondary">
+            ← Тех. запросы
+          </Link>
+        </header>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>Загрузка...</div>
+          <div className="admin-loading">Загрузка…</div>
         ) : requests.length === 0 ? (
-          <div className="card" style={{ padding: 48, textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🔓</div>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Нет открытых доступов</div>
-            <div className="small" style={{ color: 'var(--text-muted)' }}>
-              Запросы с разрешением доступа к рабочей области появятся здесь
-            </div>
-          </div>
+          <div className="admin-panel admin-empty">Нет открытых доступов</div>
         ) : (
-          <div style={{ display: 'grid', gap: 16 }}>
-            {requests.map(req => (
-              <div key={req.id} className="card" style={{ padding: 24 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{req.title}</h3>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {requests.map((req) => (
+              <div key={req.id} className="admin-panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 700 }}>{req.title}</h3>
+                    <p className="admin-list__meta" style={{ marginBottom: 10 }}>
+                      Психолог: {req.psychologistName || req.psychologistEmail} · Клиент:{' '}
+                      {req.client?.name || 'Не указан'} · {new Date(req.createdAt).toLocaleString('ru-RU')}
+                    </p>
+                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: 14, color: 'var(--ink-soft)' }}>
+                      {req.description}
                     </div>
-                    <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
-                      Психолог: {req.psychologistName || req.psychologistEmail} • 
-                      Клиент: {req.client?.name || 'Не указан'} • 
-                      {new Date(req.createdAt).toLocaleString('ru-RU')}
-                    </div>
-                    {req.client && (
-                      <div style={{ padding: 12, background: 'rgba(59, 130, 246, 0.1)', borderRadius: 8, marginBottom: 12 }}>
-                        <div className="small" style={{ color: '#3b82f6', fontWeight: 600, marginBottom: 4 }}>
-                          🔓 Доступ к рабочей области: {req.client.name}
-                        </div>
-                        <button
-                          className="button"
-                          onClick={() => handleOpenWorkArea(req.id, req.client!.id)}
-                          style={{ padding: '8px 16px', fontSize: 14, marginTop: 8 }}
-                        >
-                          Открыть рабочую область
-                        </button>
-                      </div>
-                    )}
+                    {req.client ? (
+                      <button
+                        type="button"
+                        className="button"
+                        style={{ marginTop: 14 }}
+                        onClick={() => handleOpenWorkArea(req.id, req.client!.id)}
+                      >
+                        Открыть рабочую область
+                      </button>
+                    ) : null}
                   </div>
-                </div>
-                <div style={{ marginBottom: 16 }}>
-                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>Описание проблемы:</div>
-                  <div style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{req.description}</div>
                 </div>
               </div>
             ))}

@@ -54,12 +54,9 @@ export function PsychologistNavbar() {
         },
         {
           label: 'Сообщества',
+          path: '/communities',
           icon: 'book',
-          tourKey: 'nav-communities',
-          children: [
-            { label: 'Публикации', path: '/publications', icon: 'file' },
-            { label: 'Лента', path: '/feed', icon: 'messages' }
-          ]
+          tourKey: 'nav-communities'
         },
         {
           label: 'Тех.поддержка',
@@ -86,6 +83,15 @@ export function PsychologistNavbar() {
     if (!path) return false;
     if (path === '/psychologist') {
       return location.pathname === '/psychologist';
+    }
+    if (path === '/communities') {
+      const p = location.pathname;
+      return (
+        p === '/communities' ||
+        p.startsWith('/communities/') ||
+        p.startsWith('/publications') ||
+        p === '/feed'
+      );
     }
     if (path === '/admin') {
       return location.pathname === '/admin' || location.pathname === '/admin/';

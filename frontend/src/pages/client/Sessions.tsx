@@ -3,7 +3,9 @@ import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
 import { ClientSessionBookingModal } from '../../components/client/ClientSessionBookingModal';
+import { useMessengerUi } from '../../context/MessengerUiContext';
 import { CalendarClock, Check, Phone, Video, X, CalendarPlus } from 'lucide-react';
+import './Sessions.css';
 
 type Session = {
   id: string;
@@ -22,7 +24,6 @@ type Event = {
   endsAt?: string;
   sessionStatus?: 'pending' | 'accepted' | 'declined';
   sessionDeclineComment?: string;
-  /** Самозапись клиента — подтверждает психолог */
   clientRequestedSession?: boolean;
   voiceRoom?: {
     id: string;
@@ -31,8 +32,20 @@ type Event = {
   };
 };
 
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return `${date} в ${time}`;
+}
+
+function isUpcoming(date: string) {
+  return new Date(date) > new Date();
+}
+
 export default function ClientSessions() {
   const { token } = useAuth();
+  const { openMessenger } = useMessengerUi();
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -43,19 +56,20 @@ export default function ClientSessions() {
   const [processing, setProcessing] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const nowTs = Date.now();
-  const activeEvents = events.filter(ev => new Date(ev.endsAt || ev.startsAt).getTime() >= nowTs);
-  const historyEvents = events.filter(ev => new Date(ev.endsAt || ev.startsAt).getTime() < nowTs);
-  const nearestUpcomingEvent = activeEvents
-    .filter(ev => new Date(ev.startsAt).getTime() > nowTs)
-    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0] || null;
-  const visibleSessions = sessions.filter(session => {
+  const activeEvents = events.filter((ev) => new Date(ev.endsAt || ev.startsAt).getTime() >= nowTs);
+  const historyEvents = events.filter((ev) => new Date(ev.endsAt || ev.startsAt).getTime() < nowTs);
+  const nearestUpcomingEvent =
+    activeEvents
+      .filter((ev) => new Date(ev.startsAt).getTime() > nowTs)
+      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0] || null;
+  const visibleSessions = sessions.filter((session) => {
     if (!session.eventId) return true;
-    const linkedEvent = events.find(ev => ev.id === session.eventId);
+    const linkedEvent = events.find((ev) => ev.id === session.eventId);
     if (!linkedEvent) return true;
     return linkedEvent.sessionStatus === 'accepted';
   });
-  const activeSessions = visibleSessions.filter(s => new Date(s.date).getTime() >= nowTs);
-  const historySessions = visibleSessions.filter(s => new Date(s.date).getTime() < nowTs);
+  const activeSessions = visibleSessions.filter((s) => new Date(s.date).getTime() >= nowTs);
+  const historySessions = visibleSessions.filter((s) => new Date(s.date).getTime() < nowTs);
 
   const [showBookModal, setShowBookModal] = useState(false);
   const [upcomingReminder, setUpcomingReminder] = useState<{ id: string; title: string; startsAt: string } | null>(null);
@@ -82,13 +96,10 @@ export default function ClientSessions() {
       setSessions(sessionsRes.items || []);
       setEvents(eventsRes.items || []);
       const rem = remindRes.upcoming?.[0];
-      setUpcomingReminder(
-        rem
-          ? { id: rem.id, title: rem.title, startsAt: rem.startsAt }
-          : null
-      );
-    } catch (e: any) {
-      setError(e.message || 'Не удалось загрузить сессии');
+      setUpcomingReminder(rem ? { id: rem.id, title: rem.title, startsAt: rem.startsAt } : null);
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Не удалось загрузить сессии';
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -100,7 +111,6 @@ export default function ClientSessions() {
 
   async function handleSessionStatus(eventId: string, status: 'accepted' | 'declined') {
     if (!token) return;
-    
     setProcessing(eventId);
     try {
       await api(`/api/events/${eventId}/session-status`, {
@@ -108,21 +118,25 @@ export default function ClientSessions() {
         token,
         body: {
           status,
-          comment: status === 'declined' ? declineComment[eventId] : undefined
-        }
+          comment: status === 'declined' ? declineComment[eventId] : undefined,
+        },
       });
-      
-      // Обновляем локальное состояние
-      setEvents(prev => prev.map(ev => 
-        ev.id === eventId 
-          ? { ...ev, sessionStatus: status, sessionDeclineComment: status === 'declined' ? declineComment[eventId] : undefined }
-          : ev
-      ));
-      
+      setEvents((prev) =>
+        prev.map((ev) =>
+          ev.id === eventId
+            ? {
+                ...ev,
+                sessionStatus: status,
+                sessionDeclineComment: status === 'declined' ? declineComment[eventId] : undefined,
+              }
+            : ev
+        )
+      );
       setShowDeclineModal(null);
-      setDeclineComment(prev => ({ ...prev, [eventId]: '' }));
-    } catch (e: any) {
-      alert(e.message || 'Не удалось обновить статус сессии');
+      setDeclineComment((prev) => ({ ...prev, [eventId]: '' }));
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Не удалось обновить статус';
+      window.alert(msg);
     } finally {
       setProcessing(null);
     }
@@ -140,318 +154,214 @@ export default function ClientSessions() {
       setReflectEventId(null);
       setReflectText('');
       setReflectMood(3);
-    } catch (e: any) {
-      alert(e.message || 'Не удалось сохранить рефлексию');
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: string }).message) : 'Не удалось сохранить';
+      window.alert(msg);
     } finally {
       setReflectSaving(false);
     }
   }
 
-  function formatDateTime(iso: string) {
-    const d = new Date(iso);
-    const date = d.toLocaleDateString('ru-RU', { year: 'numeric', month: 'long', day: 'numeric' });
-    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return `${date} в ${time}`;
-  }
+  function renderEventCard(event: Event, opts?: { history?: boolean }) {
+    const upcoming = isUpcoming(event.startsAt);
+    const isPending = event.sessionStatus === 'pending' || !event.sessionStatus;
+    const clientAskedPsych = Boolean(event.clientRequestedSession);
+    const psychInvitedClient = isPending && !clientAskedPsych;
+    const clientWaitingPsych = isPending && clientAskedPsych;
+    const isAccepted = event.sessionStatus === 'accepted';
+    const isDeclined = event.sessionStatus === 'declined';
+    const highlightClientAction = psychInvitedClient && upcoming;
+    const highlightWaitingPsych = clientWaitingPsych && upcoming;
 
-  function isUpcoming(date: string) {
-    return new Date(date) > new Date();
+    const cardMod = isDeclined
+      ? 'client-sessions__card--declined'
+      : highlightClientAction || highlightWaitingPsych
+        ? 'client-sessions__card--pending'
+        : isAccepted
+          ? 'client-sessions__card--accepted'
+          : '';
+
+    return (
+      <article key={event.id} className={`client-sessions__card ${cardMod}`.trim()}>
+        <div className="client-sessions__card-row">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="client-sessions__card-title">
+              {highlightClientAction && <span className="client-sessions__badge client-sessions__badge--warning">Ожидает вашего ответа</span>}
+              {highlightWaitingPsych && <span className="client-sessions__badge client-sessions__badge--warning">Ожидает психолога</span>}
+              {isAccepted && <span className="client-sessions__badge client-sessions__badge--sage">Принята</span>}
+              {isDeclined && <span className="client-sessions__badge client-sessions__badge--danger">Отклонена</span>}
+              {opts?.history && <span className="client-sessions__badge client-sessions__badge--muted">Прошла</span>}
+              <h3>{event.title}</h3>
+            </div>
+            <div className="client-sessions__when">
+              <CalendarClock size={15} />
+              {formatDateTime(event.startsAt)}
+            </div>
+            {event.description && (
+              <div className="client-sessions__desc">
+                <div className="client-sessions__desc-label">Описание</div>
+                {event.description}
+              </div>
+            )}
+            {event.sessionDeclineComment && (
+              <div className="client-sessions__decline-note">
+                <strong>{event.clientRequestedSession ? 'Комментарий специалиста' : 'Ваш комментарий'}</strong>
+                {event.sessionDeclineComment}
+              </div>
+            )}
+          </div>
+          <div className="client-sessions__card-actions">
+            {opts?.history ? (
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => {
+                  setReflectEventId(event.id);
+                  setReflectMood(3);
+                  setReflectText('');
+                }}
+              >
+                Рефлексия
+              </button>
+            ) : (
+              <>
+                {event.voiceRoom && (isAccepted || psychInvitedClient) && (
+                  <a href={event.voiceRoom.roomUrl} target="_blank" rel="noopener noreferrer" className="button">
+                    <Video size={15} />В комнату
+                  </a>
+                )}
+                {psychInvitedClient && upcoming && (
+                  <>
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => void handleSessionStatus(event.id, 'accepted')}
+                      disabled={processing === event.id}
+                    >
+                      {processing === event.id ? '…' : (
+                        <>
+                          <Check size={14} /> Принять
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="button danger"
+                      onClick={() => setShowDeclineModal(event.id)}
+                      disabled={processing === event.id}
+                    >
+                      <X size={14} /> Отклонить
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </article>
+    );
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="client-sessions">
       <ClientNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: '100%',
-          overflowX: 'hidden'
-        }}
-      >
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Сессии с психологом</h1>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="button"
-                onClick={() => setShowBookModal(true)}
-                style={{ padding: '9px 16px', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8, borderRadius: 12 }}
-              >
-                <CalendarPlus size={16} />
-                Запланировать сессию
+      <main className="client-sessions__main">
+        <header className="client-sessions__head">
+          <div>
+            <p className="client-sessions__eyebrow">Календарь</p>
+            <h1 className="client-sessions__h1">Сессии</h1>
+          </div>
+          <div className="client-sessions__actions">
+            <button type="button" className="button" onClick={() => setShowBookModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <CalendarPlus size={16} />
+              Запланировать
+            </button>
+            <div className="client-sessions__tabs" role="tablist">
+              <button type="button" role="tab" className={`client-sessions__tab${!showHistory ? ' is-on' : ''}`} onClick={() => setShowHistory(false)}>
+                Предстоящие
               </button>
-              <button className={showHistory ? 'button' : 'button secondary'} onClick={() => setShowHistory(prev => !prev)} style={{ padding: '8px 14px', fontSize: 13 }}>
-                {showHistory ? 'Актуальные' : 'История'}
+              <button type="button" role="tab" className={`client-sessions__tab${showHistory ? ' is-on' : ''}`} onClick={() => setShowHistory(true)}>
+                История
               </button>
             </div>
           </div>
-        </div>
+        </header>
 
         {upcomingReminder && (
-          <div
-            className="card"
-            style={{
-              marginBottom: 16,
-              padding: 14,
-              border: '1px solid rgba(25,224,255,0.35)',
-              background: 'rgba(25,224,255,0.08)',
-            }}
-          >
-            <div style={{ fontWeight: 700 }}>Напоминание: сессия в ближайшие 24 часа</div>
-            <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
-              «{upcomingReminder.title}» — {formatDateTime(upcomingReminder.startsAt)}
+          <div className="client-sessions__banner">
+            <div>
+              <strong>Сессия в ближайшие 24 часа</strong>
+              <span>
+                «{upcomingReminder.title}» — {formatDateTime(upcomingReminder.startsAt)}
+              </span>
             </div>
-          </div>
-        )}
-
-        {loading && (
-          <div style={{ marginTop: 24, textAlign: 'center', padding: 24 }}>
-            <div className="small" style={{ opacity: 0.7 }}>Загрузка сессий...</div>
-          </div>
-        )}
-
-        {error && (
-          <div style={{ marginTop: 24, padding: 16, background: 'var(--surface-2)', borderRadius: 12, color: '#ff7b7b' }}>
-            {error}
-          </div>
-        )}
-
-        {/* Приглашения на сессии (события) */}
-        {!loading && !error && nearestUpcomingEvent && (
-          <div className="card" style={{ marginTop: 12, padding: 14, border: '1px solid rgba(59,130,246,0.28)', background: 'rgba(59,130,246,0.08)' }}>
-            <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}><CalendarClock size={16} />Ближайшая предстоящая</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{nearestUpcomingEvent.title}</div>
-                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(nearestUpcomingEvent.startsAt)}</div>
-              </div>
-              {nearestUpcomingEvent.voiceRoom &&
-                (nearestUpcomingEvent.sessionStatus === 'accepted' ||
-                  ((nearestUpcomingEvent.sessionStatus === 'pending' || !nearestUpcomingEvent.sessionStatus) &&
-                    !nearestUpcomingEvent.clientRequestedSession)) && (
-                <a
-                  href={nearestUpcomingEvent.voiceRoom.roomUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="button"
-                  style={{ padding: '8px 12px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                >
-                  <Video size={14} />
-                  В комнату
+            {nearestUpcomingEvent?.voiceRoom?.roomUrl &&
+              (nearestUpcomingEvent.sessionStatus === 'accepted' ||
+                ((nearestUpcomingEvent.sessionStatus === 'pending' || !nearestUpcomingEvent.sessionStatus) &&
+                  !nearestUpcomingEvent.clientRequestedSession)) && (
+                <a href={nearestUpcomingEvent.voiceRoom.roomUrl} className="button" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Video size={14} />В комнату
                 </a>
               )}
-            </div>
           </div>
         )}
+
+        {loading && <p className="client-sessions__loading">Загрузка сессий…</p>}
+        {error && <div className="client-sessions__error">{error}</div>}
+
         {!loading && !error && !showHistory && activeEvents.length > 0 && (
-          <div style={{ marginTop: 24 }}>
-            <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Сессии</h2>
-            <div style={{ display: 'grid', gap: 12 }}>
-              {activeEvents.map(event => {
-                const upcoming = isUpcoming(event.startsAt);
-                const isPending = event.sessionStatus === 'pending' || !event.sessionStatus;
-                const clientAskedPsych = Boolean(event.clientRequestedSession);
-                const psychInvitedClient = isPending && !clientAskedPsych;
-                const clientWaitingPsych = isPending && clientAskedPsych;
-                const isAccepted = event.sessionStatus === 'accepted';
-                const isDeclined = event.sessionStatus === 'declined';
-                const highlightClientAction = psychInvitedClient && upcoming;
-                const highlightWaitingPsych = clientWaitingPsych && upcoming;
-                
-                return (
-                  <div key={event.id} className="card" style={{ 
-                    padding: 20, 
-                    border: highlightClientAction ? '2px solid var(--primary)' : highlightWaitingPsych ? '2px solid rgba(234, 179, 8, 0.55)' : isDeclined ? '1px solid rgba(244, 67, 54, 0.3)' : '1px solid rgba(255,255,255,0.08)',
-                    background: highlightClientAction 
-                      ? 'linear-gradient(135deg, var(--primary)11, var(--accent)11)' 
-                      : highlightWaitingPsych
-                        ? 'rgba(234, 179, 8, 0.06)'
-                      : isDeclined 
-                        ? 'rgba(244, 67, 54, 0.05)' 
-                        : isAccepted
-                          ? 'rgba(76, 175, 80, 0.05)'
-                          : 'var(--surface-2)'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                          {highlightClientAction && (
-                            <span style={{ 
-                              padding: '4px 8px', 
-                              background: 'rgba(255, 193, 7, 0.2)', 
-                              color: '#ffc107', 
-                              borderRadius: 6, 
-                              fontSize: 12, 
-                              fontWeight: 700 
-                            }}>
-                              Ожидает вашего ответа
-                            </span>
-                          )}
-                          {highlightWaitingPsych && (
-                            <span style={{ 
-                              padding: '4px 8px', 
-                              background: 'rgba(234, 179, 8, 0.22)', 
-                              color: '#ca8a04', 
-                              borderRadius: 6, 
-                              fontSize: 12, 
-                              fontWeight: 700 
-                            }}>
-                              Ожидает психолога
-                            </span>
-                          )}
-                          {isAccepted && (
-                            <span style={{ 
-                              padding: '4px 8px', 
-                              background: 'rgba(76, 175, 80, 0.2)', 
-                              color: '#4caf50', 
-                              borderRadius: 6, 
-                              fontSize: 12, 
-                              fontWeight: 700 
-                            }}>
-                              Принята
-                            </span>
-                          )}
-                          {isDeclined && (
-                            <span style={{ 
-                              padding: '4px 8px', 
-                              background: 'rgba(244, 67, 54, 0.2)', 
-                              color: '#f44336', 
-                              borderRadius: 6, 
-                              fontSize: 12, 
-                              fontWeight: 700 
-                            }}>
-                              Отклонена
-                            </span>
-                          )}
-                          <div style={{ fontSize: 18, fontWeight: 700 }}>{event.title}</div>
-                        </div>
-                        <div style={{ color: 'var(--text-muted)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <CalendarClock size={15} />
-                          {formatDateTime(event.startsAt)}
-                        </div>
-                        {event.description && (
-                          <div style={{ marginTop: 12, padding: 12, background: 'var(--surface)', borderRadius: 8 }}>
-                            <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 4 }}>Описание:</div>
-                            <div>{event.description}</div>
-                          </div>
-                        )}
-                        {event.voiceRoom && (isAccepted || psychInvitedClient) && (
-                          <div style={{ marginTop: 12 }}>
-                            <a
-                              href={event.voiceRoom.roomUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="button"
-                              style={{ padding: '8px 16px', fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                            >
-                              <Video size={15} />
-                              Войти в комнату
-                            </a>
-                          </div>
-                        )}
-                        {event.sessionDeclineComment && (
-                          <div style={{ marginTop: 12, padding: 12, background: 'rgba(244, 67, 54, 0.1)', borderRadius: 8, border: '1px solid rgba(244, 67, 54, 0.2)' }}>
-                            <div className="small" style={{ color: '#f44336', marginBottom: 4, fontWeight: 600 }}>
-                              {event.clientRequestedSession ? 'Комментарий специалиста:' : 'Ваш комментарий:'}
-                            </div>
-                            <div style={{ color: 'var(--text)' }}>{event.sessionDeclineComment}</div>
-                          </div>
-                        )}
-                      </div>
-                      {psychInvitedClient && upcoming && (
-                        <div style={{ display: 'flex', gap: 8, flexDirection: 'column', flexShrink: 0 }}>
-                          <button
-                            className="button"
-                            onClick={() => handleSessionStatus(event.id, 'accepted')}
-                            disabled={processing === event.id}
-                            style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap' }}
-                          >
-                            {processing === event.id ? '...' : (<><Check size={14} /> Принять</>)}
-                          </button>
-                          <button
-                            className="button danger"
-                            onClick={() => setShowDeclineModal(event.id)}
-                            disabled={processing === event.id}
-                            style={{ padding: '8px 16px', fontSize: 13, whiteSpace: 'nowrap' }}
-                          >
-                            <X size={14} /> Отклонить
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <div className="client-sessions__list">{activeEvents.map((ev) => renderEventCard(ev))}</div>
         )}
 
         {!loading && !error && showHistory && historyEvents.length === 0 && historySessions.length === 0 && (
-          <div style={{ marginTop: 24, padding: 24, background: 'var(--surface-2)', borderRadius: 16, textAlign: 'center' }}>
-            <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8 }}>История пока пуста</div>
-            <div style={{ color: 'var(--text-muted)' }}>Прошедшие встречи и сессии будут отображаться здесь.</div>
+          <div className="client-sessions__empty">
+            <h2>История пока пуста</h2>
+            <p>Прошедшие встречи появятся здесь после сессий.</p>
           </div>
         )}
+
         {!loading && !error && showHistory && (historyEvents.length > 0 || historySessions.length > 0) && (
-          <div style={{ marginTop: 20, display: 'grid', gap: 12 }}>
-            {historyEvents.map(event => (
-              <div key={`h-ev-${event.id}`} className="card" style={{ padding: 16, background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)', display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{event.title}</div>
-                  <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(event.startsAt)} · Прошла</div>
+          <div className="client-sessions__list">
+            {historyEvents.map((ev) => renderEventCard(ev, { history: true }))}
+            {historySessions.map((session) => (
+              <article key={`h-sess-${session.id}`} className="client-sessions__card">
+                <div className="client-sessions__card-title">
+                  <span className="client-sessions__badge client-sessions__badge--muted">Прошла</span>
+                  <h3>Сессия с психологом</h3>
                 </div>
-                <button
-                  type="button"
-                  className="button secondary"
-                  style={{ padding: '8px 12px', fontSize: 13 }}
-                  onClick={() => { setReflectEventId(event.id); setReflectMood(3); setReflectText(''); }}
-                >
-                  Рефлексия 2 мин
-                </button>
-              </div>
-            ))}
-            {historySessions.map(session => (
-              <div key={`h-sess-${session.id}`} className="card" style={{ padding: 16, opacity: 0.75, background: 'rgba(148,163,184,0.08)', border: '1px solid rgba(148,163,184,0.2)' }}>
-                <div style={{ fontWeight: 600 }}>Сессия с психологом</div>
-                <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>{formatDateTime(session.date)} · Прошла</div>
-              </div>
+                <div className="client-sessions__when">
+                  <CalendarClock size={15} />
+                  {formatDateTime(session.date)}
+                </div>
+              </article>
             ))}
           </div>
         )}
 
         {!loading && !error && !showHistory && activeSessions.length === 0 && activeEvents.length === 0 && (
-          <div style={{ marginTop: 24, padding: 24, background: 'var(--surface-2)', borderRadius: 16, textAlign: 'center' }}>
-            <div style={{ marginBottom: 16, display: 'grid', placeItems: 'center', color: 'var(--primary)' }}><Phone size={44} /></div>
-            <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 8 }}>Сессии с психологом</div>
-            <div style={{ color: 'var(--text-muted)' }}>Ваш психолог пока не назначил сессий. Сессии будут отображаться здесь после назначения.</div>
+          <div className="client-sessions__empty">
+            <Phone size={36} color="var(--brand)" />
+            <h2>Пока нет сессий</h2>
+            <p>Запланируйте встречу или напишите психологу — приглашения появятся здесь.</p>
+            <div className="client-sessions__empty-actions">
+              <button type="button" className="button" onClick={() => setShowBookModal(true)}>
+                Запланировать
+              </button>
+              <button type="button" className="button secondary" onClick={() => openMessenger()}>
+                Написать психологу
+              </button>
+            </div>
           </div>
         )}
 
         {reflectEventId && (
-          <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.72)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }}
-            onClick={() => setReflectEventId(null)}
-          >
-            <div
-              className="card"
-              style={{ width: 'min(480px, 96vw)', padding: 22, borderRadius: 18 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 style={{ marginTop: 0 }}>Как прошла сессия?</h3>
-              <p className="small" style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-                Короткая рефлексия только для вас (и попадёт в ваш прогресс).
-              </p>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div className="client-sessions__modal-backdrop" onClick={() => setReflectEventId(null)}>
+            <div className="client-sessions__modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Как прошла сессия?</h3>
+              <p>Короткая рефлексия попадёт в «Мой путь».</p>
+              <div className="client-sessions__reflect-mood">
                 {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className={reflectMood === n ? 'button' : 'button secondary'}
-                    style={{ minWidth: 40, padding: '8px 10px' }}
-                    onClick={() => setReflectMood(n)}
-                  >
+                  <button key={n} type="button" className={reflectMood === n ? 'is-on' : undefined} onClick={() => setReflectMood(n)}>
                     {n}
                   </button>
                 ))}
@@ -461,9 +371,8 @@ export default function ClientSessions() {
                 onChange={(e) => setReflectText(e.target.value)}
                 placeholder="Что осталось важным? (необязательно)"
                 rows={4}
-                style={{ width: '100%', padding: 12, borderRadius: 10, resize: 'vertical', fontFamily: 'inherit', marginBottom: 14 }}
               />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <div className="client-sessions__modal-actions">
                 <button type="button" className="button secondary" onClick={() => setReflectEventId(null)}>
                   Закрыть
                 </button>
@@ -476,43 +385,35 @@ export default function ClientSessions() {
         )}
 
         {showDeclineModal && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.72)', backdropFilter: 'blur(8px)', display: 'grid', placeItems: 'center', zIndex: 1000, padding: 16 }} onClick={() => setShowDeclineModal(null)}>
-            <div className="card" style={{ width: 'min(500px, 96vw)', padding: 22, border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 26px 80px rgba(0,0,0,0.6)', borderRadius: 18 }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ marginTop: 0, marginBottom: 16 }}>Отклонить приглашение на сессию</h3>
-              <div style={{ marginBottom: 16, color: 'var(--text-muted)' }}>
-                Вы можете оставить комментарий, объясняющий причину отклонения (необязательно):
-              </div>
+          <div className="client-sessions__modal-backdrop" onClick={() => setShowDeclineModal(null)}>
+            <div className="client-sessions__modal" onClick={(e) => e.stopPropagation()}>
+              <h3>Отклонить приглашение</h3>
+              <p>Можно оставить комментарий (необязательно).</p>
               <textarea
                 value={declineComment[showDeclineModal] || ''}
-                onChange={e => setDeclineComment(prev => ({ ...prev, [showDeclineModal]: e.target.value }))}
-                placeholder="Комментарий (необязательно)"
-                style={{ width: '100%', padding: '12px', borderRadius: 8, marginBottom: 16, minHeight: 100, resize: 'vertical', fontFamily: 'inherit', fontSize: 14 }}
+                onChange={(e) => setDeclineComment((prev) => ({ ...prev, [showDeclineModal]: e.target.value }))}
+                placeholder="Комментарий"
+                rows={4}
               />
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button className="button secondary" onClick={() => setShowDeclineModal(null)} style={{ padding: '8px 16px' }}>
+              <div className="client-sessions__modal-actions">
+                <button type="button" className="button secondary" onClick={() => setShowDeclineModal(null)}>
                   Отмена
                 </button>
-                <button 
-                  className="button danger" 
-                  onClick={() => handleSessionStatus(showDeclineModal, 'declined')}
+                <button
+                  type="button"
+                  className="button danger"
                   disabled={processing === showDeclineModal}
-                  style={{ padding: '8px 16px' }}
+                  onClick={() => void handleSessionStatus(showDeclineModal, 'declined')}
                 >
-                  {processing === showDeclineModal ? 'Отклонение...' : 'Отклонить'}
+                  {processing === showDeclineModal ? '…' : 'Отклонить'}
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        <ClientSessionBookingModal
-          open={showBookModal}
-          token={token}
-          onClose={() => setShowBookModal(false)}
-          onBooked={() => void reloadData()}
-        />
+        <ClientSessionBookingModal open={showBookModal} token={token} onClose={() => setShowBookModal(false)} onBooked={() => void reloadData()} />
       </main>
     </div>
   );
 }
-

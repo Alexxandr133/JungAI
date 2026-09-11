@@ -54,7 +54,7 @@ export const PSYCHOLOGIST_DASHBOARD_TOUR_STEPS: DriveStep[] = [
     popover: {
       title: 'Сообщества',
       description:
-        'Публикации — ваши статьи и сообщества; Лента — общий поток материалов коллег. Удобно для обмена практикой и обучения.',
+        'Хаб: сообщество → посты → обсуждения. Слева мои (управление) и подписки отдельно; справа черновики. Новый пост — отдельная страница.',
       side: 'bottom'
     }
   },
@@ -519,9 +519,9 @@ export const PSYCHOLOGIST_AMPLIFICATIONS_TOUR_STEPS: DriveStep[] = [
 export const PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS: DriveStep[] = [
   {
     popover: {
-      title: 'Публикации',
+      title: 'Мои посты',
       description:
-        'Ваши статьи и сообщества. Слева — профиль и список сообществ, справа — лента ваших публикаций и создание поста.',
+        'Скоуп «Мои» в хабе: ваши опубликованные посты. Черновики — справа. Новый пост — отдельная страница.',
       side: 'over',
       align: 'center'
     }
@@ -529,9 +529,8 @@ export const PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS: DriveStep[] = [
   {
     element: '[data-tour="publications-sidebar"]',
     popover: {
-      title: 'Профиль и сообщества',
-      description:
-        'Карточка профиля и список сообществ. Можно создать сообщество (если доступно) и открыть его страницу управления.',
+      title: 'Сообщества',
+      description: 'Мои (управление) и подписки — разные списки.',
       side: 'right',
       align: 'start'
     }
@@ -539,9 +538,8 @@ export const PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS: DriveStep[] = [
   {
     element: '[data-tour="publications-main"]',
     popover: {
-      title: 'Ваши публикации',
-      description:
-        'Создавайте посты от себя или от сообщества (если вы владелец). Открывайте полную статью для комментариев и правок.',
+      title: 'Ваши посты',
+      description: 'Полный текст только на странице поста.',
       side: 'left',
       align: 'start'
     }
@@ -551,9 +549,8 @@ export const PSYCHOLOGIST_PUBLICATIONS_TOUR_STEPS: DriveStep[] = [
 export const PSYCHOLOGIST_FEED_TOUR_STEPS: DriveStep[] = [
   {
     popover: {
-      title: 'Лента',
-      description:
-        'Общий поток публикаций авторов и сообществ. Удобно следить за коллегами и находить полезные материалы.',
+      title: 'Сообщества',
+      description: 'Сообщество → посты → обсуждения. Слева: мои (управление) и подписки отдельно.',
       side: 'over',
       align: 'center'
     }
@@ -561,28 +558,25 @@ export const PSYCHOLOGIST_FEED_TOUR_STEPS: DriveStep[] = [
   {
     element: '[data-tour="feed-header"]',
     popover: {
-      title: 'Шапка ленты',
-      description:
-        'Переход к «Моим публикациям», сброс фильтра по автору. Отсюда же видно активный фильтр, если открыли ленту автора.',
+      title: 'Фильтры',
+      description: 'Скоуп Все / Подписки / Мои (посты), сортировка и тип в одном тулбаре.',
       side: 'bottom'
     }
   },
   {
     element: '[data-tour="feed-communities"]',
     popover: {
-      title: 'Сообщества',
-      description:
-        'Быстрый переход в сообщества платформы. Клик открывает страницу сообщества.',
-      side: 'right',
+      title: 'Правая колонка',
+      description: 'Черновики, если есть.',
+      side: 'left',
       align: 'start'
     }
   },
   {
     element: '[data-tour="feed-posts"]',
     popover: {
-      title: 'Посты ленты',
-      description:
-        'Клик по посту открывает полную публикацию и комментарии. На узком экране используйте ссылку в заголовке карточки.',
+      title: 'Лента постов',
+      description: 'Клик открывает обсуждение. В ленте — заголовок и краткий excerpt.',
       side: 'top'
     }
   }

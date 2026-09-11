@@ -55,8 +55,7 @@ export default function ClientCertificate() {
           <section className="client-cert-form-wrap">
             <h1>Подарочный сертификат</h1>
             <p className="client-cert-lead">
-              Подарок — 1 бесплатная сессия для близкого человека. Дальше мы подберём психолога исходя из
-              запроса.
+              1 бесплатная сессия для близкого человека.
             </p>
 
             <form className="client-cert-form" onSubmit={onSubmit}>

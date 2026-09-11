@@ -12,7 +12,7 @@ import { MessengerUiProvider } from './context/MessengerUiContext'
 import { MessengerHost } from './messenger/MessengerHost'
 import { SessionExpiredModal } from './components/SessionExpiredModal'
 import { I18nProvider } from './context/I18nContext'
-import { ErrorBoundary } from './ErrorBoundary'
+import { PageVisitTracker } from './components/PageVisitTracker'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import DreamsList from './pages/dreams/List'
@@ -40,7 +40,7 @@ import ClientJournal from './pages/client/Journal'
 import ClientTasks from './pages/client/Tasks'
 import ClientRank from './pages/client/Rank'
 import ClientTests from './pages/client/Tests'
-import ClientCommunity from './pages/client/Community'
+import ClientPsychologistsList from './pages/client/PsychologistsList'
 import ClientSessions from './pages/client/Sessions'
 import ClientAIChat from './pages/client/ClientAIChat'
 import ClientCare from './pages/client/Care'
@@ -58,11 +58,12 @@ import ResearcherIndividuationModel from './pages/researcher/IndividuationModel'
 import ResearcherProjects from './pages/researcher/ResearchProjects'
 import ResearchProjectSpace from './pages/researcher/ResearchProjectSpace'
 import ResearcherCalls from './pages/researcher/ResearcherCalls'
-import PublicationsPage from './pages/publications/Publications'
-import FeedPage from './pages/publications/Feed'
 import CommunityView from './pages/publications/CommunityView'
 import CommunityManage from './pages/publications/CommunityManage'
 import PostView from './pages/publications/PostView'
+import CommunitiesCatalog from './pages/publications/CommunitiesCatalog'
+import CommunitiesDirectory from './pages/publications/CommunitiesDirectory'
+import NewPostPage from './pages/publications/NewPost'
 import PsychologistProfile from './pages/psychologist/Profile'
 import PsychologistSupport from './pages/psychologist/Support'
 import PsychologistHandbook from './pages/psychologist/Handbook'
@@ -93,6 +94,7 @@ import AboutPlatform from './pages/AboutPlatform'
 import LegalDocumentPage from './pages/legal/LegalDocumentPage'
 import ContactsPage from './pages/legal/ContactsPage'
 import { CookieConsentBanner } from './components/CookieConsentBanner'
+import { ErrorBoundary } from './ErrorBoundary'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -103,6 +105,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <AuthProvider>
             <ChatSocketProvider>
             <MessengerUiProvider>
+            <PageVisitTracker />
             <MessengerHost />
             <SessionExpiredModal />
             <ForcedEmailMigrationModal />
@@ -128,6 +131,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               />
               <Route path="/guest/tests" element={<GuestTests />} />
               <Route path="/guest/publications" element={<GuestPublications />} />
+              <Route path="/publications/post/:id" element={<PostView />} />
               <Route path="/guest/dreams" element={<GuestDreams />} />
               <Route path="/psychologists" element={<PsychologistsCatalog />} />
               <Route path="/psychologists/:id" element={<PublicPsychologistProfile />} />
@@ -342,7 +346,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route
                 path="/paranormal"
                 element={
-                  <ProtectedRoute roles={['client', 'psychologist', 'admin']}>
+                  <ProtectedRoute roles={['psychologist', 'admin']}>
                     <ParanormalList />
                   </ProtectedRoute>
                 }
@@ -382,25 +386,41 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 }
               />
               <Route
-                path="/publications"
+                path="/publications/new"
                 element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
-                    <PublicationsPage />
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
+                    <NewPostPage />
                   </ProtectedRoute>
                 }
               />
               <Route
+                path="/publications"
+                element={<Navigate to="/communities?scope=mine" replace />}
+              />
+              <Route
                 path="/feed"
+                element={<Navigate to="/communities" replace />}
+              />
+              <Route
+                path="/communities/catalog"
                 element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
-                    <FeedPage />
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
+                    <CommunitiesDirectory />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/communities"
+                element={
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
+                    <CommunitiesCatalog />
                   </ProtectedRoute>
                 }
               />
               <Route
                 path="/publications/community/:slug"
                 element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
                     <CommunityView />
                   </ProtectedRoute>
                 }
@@ -408,16 +428,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route
                 path="/publications/community/:id/manage"
                 element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
+                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
                     <CommunityManage />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/publications/post/:id"
-                element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin']}>
-                    <PostView />
                   </ProtectedRoute>
                 }
               />
@@ -503,14 +515,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/client/community"
-                element={
-                  <ProtectedRoute roles={['client', 'admin']}>
-                    <ClientCommunity />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/client/community" element={<Navigate to="/communities" replace />} />
               <Route
                 path="/client/sessions"
                 element={
@@ -523,7 +528,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 path="/client/psychologists"
                 element={
                   <ProtectedRoute roles={['client', 'admin']}>
-                    <PsychologistsCatalog />
+                    <ClientPsychologistsList />
                   </ProtectedRoute>
                 }
               />

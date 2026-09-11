@@ -3,7 +3,9 @@
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: #f5f3fb;
+  color: #211e2b;
+  font-family: 'Golos Text', system-ui, -apple-system, 'Segoe UI', sans-serif;
 }
 
 .client-cert-stage {
@@ -17,8 +19,8 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 70% 45% at 15% 0%, rgba(124, 92, 255, 0.28), transparent 55%),
-    radial-gradient(ellipse 50% 40% at 90% 80%, rgba(25, 224, 255, 0.14), transparent 50%);
+    radial-gradient(ellipse 70% 45% at 15% 0%, color-mix(in srgb, #efebfc 90%, transparent), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 90% 80%, color-mix(in srgb, #fdebdd 70%, transparent), transparent 50%);
 }
 
 .client-cert-layout {
@@ -102,13 +104,15 @@
 
 .client-cert-form-wrap h1 {
   margin: 0 0 8px;
+  font-family: 'Lora', Georgia, 'Times New Roman', serif;
   font-size: clamp(1.55rem, 3vw, 2rem);
-  font-weight: 800;
+  font-weight: 600;
+  color: #211e2b;
 }
 
 .client-cert-lead {
   margin: 0 0 22px;
-  color: var(--text-muted);
+  color: #57536e;
   line-height: 1.5;
   max-width: 42ch;
 }
@@ -116,10 +120,8 @@
 .client-cert-gift {
   padding: 14px 16px;
   border-radius: 14px;
-  border: 1px solid rgba(25, 224, 255, 0.22);
-  background:
-    linear-gradient(145deg, rgba(25, 224, 255, 0.1), transparent 60%),
-    var(--surface-2);
+  border: 1px solid #d8d2ee;
+  background: #efebfc;
 }
 
 .client-cert-gift__label {

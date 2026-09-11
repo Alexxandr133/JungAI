@@ -1,0 +1,179 @@
+/* Тесты клиента — mist оболочка каталога */
+.client-tests {
+  --paper: #f5f3fb;
+  --paper-soft: #ece9f8;
+  --card: #ffffff;
+  --card-border: #d8d2ee;
+  --line: #e2dff0;
+  --ink: #211e2b;
+  --ink-soft: #57536e;
+  --ink-muted: #8a8496;
+  --brand: #6c5bd4;
+  --brand-deep: #5546b8;
+  --brand-soft: #efebfc;
+  --bg: #f5f3fb;
+  --surface: #ffffff;
+  --surface-2: #f3f1fa;
+  --text: #211e2b;
+  --text-muted: #8a8496;
+  --navbar-edge: #e2dff0;
+  --primary: #6c5bd4;
+  --font-display: 'Lora', Georgia, 'Times New Roman', serif;
+  --font-ui: 'Golos Text', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.client-tests .button {
+  background: var(--brand);
+  color: #fff;
+  text-shadow: none;
+  box-shadow: none;
+  border-radius: 12px;
+  font-weight: 600;
+  border: 1.5px solid var(--brand);
+}
+
+.client-tests .button.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1.5px solid var(--ink);
+}
+
+.client-tests__main {
+  flex: 1;
+  padding: 28px clamp(20px, 5vw, 48px) 64px;
+  max-width: 100%;
+}
+
+.client-tests__eyebrow {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brand);
+}
+
+.client-tests__h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 3.2vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.client-tests__lead {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+  max-width: 52ch;
+  line-height: 1.5;
+}
+
+.client-tests__grid {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.client-tests__card {
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  box-shadow: 0 1px 2px rgba(38, 33, 66, 0.04);
+}
+
+.client-tests__card-icon {
+  font-size: 28px;
+  margin-bottom: 10px;
+  line-height: 1;
+}
+
+.client-tests__card-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.client-tests__card-desc {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+  flex: 1;
+  margin-bottom: 12px;
+}
+
+.client-tests__card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.client-tests__card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.client-tests__card-actions .button {
+  width: 100%;
+  justify-content: center;
+  padding: 10px;
+}
+
+.client-tests__wip {
+  max-width: 520px;
+  margin: 48px auto 0;
+  padding: 28px 24px;
+  border-radius: 16px;
+  border: 1px dashed var(--card-border);
+  background: var(--paper-soft);
+  text-align: center;
+}
+
+.client-tests__wip-badge {
+  display: inline-flex;
+  margin: 8px 0 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand);
+  background: var(--brand-soft);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+}
+
+.client-tests__wip .client-tests__h1 {
+  font-size: clamp(22px, 3vw, 28px);
+}
+
+.client-tests__wip .client-tests__lead {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.client-tests__wip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}

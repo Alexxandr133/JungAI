@@ -97,7 +97,10 @@ export async function getVisibleRoomsForUser(user: { id: string; email: string; 
 
   if (user.role === 'client') {
     const visibleIds = new Set<string>(await getClientVisibleChatRoomIds(user.id, user.email));
-    const client = await prisma.client.findFirst({ where: { email: user.email }, select: { id: true } });
+    const client = await prisma.client.findFirst({
+      where: { email: user.email },
+      select: { id: true, name: true, psychologistId: true }
+    });
 
     const requestItems = client
       ? await prisma.supportRequest.findMany({
@@ -106,7 +109,16 @@ export async function getVisibleRoomsForUser(user: { id: string; email: string; 
         })
       : [];
 
-    const psychologistIds = Array.from(new Set(requestItems.map((r) => r.psychologistId).filter(Boolean)));
+    const psychologistIds = Array.from(
+      new Set(
+        [
+          ...requestItems.map((r) => r.psychologistId).filter(Boolean),
+          client?.psychologistId && !String(client.psychologistId).startsWith('temp-')
+            ? client.psychologistId
+            : null
+        ].filter(Boolean) as string[]
+      )
+    );
     const psychologists = psychologistIds.length
       ? await prisma.user.findMany({
           where: { id: { in: psychologistIds } },
@@ -143,6 +155,12 @@ export async function getVisibleRoomsForUser(user: { id: string; email: string; 
       if (psych) requestRoomIdToPsych.set(roomId, psych);
     }
 
+    const attachedPsych =
+      client?.psychologistId && !String(client.psychologistId).startsWith('temp-')
+        ? psychById.get(client.psychologistId) || null
+        : null;
+    const clientNameKey = client?.name?.trim().toLowerCase() || '';
+
     const roomIds = Array.from(visibleIds);
     const rooms =
       roomIds.length > 0
@@ -153,10 +171,14 @@ export async function getVisibleRoomsForUser(user: { id: string; email: string; 
         : [];
 
     return rooms.map((room) => {
-      const psych = requestRoomIdToPsych.get(room.id);
+      const roomNameKey = (room.name || '').trim().toLowerCase();
+      // Комната психолога↔клиента обычно названа именем клиента — для клиента это не заголовок.
+      const isSelfNamedRoom = Boolean(clientNameKey && roomNameKey === clientNameKey);
+      const psych = requestRoomIdToPsych.get(room.id) || attachedPsych;
+      const fallbackTitle = isSelfNamedRoom ? 'Психолог' : room.name || 'Чат';
       return {
         ...room,
-        displayName: psych?.name || room.name || 'Чат',
+        displayName: psych?.name || fallbackTitle,
         peerUserId: psych?.id || null,
         peerClientId: null as string | null,
         peerAvatarUrl: psych?.avatarUrl || null,

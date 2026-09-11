@@ -27,6 +27,7 @@
 
   --font-sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+  --container-wide: 1280px;
 }
 
 html, body, #root { 
@@ -51,27 +52,38 @@ body {
 .button {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 12px 18px; border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--primary), var(--accent));
+  background: var(--primary);
   color: #f8fafc;
   font-weight: 600;
   border: none;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
 }
+.button:hover { background: var(--primary-600); }
 .button:active { transform: translateY(1px); }
 .button.secondary {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--navbar-edge);
-  text-shadow: none;
 }
+.button.secondary:hover { background: var(--surface); }
 .button.danger {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
+  background: #dc2626;
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
+.button.danger:hover { background: #b91c1c; }
 .button.danger:active { transform: translateY(1px); }
+.button.outline {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--line, var(--navbar-edge));
+  box-shadow: none;
+}
+.button.outline:hover { border-color: var(--primary); color: var(--primary); }
+.button.outline.is-liked {
+  border-color: var(--primary);
+  color: var(--primary);
+}
 
 .card {
   background: var(--card, var(--surface));

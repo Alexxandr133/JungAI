@@ -6,9 +6,7 @@ import { useMessengerUi } from '../../context/MessengerUiContext';
 import { useChatSocket } from '../../context/ChatSocketContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
-import { PlatformIcon, type PlatformIconName } from '../../components/icons';
 import { MoodCheckInControl, MoodMiniChart } from '../../components/client/MoodCheckIn';
-import { StarfieldBackground } from '../../components/visuals';
 import './Workspace.css';
 
 type DreamBrief = { id: string; title: string; content?: string; createdAt: string; userId?: string | null; symbols?: unknown };
@@ -44,6 +42,16 @@ const PATH_MILESTONES: Array<{ id: string; label: string; check: (ctx: Milestone
   { id: 'session', label: 'Первая принятая сессия', check: (c) => c.acceptedSessionCount > 0 },
   { id: 'journal5', label: 'Пять записей в дневнике', check: (c) => c.journalCount >= 5 },
   { id: 'discuss', label: 'Сон отмечен «обсудить на сессии»', check: (c) => c.discussCount > 0 },
+];
+
+/** Координаты звёзд созвездия вех (viewBox 0 0 320 200) */
+const MILESTONE_STAR_POS: Array<{ x: number; y: number }> = [
+  { x: 36, y: 120 },
+  { x: 88, y: 52 },
+  { x: 148, y: 96 },
+  { x: 198, y: 40 },
+  { x: 248, y: 110 },
+  { x: 292, y: 58 },
 ];
 
 type MilestoneCtx = {
@@ -132,6 +140,54 @@ function saveHomeworkDone(homeworkId: string, done: Set<number>) {
   localStorage.setItem(homeworkProgressStorageKey(homeworkId), JSON.stringify([...done]));
 }
 
+function moonPhaseLabel(d = new Date()): string {
+  const synodic = 29.53058867;
+  const knownNew = Date.UTC(2000, 0, 6, 18, 14);
+  const days = (d.getTime() - knownNew) / 86400000;
+  const age = ((days % synodic) + synodic) % synodic;
+  const frac = age / synodic;
+  if (frac < 0.03 || frac > 0.97) return 'новолуние';
+  if (frac < 0.22) return 'растущий серп';
+  if (frac < 0.28) return 'первая четверть';
+  if (frac < 0.47) return 'растущая луна';
+  if (frac < 0.53) return 'полнолуние';
+  if (frac < 0.72) return 'убывающая луна';
+  if (frac < 0.78) return 'последняя четверть';
+  return 'убывающий серп';
+}
+
+function pathDayForUser(userId: string | undefined, earliestIso?: string | null): number {
+  if (!userId) return 1;
+  const key = `jungai_path_start_${userId}`;
+  try {
+    let start = localStorage.getItem(key);
+    if (earliestIso) {
+      const earliestMs = new Date(earliestIso).getTime();
+      if (!Number.isNaN(earliestMs)) {
+        if (!start || earliestMs < new Date(start).getTime()) {
+          start = new Date(earliestMs).toISOString();
+          localStorage.setItem(key, start);
+        }
+      }
+    }
+    if (!start) {
+      start = new Date().toISOString();
+      localStorage.setItem(key, start);
+    }
+    return Math.max(1, Math.floor((Date.now() - new Date(start).getTime()) / 86400000) + 1);
+  } catch {
+    return 1;
+  }
+}
+
+function discussWord(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'вопрос';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'вопроса';
+  return 'вопросов';
+}
+
 function useSessionCountdown(startsAt: string | null): string | null {
   const [label, setLabel] = useState<string | null>(null);
   useEffect(() => {
@@ -196,9 +252,11 @@ export default function ClientWorkspace() {
   const [reflectSaving, setReflectSaving] = useState(false);
   const [hwDoneVersion, setHwDoneVersion] = useState(0);
   const [moodSaving, setMoodSaving] = useState(false);
+  const [pathDay, setPathDay] = useState(1);
 
   const insight = useMemo(() => insightForToday(), []);
   const greet = useMemo(() => greetingForHour(), []);
+  const moon = useMemo(() => moonPhaseLabel(), []);
   const countdown = useSessionCountdown(nearestEvent?.startsAt ?? null);
 
   const sessionMarkerDates = useMemo(() => {
@@ -229,6 +287,7 @@ export default function ClientWorkspace() {
         ]);
         setWeekSymbol('Дверь');
         setHasPsychologist(null);
+        setPathDay(1);
         setLoading(false);
         return;
       }
@@ -336,10 +395,7 @@ export default function ClientWorkspace() {
 
         setHomework(hwRes.items?.length ? hwRes.items : progress?.openHomework || []);
 
-        const name =
-          profile?.client?.name?.trim() ||
-          profile?.profile?.name?.trim() ||
-          '';
+        const name = profile?.client?.name?.trim() || profile?.profile?.name?.trim() || '';
         setDisplayName(name);
 
         const reflectionCandidates = (events.items || []).filter((ev) => {
@@ -351,6 +407,13 @@ export default function ClientWorkspace() {
         const reflectedEventIds = new Set((progress?.reflections || []).map((r) => r.eventId).filter(Boolean));
         const needReflect = reflectionCandidates.find((ev) => !reflectedEventIds.has(ev.id));
         setReflectionEventId(needReflect?.id ?? null);
+
+        const dates = [
+          ...ownDreams.map((d) => d.createdAt),
+          ...jItems.map((j) => j.createdAt),
+        ].filter(Boolean);
+        const earliest = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
+        setPathDay(pathDayForUser(uid, earliest));
       } catch {
         /* keep defaults */
       } finally {
@@ -422,388 +485,437 @@ export default function ClientWorkspace() {
     void totalLines;
   }
 
-  const spaceCards: Array<{
-    label: string;
+  const spaces: Array<{
+    mod: string;
+    kicker: string;
     title: string;
     hint: string;
     to: string;
-    icon: PlatformIconName;
     trust?: boolean;
   }> = [
     {
-      label: 'Сны',
+      mod: 'dreams',
+      kicker: 'Сны',
       title: 'Журнал снов',
       hint: dreamTotal
-        ? `${dreamTotal} ваших записей · тёмная «ночь» на отдельной странице.`
+        ? `${dreamTotal} ваших записей`
         : 'Записывайте образы и символы — тёмная «ночь» с отдельным настроением.',
       to: '/dreams',
-      icon: 'dreams',
     },
     {
-      label: 'Дневник',
+      mod: 'journal',
+      kicker: 'Дневник',
       title: 'Личный дневник',
       hint:
         journalCount > 0
-          ? `${journalCount} записей · шифруются на устройстве, доступны только вам.`
+          ? `${journalCount} записей · шифруются на устройстве, доступны только вам и вашему психологу.`
           : 'Записи шифруются на устройстве и доступны только вам.',
       to: '/client/journal',
-      icon: 'journal',
       trust: true,
     },
     {
-      label: 'Развитие',
+      mod: 'care',
+      kicker: 'Развитие',
       title: 'Забота и прогресс',
       hint: 'Трекер, задания и наблюдения между сессиями.',
       to: '/client/care',
-      icon: 'heart',
     },
     {
-      label: 'ИИ',
+      mod: 'community',
+      kicker: 'Форум',
+      title: 'Сообщества',
+      hint: 'Лента, посты и обсуждения — можно создавать свои сообщества.',
+      to: '/communities',
+    },
+    {
+      mod: 'ai',
+      kicker: 'ИИ',
       title: 'ИИ-помощник',
       hint: 'Спокойный диалог для прояснения мыслей.',
       to: '/client/ai',
-      icon: 'bot',
     },
   ];
 
   const unreadTotal = unread?.total ?? 0;
 
   return (
-    <div className="client-workspace">
+    <div className="client-desk">
       <ClientNavbar />
-      <main className="client-workspace__main">
-        {loading && token && (
-          <p className="small" style={{ color: 'var(--ink-muted)', marginBottom: 16 }}>
-            Загрузка…
-          </p>
-        )}
-        {hasPsychologist === false && (
-          <div className="client-workspace__card client-workspace__card--flat" style={{ padding: 22, marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-              <div style={{ flex: '1 1 280px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <span style={{ color: 'var(--brand)', display: 'inline-flex' }}>
-                    <PlatformIcon name="stethoscope" size={28} strokeWidth={1.5} />
-                  </span>
-                  <h2 style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>Подключите психолога</h2>
-                </div>
-                <p style={{ margin: 0, color: 'var(--ink-soft)', lineHeight: 1.6, fontSize: 14 }}>
-                  Сессии, чат и совместная работа со снами удобнее, когда у вас есть специалист на платформе.
-                </p>
-              </div>
-              <button type="button" className="button" onClick={() => navigate('/client/match')} style={{ padding: '12px 22px', fontWeight: 700 }}>
-                Подобрать по анкете
-              </button>
-            </div>
-          </div>
-        )}
+      <main className="client-desk__main">
+        {loading && token && <p className="client-desk__loading">Загрузка…</p>}
 
-        <div className="client-workspace__zones">
+        <div className="client-desk__zones">
           {/* —— Сегодня —— */}
           <section aria-labelledby="zone-today">
-            <h2 id="zone-today" className="client-workspace__zone-title">
+            <p id="zone-today" className="client-desk__zone-label">
               Сегодня
-            </h2>
-            <div className="client-home-today__hero client-workspace__card client-home-today__grid">
-              <div>
-                <div className="small" style={{ color: 'var(--brand)', fontWeight: 700, letterSpacing: '0.04em', marginBottom: 8 }}>
-                  ЛИЧНЫЙ КАБИНЕТ
-                </div>
-                <h1 className="client-workspace__h1" style={{ margin: 0, fontSize: 'clamp(26px, 4vw, 34px)', lineHeight: 1.2 }}>
-                  {greet}
-                  {displayName ? `, ${displayName}` : ''}
-                </h1>
-                <p className="client-home-today__lead">Сны, дневник и связь с психологом — в спокойном темпе, без гонки за цифрами.</p>
-              </div>
-              <div className="client-workspace__card client-workspace__card--flat" style={{ padding: 18 }}>
-                <MoodCheckInControl
-                  compact
-                  mood={todayMood}
-                  energy={moodEnergy}
-                  anxiety={moodAnxiety}
-                  locked={moodLocked}
-                  saving={moodSaving}
-                  disabled={!token}
-                  onSave={(v) => void saveWorkspaceMood(v)}
-                />
-              </div>
-            </div>
+            </p>
 
-            {nearestEvent && (
-              <div className="client-workspace__card client-home-session" style={{ marginTop: 14 }}>
-                <div className="client-home-session__title">Ближайшая сессия</div>
-                <div style={{ fontWeight: 700, fontSize: 17 }}>{nearestEvent.title}</div>
-                <div className="client-home-session__when">
-                  {new Date(nearestEvent.startsAt).toLocaleString('ru-RU', {
-                    day: '2-digit',
-                    month: 'short',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+            <div className="client-desk__hero">
+              <div className="client-desk__hero-grid">
+                <div>
+                  <p className="client-desk__path-day">
+                    День {pathDay} вашего пути · {moon}
+                  </p>
+                  <h1 className="client-desk__h1">
+                    {greet}
+                    {displayName ? `, ${displayName}` : ''}
+                  </h1>
+                  <p className="client-desk__lead">Сны, дневник и связь с психологом — без гонки за цифрами.</p>
                 </div>
-                {countdown && <div className="client-home-countdown">{countdown}</div>}
-                <div className="client-home-session__actions">
-                  {nearestEvent.voiceRoom?.roomUrl && (
-                    <a
-                      href={nearestEvent.voiceRoom.roomUrl}
-                      className="button"
-                      style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <Video size={16} />
-                      Подключиться
-                    </a>
-                  )}
-                  <button type="button" className="button secondary" onClick={() => openMessenger()} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <MessageSquare size={16} />
-                    Написать
+                <div className="client-desk__mood">
+                  <MoodCheckInControl
+                    compact
+                    mood={todayMood}
+                    energy={moodEnergy}
+                    anxiety={moodAnxiety}
+                    locked={moodLocked}
+                    saving={moodSaving}
+                    disabled={!token}
+                    onSave={(v) => void saveWorkspaceMood(v)}
+                  />
+                </div>
+              </div>
+
+              {hasPsychologist === false && (
+                <div className="client-desk__connect">
+                  <p>Сессии, чат и совместная работа со снами удобнее, когда у вас есть специалист на платформе.</p>
+                  <button type="button" className="button" onClick={() => navigate('/client/match')}>
+                    Подобрать по анкете
                   </button>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="client-workspace__card client-home-thought" style={{ marginTop: 14 }}>
-              <div className="client-home-thought__head">
-                <div className="client-home-thought__title">
-                  <PlatformIcon name="sparkles" size={20} strokeWidth={1.75} />
-                  Мысль дня
+              {nearestEvent && (
+                <div className="client-desk__ticket">
+                  <div>
+                    <div className="client-desk__ticket-label">Ближайшая сессия</div>
+                    <h2 className="client-desk__ticket-title">{nearestEvent.title}</h2>
+                    <div className="client-desk__ticket-when">
+                      {new Date(nearestEvent.startsAt).toLocaleString('ru-RU', {
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </div>
+                    {countdown && <div className="client-desk__ticket-count">{countdown}</div>}
+                  </div>
+                  <div className="client-desk__ticket-actions">
+                    {nearestEvent.voiceRoom?.roomUrl && (
+                      <a
+                        href={nearestEvent.voiceRoom.roomUrl}
+                        className="button"
+                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                      >
+                        <Video size={16} />
+                        Подключиться
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="button secondary"
+                      onClick={() => openMessenger()}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                    >
+                      <MessageSquare size={16} />
+                      Написать
+                    </button>
+                  </div>
                 </div>
-                <div className="client-home-thought__actions">
-                  <Link to="/client/journal" state={{ prefill: insight }} className="button secondary" style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              )}
+
+              <div className="client-desk__quote">
+                <div className="client-desk__quote-mark" aria-hidden>
+                  “
+                </div>
+                <p className="client-desk__quote-text">{insight}</p>
+                <div className="client-desk__quote-actions">
+                  <Link
+                    to="/client/journal"
+                    state={{ prefill: insight }}
+                    className="button secondary"
+                    style={{ textDecoration: 'none', padding: '8px 16px', fontSize: 13 }}
+                  >
                     В дневник
                   </Link>
-                  <button type="button" className="button secondary" style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600 }} onClick={() => openMessenger()}>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    style={{ padding: '8px 16px', fontSize: 13 }}
+                    onClick={() => openMessenger()}
+                  >
                     Обсудить
                   </button>
                 </div>
               </div>
-              <p className="client-home-thought__text">{insight}</p>
-            </div>
 
-            {reflectionEventId && (
-              <div className="client-workspace__card client-home-reflection" style={{ marginTop: 14 }}>
-                <p>Прошла сессия — уделите пару минут рефлексии: это попадёт в «Мой путь».</p>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      className={reflectMood === n ? 'button' : 'button secondary'}
-                      style={{ minWidth: 40, padding: '8px 10px' }}
-                      onClick={() => setReflectMood(n)}
-                    >
-                      {n}
+              {reflectionEventId && (
+                <div className="client-desk__reflect">
+                  <p>Прошла сессия — уделите пару минут рефлексии: это попадёт в «Мой путь».</p>
+                  <div className="client-desk__reflect-mood">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        className={reflectMood === n ? 'is-on' : undefined}
+                        onClick={() => setReflectMood(n)}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={reflectText}
+                    onChange={(e) => setReflectText(e.target.value)}
+                    placeholder="Что осталось важным? (необязательно)"
+                    rows={3}
+                  />
+                  <div className="client-desk__reflect-actions">
+                    <button type="button" className="button secondary" onClick={() => setReflectionEventId(null)}>
+                      Позже
                     </button>
-                  ))}
+                    <button type="button" className="button" disabled={reflectSaving} onClick={() => void submitReflection()}>
+                      {reflectSaving ? '…' : 'Сохранить'}
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  value={reflectText}
-                  onChange={(e) => setReflectText(e.target.value)}
-                  placeholder="Что осталось важным? (необязательно)"
-                  rows={3}
-                  style={{ width: '100%', padding: 12, borderRadius: 10, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12, border: '1px solid var(--line)' }}
-                />
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                  <button type="button" className="button secondary" onClick={() => setReflectionEventId(null)}>
-                    Позже
-                  </button>
-                  <button type="button" className="button" disabled={reflectSaving} onClick={() => void submitReflection()}>
-                    {reflectSaving ? '…' : 'Сохранить'}
-                  </button>
-                </div>
-              </div>
-            )}
+              )}
 
-            {onboarding && !onboarding.complete && (
-              <div className="client-workspace__card" style={{ padding: 18, marginTop: 14 }}>
-                <div style={{ fontWeight: 800, marginBottom: 8 }}>С чего начать</div>
-                <div className="small" style={{ color: 'var(--ink-muted)', marginBottom: 12 }}>
-                  {onboarding.doneCount} из {onboarding.total}
+              {onboarding && !onboarding.complete && (
+                <div className="client-desk__trail">
+                  <div className="client-desk__trail-head">
+                    <h2 className="client-desk__trail-title">С чего начать</h2>
+                    <p className="client-desk__trail-sub">
+                      {onboarding.doneCount} из {onboarding.total}
+                    </p>
+                  </div>
+                  <ul className="client-desk__trail-list">
+                    {onboarding.steps.map((s) => (
+                      <li key={s.id}>
+                        <Link to={s.path} className={s.done ? 'is-done' : undefined}>
+                          {s.title}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {onboarding.steps.map((s) => (
-                    <Link
-                      key={s.id}
-                      to={s.path}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '10px 12px',
-                        borderRadius: 10,
-                        textDecoration: 'none',
-                        color: 'inherit',
-                        background: 'var(--paper-soft)',
-                        border: '1px solid var(--line)',
-                      }}
-                    >
-                      <span style={{ color: s.done ? 'var(--sage)' : 'var(--ink-muted)', fontWeight: 800, width: 20 }}>
-                        {s.done ? '✓' : '○'}
-                      </span>
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>{s.title}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </section>
 
           {/* —— С психологом —— */}
           <section aria-labelledby="zone-psych">
-            <h2 id="zone-psych" className="client-workspace__zone-title">
+            <p id="zone-psych" className="client-desk__zone-label">
               С психологом
-            </h2>
-            <div className="client-home-psych">
-              {discussCount > 0 && (
-                <div className="client-home-psych__aggregate">
-                  К сессии скопилось <strong>{discussCount}</strong> {discussCount === 1 ? 'вопрос' : discussCount < 5 ? 'вопроса' : 'вопросов'} — сны и темы с флагом «Обсудить».
-                </div>
-              )}
-              {homework.map((h) => {
-                const lines = parseHomeworkLines(h.homework || '');
-                const done = loadHomeworkDone(h.id);
-                const progressPct = lines.length ? Math.round((done.size / lines.length) * 100) : 0;
-                return (
-                  <article key={`${h.id}-v${hwDoneVersion}`} className="client-workspace__card client-home-task">
-                    <div className="client-home-task__meta">
-                      Задание · сессия {new Date(h.date).toLocaleDateString('ru-RU')}
-                    </div>
-                    {lines.length > 0 ? (
-                      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
-                        {lines.map((line, idx) => (
-                          <li key={idx}>
-                            <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', fontSize: 14, lineHeight: 1.5 }}>
-                              <input
-                                type="checkbox"
-                                checked={done.has(idx)}
-                                onChange={() => toggleHomeworkLine(h.id, idx, lines.length)}
-                                style={{ marginTop: 4 }}
-                              />
-                              <span style={{ textDecoration: done.has(idx) ? 'line-through' : 'none', opacity: done.has(idx) ? 0.65 : 1 }}>{line}</span>
-                            </label>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="client-home-task__body">{h.homework}</p>
-                    )}
-                    {lines.length > 0 && (
-                      <div className="client-home-task__progress" aria-hidden>
-                        <span style={{ width: `${progressPct}%` }} />
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-              {!homework.length && hasPsychologist !== false && (
-                <div className="client-workspace__card" style={{ padding: 18, color: 'var(--ink-muted)', fontSize: 14 }}>
-                  Задания от психолога появятся после сессий. Пока можно написать в чат или отметить настроение.
-                </div>
-              )}
-              <div className="client-workspace__card client-home-messages">
-                <div>
-                  <div style={{ fontWeight: 800 }}>Сообщения</div>
-                  <div className="small" style={{ color: 'var(--ink-muted)', marginTop: 4 }}>
-                    {unreadTotal > 0 ? `${unreadTotal} непрочитанных` : 'Диалог с психологом'}
+            </p>
+
+            {discussCount > 0 && (
+              <p className="client-desk__psych-note">
+                К сессии скопилось{' '}
+                <strong>
+                  {discussCount} {discussWord(discussCount)}
+                </strong>{' '}
+                — сны и темы с флагом «Обсудить».
+              </p>
+            )}
+
+            {homework.map((h) => {
+              const lines = parseHomeworkLines(h.homework || '');
+              const done = loadHomeworkDone(h.id);
+              const progressPct = lines.length ? Math.round((done.size / lines.length) * 100) : 0;
+              return (
+                <div key={`${h.id}-v${hwDoneVersion}`} className="client-desk__task">
+                  <div className="client-desk__task-meta">
+                    Задание · сессия {new Date(h.date).toLocaleDateString('ru-RU')}
                   </div>
+                  {lines.length > 0 ? (
+                    <ul>
+                      {lines.map((line, idx) => (
+                        <li key={idx}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={done.has(idx)}
+                              onChange={() => toggleHomeworkLine(h.id, idx, lines.length)}
+                            />
+                            <span style={{ textDecoration: done.has(idx) ? 'line-through' : 'none', opacity: done.has(idx) ? 0.65 : 1 }}>
+                              {line}
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>{h.homework}</p>
+                  )}
+                  {lines.length > 0 && (
+                    <div className="client-desk__task-progress" aria-hidden>
+                      <span style={{ width: `${progressPct}%` }} />
+                    </div>
+                  )}
                 </div>
-                <button type="button" className="button" onClick={() => openMessenger()}>
-                  Открыть чат
-                </button>
+              );
+            })}
+
+            {!homework.length && hasPsychologist !== false && (
+              <p className="client-desk__empty-soft">
+                Задания от психолога появятся после сессий. Пока можно написать в чат или отметить настроение.
+              </p>
+            )}
+
+            <div className="client-desk__messages-row">
+              <div>
+                <h3>Сообщения</h3>
+                <p>{unreadTotal > 0 ? `${unreadTotal} непрочитанных` : 'Диалог с психологом'}</p>
               </div>
+              <button type="button" className="button" onClick={() => openMessenger()}>
+                Открыть чат
+              </button>
             </div>
           </section>
 
           {/* —— Мой путь —— */}
           <section aria-labelledby="zone-path">
-            <h2 id="zone-path" className="client-workspace__zone-title">
+            <p id="zone-path" className="client-desk__zone-label">
               Мой путь
-            </h2>
-            <div className="client-home-path__grid">
-              <div className="client-workspace__card" style={{ padding: 18 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>Динамика настроения</div>
-                <MoodMiniChart points={moodTrend} height={180} sessionMarkers={moodChartSessionMarkers} />
-                <Link to="/client/care" className="small" style={{ color: 'var(--brand)', fontWeight: 600, display: 'inline-block', marginTop: 10 }}>
-                  Открыть трекер →
-                </Link>
-              </div>
-              <div className="client-workspace__card" style={{ padding: 18 }}>
-                <div style={{ fontWeight: 700, marginBottom: 12 }}>Вехи</div>
-                <ul className="client-home-milestones">
-                  {milestonesDone.map((m) => (
+            </p>
+            <div className="client-desk__path">
+              <article className="client-desk__path-panel client-desk__path-panel--mood">
+                <header className="client-desk__path-head">
+                  <div>
+                    <h3>Динамика настроения</h3>
+                    <p>Отметки за период · дни сессий отмечены на графике</p>
+                  </div>
+                  <Link to="/client/care" className="client-desk__path-cta">
+                    Открыть трекер
+                  </Link>
+                </header>
+                <div className="client-desk__path-chart">
+                  <MoodMiniChart points={moodTrend} height={220} sessionMarkers={moodChartSessionMarkers} />
+                </div>
+              </article>
+
+              <article className="client-desk__path-panel client-desk__path-panel--milestones">
+                <header className="client-desk__path-head">
+                  <div>
+                    <h3>Вехи</h3>
+                    <p>
+                      {milestonesDone.filter((m) => m.done).length} из {milestonesDone.length}
+                    </p>
+                  </div>
+                </header>
+                <div className="client-desk__path-sky" aria-hidden={!milestonesDone.some((m) => m.done)}>
+                  <svg
+                    className="client-desk__constellation"
+                    viewBox="0 0 320 140"
+                    role="img"
+                    aria-label="Созвездие вех пути"
+                  >
+                    {milestonesDone.map((m, i) => {
+                      if (i === 0) return null;
+                      const a = MILESTONE_STAR_POS[i - 1];
+                      const b = MILESTONE_STAR_POS[i];
+                      const lit = milestonesDone[i - 1].done && m.done;
+                      return (
+                        <line
+                          key={`line-${m.id}`}
+                          x1={a.x}
+                          y1={a.y * 0.7}
+                          x2={b.x}
+                          y2={b.y * 0.7}
+                          stroke={lit ? 'var(--brand)' : 'var(--card-border)'}
+                          strokeWidth={lit ? 1.5 : 1}
+                          strokeOpacity={lit ? 0.5 : 0.9}
+                        />
+                      );
+                    })}
+                    {milestonesDone.map((m, i) => {
+                      const p = MILESTONE_STAR_POS[i];
+                      const cy = p.y * 0.7;
+                      return (
+                        <g key={m.id}>
+                          <circle
+                            cx={p.x}
+                            cy={cy}
+                            r={m.done ? 6.5 : 5}
+                            fill={m.done ? 'var(--brand)' : 'var(--card)'}
+                            stroke={m.done ? 'var(--brand)' : 'var(--card-border)'}
+                            strokeWidth={1.75}
+                          >
+                            <title>{m.label}</title>
+                          </circle>
+                          <text
+                            x={p.x}
+                            y={cy + 3.2}
+                            textAnchor="middle"
+                            className={m.done ? 'client-desk__star-n is-on' : 'client-desk__star-n'}
+                          >
+                            {i + 1}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+                <ol className="client-desk__milestones">
+                  {milestonesDone.map((m, i) => (
                     <li key={m.id} className={m.done ? 'is-done' : undefined}>
-                      <span className="client-home-milestones__dot" aria-hidden />
-                      {m.label}
+                      <span className="client-desk__milestone-idx" aria-hidden>
+                        {i + 1}
+                      </span>
+                      <span className="client-desk__milestone-label">{m.label}</span>
+                      {m.done && <span className="client-desk__milestone-done">есть</span>}
                     </li>
                   ))}
-                </ul>
-              </div>
+                </ol>
+              </article>
             </div>
           </section>
 
           {/* —— Ваши пространства —— */}
           <section aria-labelledby="zone-spaces">
-            <h2 id="zone-spaces" className="client-workspace__zone-title">
+            <p id="zone-spaces" className="client-desk__zone-label">
               Ваши пространства
-            </h2>
-            <div className="client-home-spaces__grid">
-              {spaceCards.map((s) => (
-                <Link key={s.to} to={s.to} className="client-workspace__card client-home-space-link">
-                  <div className="client-home-space-link__icon">
-                    <PlatformIcon name={s.icon} size={32} strokeWidth={1.5} />
-                  </div>
-                  <div className="client-home-space-link__title">{s.title}</div>
-                  <p className={`client-home-space-link__hint${s.trust ? ' client-home-space-link--trust' : ''}`}>{s.hint}</p>
+            </p>
+            <div className="client-desk__spaces">
+              {spaces.map((s) => (
+                <Link key={s.to} to={s.to} className={`client-desk__space client-desk__space--${s.mod}`}>
+                  <span className="client-desk__space-kicker">{s.kicker}</span>
+                  <h3 className="client-desk__space-title">{s.title}</h3>
+                  <p className={`client-desk__space-hint${s.trust ? ' client-desk__space-hint--trust' : ''}`}>{s.hint}</p>
                 </Link>
               ))}
             </div>
 
             {(weekSymbol || recentDreams.length > 0) && (
-              <div className="client-workspace__card client-home-dreams" style={{ marginTop: 14 }}>
-                <StarfieldBackground opacity={0.85} contained />
-                <div className="client-home-dreams__inner">
-                {weekSymbol && (
-                  <>
-                    <div className="client-home-dreams__symbol-label">Символ недели</div>
-                    <div className="client-home-dreams__symbol">{weekSymbol}</div>
-                  </>
-                )}
-                {recentDreams.length > 0 && (
-                  <>
-                    <div className="client-home-dreams__symbol-label" style={{ marginTop: weekSymbol ? 20 : 0 }}>
-                      Последние сны
-                    </div>
-                    <ul className="client-home-dreams__list">
-                      {recentDreams.map((d) => (
-                        <li key={d.id} className="client-home-dreams__row">
-                          <Link to={`/dreams/${d.id}`} className="client-home-dreams__row-link">
-                            <div className="client-home-dreams__row-title">{d.title || 'Без названия'}</div>
-                            {d.content && <p className="client-home-dreams__row-excerpt">{d.content}</p>}
-                            <div className="client-home-dreams__row-date">
-                              {new Date(d.createdAt).toLocaleDateString('ru-RU')}
-                            </div>
-                          </Link>
-                          {token && (
-                            <button
-                              type="button"
-                              className="client-home-dreams__row-delete"
-                              title="Удалить сон"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                void deleteDream(d.id);
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                    <Link to="/dreams" className="small" style={{ color: '#c4b5fd', fontWeight: 600, marginTop: 12, display: 'inline-block' }}>
-                      Все сны →
-                    </Link>
-                  </>
-                )}
+              <div className="client-desk__dreams">
+                <div className="client-desk__dreams-head">
+                  <h3>Сны</h3>
+                  {weekSymbol && <span className="client-desk__symbol">Символ недели · {weekSymbol}</span>}
                 </div>
+                {recentDreams.map((d) => (
+                  <div key={d.id} className="client-desk__dream-row">
+                    <Link to={`/dreams/${d.id}`}>
+                      <h4>{d.title || 'Без названия'}</h4>
+                      {d.content && <p>{d.content}</p>}
+                      <time dateTime={d.createdAt}>{new Date(d.createdAt).toLocaleDateString('ru-RU')}</time>
+                    </Link>
+                    {token && (
+                      <button
+                        type="button"
+                        className="client-desk__dream-del"
+                        title="Удалить сон"
+                        onClick={() => void deleteDream(d.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <Link to="/dreams" className="client-desk__path-link">
+                  Все сны →
+                </Link>
               </div>
             )}
           </section>

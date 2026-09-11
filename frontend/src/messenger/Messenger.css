@@ -521,6 +521,13 @@ html:has(.wa-statusbar) {
   --bubble-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
 }
 
+/* ИИ-чат: поднять пузырь над композером «Отправить» */
+html:has(.client-ai),
+html:has(.ai-chat-shell),
+html:has(.psy-ai-shell) {
+  --bubble-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+}
+
 .msg-bubble {
   position: fixed;
   right: 20px;

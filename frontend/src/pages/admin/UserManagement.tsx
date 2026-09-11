@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
 import { AdminNavbar } from '../../components/AdminNavbar';
+import { AdminUserDetailModal } from '../../components/admin/AdminUserDetailModal';
+import './admin.css';
 
 const ROLE_LABELS: Record<string, string> = {
   psychologist: 'Психолог',
@@ -12,6 +14,16 @@ const ROLE_LABELS: Record<string, string> = {
   admin: 'Администратор',
   guest: 'Гость'
 };
+
+const ROLE_SORT_ORDER: Record<string, number> = {
+  admin: 0,
+  psychologist: 1,
+  researcher: 2,
+  client: 3,
+  guest: 4,
+};
+
+type SortKey = 'name' | 'role' | 'lastSeen' | 'clients' | 'aiTokens' | 'createdAt';
 
 function roleBadgeStyle(role: string, isLight: boolean): CSSProperties {
   const base: CSSProperties = {
@@ -49,6 +61,7 @@ type AdminUserRow = {
   aiModel: string | null;
   isVerified: boolean;
   createdAt: string;
+  lastSeenAt?: string | null;
   profileName: string | null;
   clientCount?: number;
   linkedClient?: { id: string; name: string; psychologistId: string } | null;
@@ -56,15 +69,6 @@ type AdminUserRow = {
 
 type PsychOption = { id: string; email: string; name: string; isVerified: boolean };
 
-type CrmClient = {
-  id: string;
-  name: string;
-  email: string | null;
-  psychologistId: string;
-  psychologistEmail: string | null;
-  psychologistName: string | null;
-  createdAt: string;
-};
 type PlatformAiModelSettings = {
   model: string;
   options: string[];
@@ -75,7 +79,10 @@ type PlatformTranscriptionModelSettings = {
   options: Array<{ id: string; label: string; strategy: string }>;
 };
 
-const DND_MIME = 'application/jungai-client-id';
+function sortMarker(active: boolean, dir: 'asc' | 'desc') {
+  if (!active) return ' ↕';
+  return dir === 'asc' ? ' ↑' : ' ↓';
+}
 
 export default function AdminUserManagement() {
   const { token, user: me } = useAuth();
@@ -83,16 +90,15 @@ export default function AdminUserManagement() {
   const isLight = appearance.colorMode === 'light';
   const borderSubtle = isLight ? '1px solid rgba(15, 23, 42, 0.1)' : '1px solid rgba(255, 255, 255, 0.1)';
   const borderInput = isLight ? '1px solid rgba(15, 23, 42, 0.14)' : '1px solid rgba(255, 255, 255, 0.12)';
-  const tableHeadBg = isLight ? 'rgba(241, 245, 249, 0.95)' : 'var(--surface-2)';
-  const rowHover = isLight ? 'rgba(59, 130, 246, 0.04)' : 'rgba(255, 255, 255, 0.04)';
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [psychOptions, setPsychOptions] = useState<PsychOption[]>([]);
-  const [clientsCrm, setClientsCrm] = useState<CrmClient[]>([]);
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('lastSeen');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const [pwdUser, setPwdUser] = useState<AdminUserRow | null>(null);
   const [pwd1, setPwd1] = useState('');
@@ -103,7 +109,6 @@ export default function AdminUserManagement() {
   const [delUser, setDelUser] = useState<AdminUserRow | null>(null);
   const [transferTo, setTransferTo] = useState('');
 
-  const [dragOverPsych, setDragOverPsych] = useState<string | null>(null);
   const [validateBusy, setValidateBusy] = useState(false);
   const [validateOk, setValidateOk] = useState<string | null>(null);
   const [platformAiModel, setPlatformAiModel] = useState('');
@@ -112,6 +117,7 @@ export default function AdminUserManagement() {
   const [platformSttModel, setPlatformSttModel] = useState('');
   const [platformSttOptions, setPlatformSttOptions] = useState<PlatformTranscriptionModelSettings['options']>([]);
   const [platformSttBusy, setPlatformSttBusy] = useState(false);
+  const [detailUserId, setDetailUserId] = useState<string | null>(null);
 
   const [qDebounced, setQDebounced] = useState('');
 
@@ -119,6 +125,57 @@ export default function AdminUserManagement() {
     const t = setTimeout(() => setQDebounced(q), 320);
     return () => clearTimeout(t);
   }, [q]);
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'name' || key === 'role' ? 'asc' : 'desc');
+    }
+  }
+
+  const sortedUsers = useMemo(() => {
+    const list = [...users];
+    const mul = sortDir === 'asc' ? 1 : -1;
+    const nameOf = (u: AdminUserRow) => (u.profileName || u.email || '').toLocaleLowerCase('ru');
+    const clientsOf = (u: AdminUserRow) => {
+      if (u.role === 'psychologist' || u.role === 'admin') return u.clientCount ?? 0;
+      return u.linkedClient ? 1 : 0;
+    };
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'name':
+          cmp = nameOf(a).localeCompare(nameOf(b), 'ru');
+          break;
+        case 'role':
+          cmp = (ROLE_SORT_ORDER[a.role] ?? 99) - (ROLE_SORT_ORDER[b.role] ?? 99);
+          if (cmp === 0) cmp = nameOf(a).localeCompare(nameOf(b), 'ru');
+          break;
+        case 'lastSeen': {
+          const ta = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+          const tb = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+          cmp = ta - tb;
+          break;
+        }
+        case 'clients':
+          cmp = clientsOf(a) - clientsOf(b);
+          break;
+        case 'aiTokens':
+          cmp = (a.aiTokensUsed || 0) - (b.aiTokensUsed || 0);
+          if (cmp === 0) cmp = String(a.aiTokenPlan).localeCompare(String(b.aiTokenPlan));
+          break;
+        case 'createdAt':
+          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          break;
+        default:
+          cmp = 0;
+      }
+      return cmp * mul;
+    });
+    return list;
+  }, [users, sortKey, sortDir]);
 
   useEffect(() => {
     if (!token) return;
@@ -130,17 +187,15 @@ export default function AdminUserManagement() {
         const params = new URLSearchParams();
         if (roleFilter) params.set('role', roleFilter);
         if (qDebounced.trim()) params.set('q', qDebounced.trim());
-        const [u, p, c, modelSettings, sttSettings] = await Promise.all([
+        const [u, p, modelSettings, sttSettings] = await Promise.all([
           api<{ items: AdminUserRow[] }>(`/api/admin/users?${params.toString()}`, { token }),
           api<{ items: PsychOption[] }>('/api/admin/users/psychologists-options', { token }),
-          api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token }),
           api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token }),
           api<PlatformTranscriptionModelSettings>('/api/admin/users/settings/transcription-model', { token })
         ]);
         if (cancelled) return;
         setUsers(u.items || []);
         setPsychOptions(p.items || []);
-        setClientsCrm(c.items || []);
         setPlatformAiModel(modelSettings.model || '');
         setPlatformAiOptions(modelSettings.options || []);
         setPlatformSttModel(sttSettings.model || '');
@@ -164,16 +219,14 @@ export default function AdminUserManagement() {
       const params = new URLSearchParams();
       if (roleFilter) params.set('role', roleFilter);
       if (qDebounced.trim()) params.set('q', qDebounced.trim());
-      const [u, p, c, modelSettings, sttSettings] = await Promise.all([
+      const [u, p, modelSettings, sttSettings] = await Promise.all([
         api<{ items: AdminUserRow[] }>(`/api/admin/users?${params.toString()}`, { token }),
         api<{ items: PsychOption[] }>('/api/admin/users/psychologists-options', { token }),
-        api<{ items: CrmClient[] }>('/api/admin/users/clients-crm', { token }),
         api<PlatformAiModelSettings>('/api/admin/users/settings/ai-model', { token }),
         api<PlatformTranscriptionModelSettings>('/api/admin/users/settings/transcription-model', { token })
       ]);
       setUsers(u.items || []);
       setPsychOptions(p.items || []);
-      setClientsCrm(c.items || []);
       setPlatformAiModel(modelSettings.model || '');
       setPlatformAiOptions(modelSettings.options || []);
       setPlatformSttModel(sttSettings.model || '');
@@ -239,34 +292,6 @@ export default function AdminUserManagement() {
     }
   }
 
-  const clientsByPsych = useMemo(() => {
-    const m = new Map<string, CrmClient[]>();
-    for (const c of clientsCrm) {
-      const arr = m.get(c.psychologistId) || [];
-      arr.push(c);
-      m.set(c.psychologistId, arr);
-    }
-    return m;
-  }, [clientsCrm]);
-
-  async function reassignClient(clientId: string, psychologistId: string) {
-    if (!token) return;
-    setBusyId(clientId);
-    setError(null);
-    try {
-      await api(`/api/admin/users/clients-crm/${clientId}/psychologist`, {
-        method: 'PATCH',
-        token,
-        body: { psychologistId }
-      });
-      await refreshAll();
-    } catch (e: unknown) {
-      setError((e as Error).message || 'Не удалось переназначить');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function submitPassword() {
     if (!token || !pwdUser) return;
     if (pwd1.length < 8) {
@@ -314,57 +339,6 @@ export default function AdminUserManagement() {
     }
   }
 
-  async function revokeVerification(u: AdminUserRow) {
-    if (!token) return;
-    if (!window.confirm(`Снять верификацию у ${u.email}?`)) return;
-    setBusyId(u.id);
-    setError(null);
-    try {
-      await api(`/api/admin/users/${u.id}/revoke-verification`, { method: 'POST', token });
-      await refreshAll();
-    } catch (e: unknown) {
-      setError((e as Error).message || 'Ошибка');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function updateAiPlan(u: AdminUserRow, plan: 'standard' | 'medium' | 'large') {
-    if (!token) return;
-    setBusyId(u.id);
-    setError(null);
-    try {
-      await api(`/api/admin/users/${u.id}/ai-token-plan`, {
-        method: 'PATCH',
-        token,
-        body: { plan }
-      });
-      await refreshAll();
-    } catch (e: unknown) {
-      setError((e as Error).message || 'Ошибка обновления плана токенов');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function updateUserAiModel(u: AdminUserRow, model: string) {
-    if (!token) return;
-    setBusyId(u.id);
-    setError(null);
-    try {
-      await api(`/api/admin/users/${u.id}/ai-model`, {
-        method: 'PATCH',
-        token,
-        body: { model: model === 'default' ? null : model },
-      });
-      await refreshAll();
-    } catch (e: unknown) {
-      setError((e as Error).message || 'Ошибка обновления модели ИИ');
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function confirmDelete() {
     if (!token || !delUser) return;
     setError(null);
@@ -385,7 +359,7 @@ export default function AdminUserManagement() {
     } catch (e: unknown) {
       const msg = (e as Error).message || '';
       if (msg.includes('переназначьте') || msg.includes('TRANSFER')) {
-        setError('Укажите психолога для переноса клиентов или переназначьте клиентов вручную ниже.');
+        setError('Укажите психолога для переноса клиентов или переназначьте их в карточке пользователя.');
       } else {
         setError(msg || 'Ошибка удаления');
       }
@@ -394,56 +368,23 @@ export default function AdminUserManagement() {
     }
   }
 
-  function onDragStartClient(e: React.DragEvent, clientId: string) {
-    e.dataTransfer.setData(DND_MIME, clientId);
-    e.dataTransfer.effectAllowed = 'move';
-  }
-
-  function onDragOverPsych(e: React.DragEvent, psychId: string) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverPsych(psychId);
-  }
-
-  function onDragLeavePsych() {
-    setDragOverPsych(null);
-  }
-
-  async function onDropOnPsych(e: React.DragEvent, targetPsychId: string) {
-    e.preventDefault();
-    setDragOverPsych(null);
-    const clientId = e.dataTransfer.getData(DND_MIME);
-    if (!clientId) return;
-    const c = clientsCrm.find(x => x.id === clientId);
-    if (c?.psychologistId === targetPsychId) return;
-    await reassignClient(clientId, targetPsychId);
-  }
-
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="admin-shell">
       <AdminNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '20px clamp(14px, 4vw, 40px)',
-          maxWidth: 1100,
-          margin: '0 auto',
-          width: '100%',
-          overflowX: 'hidden'
-        }}
-      >
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+      <main className="admin-main">
+        <header className="admin-head">
           <div>
-            <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>Управление пользователями</h1>
-            <div className="small" style={{ color: 'var(--text-muted)', marginTop: 4 }}>
-              Пароли, верификация, удаление; перенос CRM-клиентов между психологами
-            </div>
+            <p className="admin-head__eyebrow">Люди</p>
+            <h1 className="admin-head__title">Пользователи</h1>
+            <p className="admin-head__lead">
+              Клик по пользователю — карточка со статистикой, клиентами и действиями
+            </p>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Link to="/admin" className="button secondary" style={{ padding: '8px 16px', fontSize: 14 }}>
-              ← Дашборд
+          <div className="admin-head__actions">
+            <Link to="/admin" className="button secondary">
+              ← Обзор
             </Link>
-            <button type="button" className="button secondary" onClick={() => refreshAll()} style={{ padding: '8px 16px', fontSize: 14 }}>
+            <button type="button" className="button secondary" onClick={() => refreshAll()}>
               Обновить
             </button>
             <button
@@ -451,13 +392,12 @@ export default function AdminUserManagement() {
               className="button secondary"
               disabled={validateBusy}
               onClick={() => validateDreamSymbolsNow()}
-              style={{ padding: '8px 16px', fontSize: 14 }}
-              title="Запустить ежедневную валидацию символов (теги -> AI -> нормализация) раньше 18:00"
+              title="Запустить ежедневную валидацию символов раньше 18:00"
             >
               Валидировать сны
             </button>
           </div>
-        </div>
+        </header>
 
         <div className="card" style={{ padding: 14, marginBottom: 16, borderRadius: 12, border: borderSubtle }}>
           <label className="small" style={{ display: 'block', marginBottom: 8, color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -544,41 +484,27 @@ export default function AdminUserManagement() {
           </div>
         )}
 
-        <section className="card" style={{ padding: 0, marginBottom: 20, borderRadius: 12, border: borderSubtle, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 16px', borderBottom: borderSubtle, background: tableHeadBg }}>
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Пользователи</h2>
-            <p className="small" style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: 12 }}>
-              Поиск и фильтр по роли; действия в последней колонке
+        <section className="admin-table-wrap" style={{ marginBottom: 24 }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', background: 'var(--paper-soft)' }}>
+            <h2 className="admin-panel__title" style={{ margin: 0 }}>Пользователи</h2>
+            <p className="admin-section__sub" style={{ marginTop: 4 }}>
+              Клик по заголовку — сортировка · клик по строке — карточка
             </p>
           </div>
           <div style={{ padding: '14px 16px 16px' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+          <div className="admin-filters" style={{ marginBottom: 14 }}>
             <input
-              placeholder="Поиск по email или id"
+              className="admin-filters__search"
+              placeholder="Поиск по email, имени или id"
               value={q}
               onChange={e => setQ(e.target.value)}
-              style={{
-                flex: '1 1 200px',
-                padding: '10px 14px',
-                borderRadius: 10,
-                border: borderInput,
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: 14
-              }}
+              type="search"
             />
             <select
+              className="admin-filters__search"
+              style={{ flex: '0 0 180px' }}
               value={roleFilter}
               onChange={e => setRoleFilter(e.target.value)}
-              style={{
-                padding: '10px 14px',
-                borderRadius: 10,
-                border: borderInput,
-                background: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: 14,
-                minWidth: 160
-              }}
             >
               <option value="">Все роли</option>
               <option value="psychologist">Психолог</option>
@@ -590,290 +516,110 @@ export default function AdminUserManagement() {
           </div>
 
           {loading ? (
-            <div style={{ color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>Загрузка…</div>
+            <div className="admin-loading">Загрузка…</div>
           ) : (
-            <div style={{ overflowX: 'auto', borderRadius: 10, border: borderSubtle }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--line)' }}>
+              <table className="admin-table">
                 <thead>
-                  <tr style={{ textAlign: 'left', color: 'var(--text-muted)', background: tableHeadBg }}>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Email</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Роль</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Имя</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Вериф.</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Клиенты</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>AI план</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>ИИ модель</th>
-                    <th style={{ padding: '10px 12px', fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Действия</th>
+                  <tr>
+                    <th>
+                      <button type="button" className="admin-sort-th" onClick={() => toggleSort('name')}>
+                        Пользователь{sortMarker(sortKey === 'name', sortDir)}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" className="admin-sort-th" onClick={() => toggleSort('role')}>
+                        Роль{sortMarker(sortKey === 'role', sortDir)}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" className="admin-sort-th" onClick={() => toggleSort('lastSeen')}>
+                        Заход{sortMarker(sortKey === 'lastSeen', sortDir)}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" className="admin-sort-th" onClick={() => toggleSort('clients')}>
+                        Клиенты{sortMarker(sortKey === 'clients', sortDir)}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" className="admin-sort-th" onClick={() => toggleSort('aiTokens')}>
+                        AI{sortMarker(sortKey === 'aiTokens', sortDir)}
+                      </button>
+                    </th>
+                    <th>
+                      <button type="button" className="admin-sort-th" onClick={() => toggleSort('createdAt')}>
+                        Рег.{sortMarker(sortKey === 'createdAt', sortDir)}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(u => (
+                  {sortedUsers.map(u => (
                     <tr
                       key={u.id}
-                      style={{ borderTop: borderSubtle }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLTableRowElement).style.background = rowHover;
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLTableRowElement).style.background = 'transparent';
-                      }}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setDetailUserId(u.id)}
                     >
-                      <td style={{ padding: '10px 12px', wordBreak: 'break-all', fontWeight: 500 }}>{u.email}</td>
-                      <td style={{ padding: '10px 12px' }}>
+                      <td>
+                        <div style={{ fontWeight: 700 }}>{u.profileName || u.email}</div>
+                        <div style={{ fontSize: 12, color: 'var(--ink-muted)', wordBreak: 'break-all' }}>{u.email}</div>
+                      </td>
+                      <td>
                         <span style={roleBadgeStyle(u.role, isLight)}>{ROLE_LABELS[u.role] || u.role}</span>
-                      </td>
-                      <td style={{ padding: '10px 12px' }}>{u.profileName || '—'}</td>
-                      <td style={{ padding: '10px 12px' }}>
                         {(u.role === 'psychologist' || u.role === 'admin') && (
-                          <span style={{ color: u.isVerified ? '#10b981' : 'var(--text-muted)' }}>
-                            {u.isVerified ? 'да' : 'нет'}
-                          </span>
+                          <div style={{ marginTop: 4, fontSize: 11, color: u.isVerified ? 'var(--sage)' : 'var(--ink-muted)' }}>
+                            {u.isVerified ? 'верифицирован' : 'без верификации'}
+                          </div>
                         )}
-                        {u.role === 'client' && u.linkedClient && (
-                          <span className="small" style={{ color: 'var(--text-muted)' }}>
-                            CRM: {u.linkedClient.name}
-                          </span>
-                        )}
-                        {u.role === 'client' && !u.linkedClient && <span className="small">—</span>}
                       </td>
-                      <td style={{ padding: '10px 12px' }}>
-                        {u.role === 'psychologist' || u.role === 'admin' ? u.clientCount ?? 0 : '—'}
+                      <td style={{ fontSize: 13, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
+                        {u.lastSeenAt ? new Date(u.lastSeenAt).toLocaleString('ru-RU') : '—'}
                       </td>
-                      <td style={{ padding: '10px 12px', minWidth: 170 }}>
-                        <select
-                          value={u.aiTokenPlan || 'standard'}
-                          disabled={busyId === u.id}
-                          onChange={(e) => updateAiPlan(u, e.target.value as 'standard' | 'medium' | 'large')}
-                          style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            borderRadius: 8,
-                            border: borderInput,
-                            background: 'var(--surface-2)',
-                            color: 'var(--text)',
-                            fontSize: 12
-                          }}
-                        >
-                          <option value="standard">standard</option>
-                          <option value="medium">medium</option>
-                          <option value="large">large</option>
-                        </select>
-                        <div className="small" style={{ marginTop: 6, color: 'var(--text-muted)' }}>
-                          {u.aiTokensUsed?.toLocaleString('ru-RU') || 0} ток.
-                        </div>
+                      <td>
+                        {u.role === 'psychologist' || u.role === 'admin' ? u.clientCount ?? 0 : u.linkedClient ? u.linkedClient.name : '—'}
                       </td>
-                      <td style={{ padding: '10px 12px', minWidth: 200 }}>
-                        <select
-                          value={u.aiModel || 'default'}
-                          disabled={busyId === u.id || !platformAiOptions.length}
-                          onChange={(e) => void updateUserAiModel(u, e.target.value)}
-                          title="Персональная модель (пусто = платформенный default)"
-                          style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            borderRadius: 8,
-                            border: borderInput,
-                            background: 'var(--surface-2)',
-                            color: 'var(--text)',
-                            fontSize: 11,
-                          }}
-                        >
-                          <option value="default">Платформенная ({platformAiModel || 'default'})</option>
-                          {platformAiOptions.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </select>
+                      <td style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+                        {u.aiTokenPlan} · {(u.aiTokensUsed || 0).toLocaleString('ru-RU')}
                       </td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          <button
-                            type="button"
-                            className="button secondary"
-                            style={{ padding: '4px 10px', fontSize: 12 }}
-                            onClick={() => {
-                              setEmailUser(u);
-                              setEmailDraft(u.email);
-                            }}
-                          >
-                            Email
-                          </button>
-                          <button
-                            type="button"
-                            className="button secondary"
-                            style={{ padding: '4px 10px', fontSize: 12 }}
-                            onClick={() => {
-                              setPwdUser(u);
-                              setPwd1('');
-                              setPwd2('');
-                            }}
-                          >
-                            Пароль
-                          </button>
-                          {(u.role === 'psychologist' || u.role === 'admin') && u.isVerified && (
-                            <button
-                              type="button"
-                              className="button secondary"
-                              style={{ padding: '4px 10px', fontSize: 12 }}
-                              disabled={busyId === u.id}
-                              onClick={() => revokeVerification(u)}
-                            >
-                              Снять вериф.
-                            </button>
-                          )}
-                          {u.id !== me?.id && (
-                            <button
-                              type="button"
-                              className="button secondary"
-                              style={{ padding: '4px 10px', fontSize: 12, color: '#f87171' }}
-                              disabled={busyId === u.id}
-                              onClick={() => {
-                                setDelUser(u);
-                                setTransferTo('');
-                              }}
-                            >
-                              Удалить
-                            </button>
-                          )}
-                        </div>
+                      <td style={{ fontSize: 12, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
+                        {new Date(u.createdAt).toLocaleDateString('ru-RU')}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {!users.length && <div className="small" style={{ padding: 16, color: 'var(--text-muted)' }}>Нет записей</div>}
+              {!sortedUsers.length && <div className="admin-empty">Нет записей</div>}
             </div>
           )}
           </div>
         </section>
 
-        <section className="card" style={{ padding: 20, marginBottom: 24, borderRadius: 12, border: borderSubtle }}>
-          <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 700 }}>Клиенты по психологам</h2>
-          <p className="small" style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-            Перетащите карточку клиента на другого психолога или выберите психолога в списке. Обновляются CRM, вкладки и документы с прежним психологом.
-          </p>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: 16
+        {detailUserId && token ? (
+          <AdminUserDetailModal
+            userId={detailUserId}
+            token={token}
+            meId={me?.id}
+            platformAiModel={platformAiModel}
+            platformAiOptions={platformAiOptions}
+            onClose={() => setDetailUserId(null)}
+            onChanged={() => void refreshAll()}
+            onOpenPassword={(u) => {
+              setPwdUser(u);
+              setPwd1('');
+              setPwd2('');
             }}
-          >
-            {psychOptions.map(p => {
-              const list = clientsByPsych.get(p.id) || [];
-              const isOver = dragOverPsych === p.id;
-              return (
-                <div
-                  key={p.id}
-                  onDragOver={e => onDragOverPsych(e, p.id)}
-                  onDragLeave={onDragLeavePsych}
-                  onDrop={e => onDropOnPsych(e, p.id)}
-                  style={{
-                    borderRadius: 12,
-                    border: `2px dashed ${isOver ? 'var(--primary)' : borderSubtle}`,
-                    background: isOver ? 'rgba(91, 124, 250, 0.08)' : 'var(--surface-2)',
-                    padding: 12,
-                    minHeight: 120,
-                    transition: 'border-color 0.15s, background 0.15s'
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                    {p.isVerified && (
-                      <span style={{ fontSize: 10, color: '#10b981', flexShrink: 0 }}>✓ вериф.</span>
-                    )}
-                  </div>
-                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 10, wordBreak: 'break-all' }}>
-                    {p.email}
-                  </div>
-                  <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>
-                    Клиентов: {list.length}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {list.map(c => (
-                      <div
-                        key={c.id}
-                        draggable
-                        onDragStart={e => onDragStartClient(e, c.id)}
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: 8,
-                          background: 'var(--surface)',
-                          border: borderSubtle,
-                          cursor: 'grab',
-                          fontSize: 13,
-                          opacity: busyId === c.id ? 0.5 : 1
-                        }}
-                      >
-                        <div style={{ fontWeight: 600 }}>{c.name}</div>
-                        {c.email && <div className="small" style={{ color: 'var(--text-muted)' }}>{c.email}</div>}
-                      </div>
-                    ))}
-                    {!list.length && (
-                      <div className="small" style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                        Нет клиентов — можно бросить сюда
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+            onOpenEmail={(u) => {
+              setEmailUser(u);
+              setEmailDraft(u.email);
+            }}
+            onOpenDelete={(u) => {
+              setDelUser(u);
+              setTransferTo('');
+            }}
+          />
+        ) : null}
 
-        <section className="card" style={{ padding: 20, borderRadius: 12, border: borderSubtle }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 700 }}>Все клиенты (таблица)</h2>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--text-muted)', borderBottom: borderSubtle, background: tableHeadBg }}>
-                  <th style={{ padding: '8px' }}>Клиент</th>
-                  <th style={{ padding: '8px' }}>Email</th>
-                  <th style={{ padding: '8px' }}>Психолог</th>
-                  <th style={{ padding: '8px' }}>Переназначить</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clientsCrm.map(c => (
-                  <tr key={c.id} style={{ borderBottom: borderSubtle }}>
-                    <td style={{ padding: '8px' }}>{c.name}</td>
-                    <td style={{ padding: '8px', wordBreak: 'break-all' }}>{c.email || '—'}</td>
-                    <td style={{ padding: '8px' }}>{c.psychologistName || c.psychologistEmail || c.psychologistId}</td>
-                    <td style={{ padding: '8px' }}>
-                      <select
-                        value=""
-                        onChange={e => {
-                          const v = e.target.value;
-                          e.target.value = '';
-                          if (v) void reassignClient(c.id, v);
-                        }}
-                        disabled={busyId === c.id}
-                        style={{
-                          padding: '6px 10px',
-                          borderRadius: 8,
-                          border: borderInput,
-                          background: 'var(--surface)',
-                          color: 'var(--text)',
-                          fontSize: 12,
-                          maxWidth: 220
-                        }}
-                      >
-                        <option value="">Выбрать…</option>
-                        {psychOptions.filter(p => p.id !== c.psychologistId).map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.email})
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!clientsCrm.length && <div className="small" style={{ padding: 16, color: 'var(--text-muted)' }}>Нет CRM-клиентов</div>}
-          </div>
-        </section>
       </main>
 
       {pwdUser && (
@@ -1001,7 +747,7 @@ export default function AdminUserManagement() {
             <div style={{ fontWeight: 800, marginBottom: 8, color: '#f87171' }}>Удалить пользователя?</div>
             <div style={{ marginBottom: 12 }}>{delUser.email}</div>
             <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              Для психолога с клиентами укажите, кому передать CRM-клиентов, или переназначьте их вручную в таблице выше.
+              Для психолога с клиентами укажите, кому передать CRM-клиентов, или переназначьте их в карточке пользователя.
             </div>
             {(delUser.clientCount ?? 0) > 0 && (
               <div style={{ marginBottom: 16 }}>

@@ -59,7 +59,7 @@ html[data-theme='light'] .p {
   color: var(--text-muted);
 }
 
-/* Обычные ссылки — не трогаем <a class="button"> (React Router Link), иначе текст сливается с градиентом */
+/* Обычные ссылки — не трогаем <a class="button"> (React Router Link) */
 html[data-theme='light'] a:not(.button):not(.client-profile__btn) {
   color: var(--primary);
 }
@@ -70,7 +70,6 @@ html[data-theme='light'] a:not(.button):not(.client-profile__btn):hover {
 
 html[data-theme='light'] a.button {
   color: #f8fafc;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
 html[data-theme='light'] a.button:hover {
@@ -79,7 +78,6 @@ html[data-theme='light'] a.button:hover {
 
 html[data-theme='light'] a.button.secondary {
   color: var(--text);
-  text-shadow: none;
 }
 
 html[data-theme='light'] a.button.secondary:hover {
@@ -88,11 +86,23 @@ html[data-theme='light'] a.button.secondary:hover {
 
 html[data-theme='light'] a.button.danger {
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 html[data-theme='light'] a.button.danger:hover {
   color: #ffffff;
+}
+
+html[data-theme='light'] a.button.outline {
+  color: var(--text);
+}
+
+html[data-theme='light'] a.button.outline:hover {
+  color: var(--primary);
+}
+
+html[data-theme='light'] .button.outline.is-liked,
+html[data-theme='light'] a.button.outline.is-liked {
+  color: var(--primary);
 }
 
 /* Светлая тема: карточки §4.1 — --card-border + слоёная тень */

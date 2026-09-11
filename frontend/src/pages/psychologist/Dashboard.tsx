@@ -723,10 +723,10 @@ export default function PsychologistDashboard() {
                     hasData: dashboardData.discussOnSessionDreams > 0,
                   },
                   {
-                    to: '/publications',
+                    to: '/communities',
                     icon: 'message' as const,
-                    title: 'Публикации',
-                    note: 'Лента и сообщества',
+                    title: 'Сообщества',
+                    note: 'Лента постов и сообщества',
                     live:
                       dashboardData.publicationDrafts > 0
                         ? `Черновиков: ${dashboardData.publicationDrafts}`

@@ -65,16 +65,10 @@ const QUICK_LINKS: Array<{
     path: '/research/amplifications'
   },
   {
-    icon: 'file',
-    title: 'Публикации',
-    description: 'Статьи, черновики и материалы для сообществ.',
-    path: '/publications'
-  },
-  {
     icon: 'messages',
-    title: 'Лента',
-    description: 'Общая лента постов психологов и исследователей.',
-    path: '/feed'
+    title: 'Сообщества',
+    description: 'Лента постов, подписки и ваши черновики в одном хабе.',
+    path: '/communities'
   },
   {
     icon: 'orbit',

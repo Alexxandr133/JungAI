@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../lib/api';
 import { UserMenu } from './ui';
 import { BrandLogo } from './BrandLogo';
 import { ThemeMenuButton } from './ThemeMenuButton';
@@ -15,12 +16,31 @@ type MenuItem = {
 };
 
 export function ClientNavbar() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const location = useLocation();
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [hasPsychologist, setHasPsychologist] = useState<boolean | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!token) {
+      setHasPsychologist(null);
+      return;
+    }
+    let cancelled = false;
+    void api('/api/clients/my-psychologist', { token })
+      .then(() => {
+        if (!cancelled) setHasPsychologist(true);
+      })
+      .catch(() => {
+        if (!cancelled) setHasPsychologist(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, location.pathname]);
 
   const menuItems: MenuItem[] = [
     {
@@ -29,40 +49,44 @@ export function ClientNavbar() {
       children: [
         { label: 'Главная', path: '/client', icon: 'home' },
         { label: 'Мои сны', path: '/dreams', icon: 'dreams' },
-        { label: 'Необьяснимое', path: '/paranormal', icon: 'star' },
         { label: 'Дневник', path: '/client/journal', icon: 'journal' },
         { label: 'Сессии', path: '/client/sessions', icon: 'calendar' },
-        { label: 'Забота о себе', path: '/client/care', icon: 'heart' }
-      ]
+        { label: 'Забота о себе', path: '/client/care', icon: 'heart' },
+      ],
+    },
+    {
+      label: 'Сообщества',
+      path: '/communities',
+      icon: 'book',
     },
     {
       label: 'ИИ-помощник',
       path: '/client/ai',
-      icon: 'bot'
+      icon: 'bot',
     },
     {
       label: 'Личное развитие',
       icon: 'sparkles',
       children: [
         { label: 'Прогресс', path: '/client/progress', icon: 'chart' },
-        { label: 'Тесты', path: '/client/tests', icon: 'chart' },
-        { label: 'Прогресс', path: '/client/progress', icon: 'chart' },
-        { label: 'Сертификат', path: '/client/certificate', icon: 'star' }
-      ]
+        { label: 'Сертификат', path: '/client/certificate', icon: 'star' },
+      ],
     },
     {
       label: 'Мой психолог',
+      path: '/client/psychologists',
       icon: 'stethoscope',
-      children: [
-        { label: 'Каталог', path: '/client/psychologists', icon: 'stethoscope' },
-        { label: 'Подобрать', path: '/client/match', icon: 'sparkles' }
-      ]
+      ...(hasPsychologist === false
+        ? {
+            children: [{ label: 'Подобрать', path: '/client/match', icon: 'sparkles' as const }],
+          }
+        : {}),
     },
     {
       label: 'О платформе',
       path: '/about',
-      icon: 'info'
-    }
+      icon: 'info',
+    },
   ];
 
   const handleMouseEnter = (label: string) => {
@@ -83,8 +107,16 @@ export function ClientNavbar() {
     if (path === '/client') {
       return location.pathname === '/client';
     }
-    if (path === '/client/ai') {
-      return location.pathname === '/client/ai';
+    if (path === '/communities') {
+      const p = location.pathname;
+      return (
+        p === '/communities' ||
+        p.startsWith('/communities/') ||
+        p.startsWith('/publications/')
+      );
+    }
+    if (path === '/client/psychologists') {
+      return location.pathname.startsWith('/client/psychologists');
     }
     return location.pathname.startsWith(path);
   };

@@ -65,6 +65,22 @@ function eventEffectiveEnd(startsAt: Date, endsAt: Date | null | undefined): Dat
   return new Date(startsAt.getTime() + 3600000);
 }
 
+const SESSION_DURATION_MAX_MINUTES = 360;
+
+function capDurationMinutes(n: unknown, fallback = 60): number {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return fallback;
+  return Math.min(SESSION_DURATION_MAX_MINUTES, v);
+}
+
+function capEventEndsAt(startsAt: Date, endsAt: Date | null | undefined): Date | null {
+  if (!endsAt || Number.isNaN(endsAt.getTime())) return endsAt ?? null;
+  const maxMs = SESSION_DURATION_MAX_MINUTES * 60_000;
+  const duration = endsAt.getTime() - startsAt.getTime();
+  if (duration <= maxMs) return endsAt;
+  return new Date(startsAt.getTime() + maxMs);
+}
+
 function slotOverlapsExisting(
   slotStart: Date,
   slotEnd: Date,
@@ -619,15 +635,14 @@ router.post(
       if (startsAt.getTime() < Date.now() - 60_000) {
         return res.status(400).json({ error: 'Нельзя назначить встречу в прошлом' });
       }
-      const durationMin = Math.min(
-        180,
-        Math.max(30, Number(req.body?.durationMin) || 60)
-      );
+      const durationMin = capDurationMinutes(req.body?.durationMin);
       const parsedEndsAt = req.body?.endsAt ? parseEventDateInput(req.body.endsAt) : null;
-      const endsAt =
+      const endsAt = capEventEndsAt(
+        startsAt,
         parsedEndsAt && !Number.isNaN(parsedEndsAt.getTime())
           ? parsedEndsAt
-          : new Date(startsAt.getTime() + durationMin * 60_000);
+          : new Date(startsAt.getTime() + durationMin * 60_000)
+      )!;
 
       const emailNorm = String(reqRow.contactEmail || '')
         .trim()
@@ -1060,6 +1075,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
   if (endsAt && !parsedEndsAt) {
     return res.status(400).json({ error: 'Invalid endsAt format' });
   }
+  const cappedEndsAt = capEventEndsAt(parsedStartsAt, parsedEndsAt);
   
   // Если указан клиент — проверяем доступ (для любого типа встречи)
   let client = null;
@@ -1095,7 +1111,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
       createdBy: req.user!.id,
       clientId: clientId || null,
       startsAt: parsedStartsAt,
-      endsAt: parsedEndsAt
+      endsAt: cappedEndsAt
     });
     event = series.first;
   } else {
@@ -1107,7 +1123,7 @@ router.post('/events', requireAuth, requireRole(['psychologist', 'researcher', '
         type, 
         description, 
         startsAt: parsedStartsAt,
-        endsAt: parsedEndsAt,
+        endsAt: cappedEndsAt,
         createdBy: req.user!.id,
         clientId: clientId || null,
         sessionStatus: clientId ? 'pending' : null,
@@ -1713,6 +1729,13 @@ router.put('/events/:id', requireAuth, requireRole(['psychologist', 'researcher'
         const parsedEndsAt = parseEventDateInput(endsAt);
         if (!parsedEndsAt) return res.status(400).json({ error: 'Invalid endsAt format' });
         data.endsAt = parsedEndsAt;
+      }
+    }
+    if (data.startsAt !== undefined || data.endsAt !== undefined) {
+      const nextStart = (data.startsAt as Date | undefined) ?? new Date(existing.startsAt);
+      const nextEnd = data.endsAt === undefined ? existing.endsAt : data.endsAt;
+      if (nextEnd instanceof Date) {
+        data.endsAt = capEventEndsAt(nextStart, nextEnd);
       }
     }
     if (clientId !== undefined) {

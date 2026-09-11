@@ -27,13 +27,17 @@ model User {
   emailVerificationExpiresAt DateTime?
   passwordResetCode String?
   passwordResetExpiresAt DateTime?
+  /// Последняя активность на платформе (heartbeat / page visit)
+  lastSeenAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
   verificationRequest VerificationRequest?
   profile              Profile?
+  pageVisits           UserPageVisit[]
 
   @@index([email])
+  @@index([lastSeenAt])
 }
 
 model Profile {
@@ -70,6 +74,23 @@ model Profile {
   updatedAt     DateTime @updatedAt
 
   educations PsychologistEducation[]
+}
+
+/// Визиты страниц для продуктовой аналитики (время на маршруте)
+model UserPageVisit {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  path       String
+  pathKey    String
+  durationMs Int      @default(0)
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, startedAt])
+  @@index([pathKey, startedAt])
+  @@index([startedAt])
 }
 
 /// Образование / курсы психолога (несколько записей, с годами)
@@ -644,6 +665,8 @@ model PublicationPost {
   title       String
   content     String
   imageUrl    String?
+  flair       String?
+  isPinned    Boolean  @default(false)
   status      String   @default("published")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -653,6 +676,7 @@ model PublicationComment {
   id        String   @id @default(cuid())
   postId    String
   authorId  String
+  parentId  String?
   content   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

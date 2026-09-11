@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { AdminNavbar } from '../../components/AdminNavbar';
+import './admin.css';
 
 type VerificationRequest = {
   id: string;
@@ -116,43 +117,35 @@ export default function AdminVerification() {
   const reviewedRequests = requests.filter(r => r.status !== 'pending');
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="admin-shell">
       <AdminNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '24px clamp(16px, 5vw, 48px)',
-          maxWidth: '100%',
-          overflowX: 'hidden'
-        }}
-      >
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Верификация психологов</h1>
-          <div className="small" style={{ color: 'var(--text-muted)' }}>
-            Проверка документов и верификация аккаунтов психологов
+      <main className="admin-main">
+        <header className="admin-head">
+          <div>
+            <p className="admin-head__eyebrow">Люди</p>
+            <h1 className="admin-head__title">Верификация</h1>
+            <p className="admin-head__lead">
+              Проверка документов и допуск психологов. На проверке: {pendingRequests.length}
+            </p>
           </div>
-        </div>
+        </header>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 48 }}>Загрузка...</div>
+          <div className="admin-loading">Загрузка…</div>
         ) : (
           <div style={{ display: 'grid', gap: 24 }}>
             {/* Ожидают проверки */}
             <div>
-              <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>
+              <h2 className="admin-section__title" style={{ marginBottom: 16 }}>
                 Ожидают проверки
                 {pendingRequests.length > 0 && (
-                  <span style={{ marginLeft: 12, background: 'var(--primary)', color: '#fff', padding: '2px 8px', borderRadius: 999, fontSize: 14 }}>
+                  <span className="admin-badge admin-badge--pending" style={{ marginLeft: 12 }}>
                     {pendingRequests.length}
                   </span>
                 )}
               </h2>
               {pendingRequests.length === 0 ? (
-                <div className="card" style={{ padding: 32, textAlign: 'center' }}>
-                  <div style={{ fontSize: 48, marginBottom: 16 }}>✓</div>
-                  <div style={{ fontWeight: 600, marginBottom: 8 }}>Нет запросов на проверку</div>
-                  <div className="small" style={{ color: 'var(--text-muted)' }}>Все запросы обработаны</div>
-                </div>
+                <div className="admin-panel admin-empty">Нет запросов на проверку</div>
               ) : (
                 <div style={{ display: 'grid', gap: 12 }}>
                   {pendingRequests.map(req => {
@@ -160,7 +153,7 @@ export default function AdminVerification() {
                     const displayName = req.userName || req.userEmail || 'U';
                     const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
                     return (
-                    <div key={req.id} className="card" style={{ padding: 20 }}>
+                    <div key={req.id} className="admin-panel" style={{ padding: 20 }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 16, alignItems: 'start' }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>

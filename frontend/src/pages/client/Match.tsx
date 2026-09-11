@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { MATCH_TOPIC_TAGS, PROFILE_TAG_SUGGESTIONS, searchProfileTags } from 'jungai-shared';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
@@ -110,8 +110,9 @@ function clearResults() {
 }
 
 export default function ClientMatch() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const restored = loadResults();
 
   const [step, setStep] = useState(() => (restored ? 4 : 0));
@@ -130,6 +131,27 @@ export default function ClientMatch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [relaxed, setRelaxed] = useState(() => Boolean(restored?.relaxed));
+  const [checkingPsych, setCheckingPsych] = useState(
+    () => Boolean(token && user?.role === 'client' && location.pathname.startsWith('/client/match'))
+  );
+
+  useEffect(() => {
+    if (!token || user?.role !== 'client' || !location.pathname.startsWith('/client/match')) {
+      setCheckingPsych(false);
+      return;
+    }
+    let cancelled = false;
+    void api('/api/clients/my-psychologist', { token })
+      .then(() => {
+        if (!cancelled) navigate('/client/psychologists', { replace: true });
+      })
+      .catch(() => {
+        if (!cancelled) setCheckingPsych(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, user?.role, location.pathname, navigate]);
 
   useEffect(() => {
     api<{ topics: string[]; priceBands: typeof FALLBACK_BANDS }>('/api/psychologists/match/meta')
@@ -270,6 +292,17 @@ export default function ClientMatch() {
     setMatches(null);
     setRelaxed(false);
     setTotal(0);
+  }
+
+  if (checkingPsych) {
+    return (
+      <div className="landing client-match-page">
+        <LandingNavbar variant="catalog" />
+        <main className="client-match landing-container">
+          <p className="landing-lead">Загрузка…</p>
+        </main>
+      </div>
+    );
   }
 
   return (

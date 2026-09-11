@@ -32,13 +32,17 @@ const uploadAvatar = multer({
   storage: avatarStorage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+    const allowedTypes = /jpeg|jpg|png|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase().replace(/^\./, ''));
+    const mimetype =
+      allowedTypes.test(file.mimetype) ||
+      file.mimetype === 'image/jpeg' ||
+      file.mimetype === 'image/png' ||
+      file.mimetype === 'image/webp';
     if (extname && mimetype) {
       cb(null, true);
     } else {
-      cb(new Error('Неподдерживаемый тип файла. Разрешены: JPG, PNG'));
+      cb(new Error('Неподдерживаемый тип файла. Разрешены: JPG, PNG, WEBP'));
     }
   }
 });
@@ -759,7 +763,19 @@ router.post('/client/profile', requireAuth, requireRole(['client', 'admin']), as
 });
 
 // Загрузить аватар клиента
-router.post('/client/profile/avatar', requireAuth, requireRole(['client', 'admin']), uploadAvatar.single('avatar'), async (req: AuthedRequest, res) => {
+router.post(
+  '/client/profile/avatar',
+  requireAuth,
+  requireRole(['client', 'admin']),
+  (req, res, next) => {
+    uploadAvatar.single('avatar')(req, res, (err: any) => {
+      if (err) {
+        return res.status(400).json({ error: err.message || 'Не удалось загрузить файл' });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Файл не загружен' });

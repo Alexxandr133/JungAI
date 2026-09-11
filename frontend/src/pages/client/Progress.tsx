@@ -37,42 +37,43 @@ export default function ClientProgress() {
   }, [token]);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="client-progress-page">
       <ClientNavbar />
       <main className="client-progress">
-        <header className="card client-progress__hero">
+        <header className="client-progress__hero">
+          <p className="client-progress__eyebrow">Личное развитие</p>
           <h1>Прогресс терапии</h1>
           <p>
-            Наблюдения для вас и специалиста: сессии, настроение, сны к обсуждению и задания.
-            Это не клинический диагноз.
+            Наблюдения для вас и специалиста: сессии, настроение, сны к обсуждению и задания. Это не клинический
+            диагноз.
           </p>
         </header>
 
-        {error && <div className="card client-progress__error">{error}</div>}
+        {error && <div className="client-progress__error">{error}</div>}
 
         {data && (
           <>
             <section className="client-progress__stats">
-              <div className="card client-progress__stat">
+              <div className="client-progress__stat">
                 <div className="client-progress__stat-n">{data.eventCount}</div>
                 <div className="client-progress__stat-l">События / сессии</div>
               </div>
-              <div className="card client-progress__stat">
+              <div className="client-progress__stat">
                 <div className="client-progress__stat-n">{data.dreamCount}</div>
                 <div className="client-progress__stat-l">Сны</div>
               </div>
-              <div className="card client-progress__stat">
+              <div className="client-progress__stat">
                 <div className="client-progress__stat-n">{data.journalCount}</div>
                 <div className="client-progress__stat-l">Записи дневника</div>
               </div>
-              <div className="card client-progress__stat">
+              <div className="client-progress__stat">
                 <div className="client-progress__stat-n">{data.moodAvg30d ?? '—'}</div>
                 <div className="client-progress__stat-l">Среднее настроение (30д)</div>
               </div>
             </section>
 
             <section className="client-progress__two">
-              <div className="card client-progress__panel">
+              <div className="client-progress__panel">
                 <h2>Настроение</h2>
                 <MoodMiniChart
                   points={data.moodTrend.map((m) => ({
@@ -81,13 +82,16 @@ export default function ClientProgress() {
                     energy: m.energy,
                     anxiety: m.anxiety,
                   }))}
-                  height={200}
+                  height={220}
+                  sessionMarkers={data.recentEvents
+                    .filter((e) => e.sessionStatus === 'accepted' || !e.sessionStatus)
+                    .map((e) => e.startsAt.slice(0, 10))}
                 />
                 <Link to="/client/care" className="client-progress__link">
                   Открыть трекер →
                 </Link>
               </div>
-              <div className="card client-progress__panel">
+              <div className="client-progress__panel">
                 <h2>Сны к обсуждению</h2>
                 {data.flaggedDreams.length === 0 ? (
                   <p className="client-progress__muted">Отметьте сон флагом «Обсудить на сессии» в карточке сна.</p>
@@ -104,12 +108,11 @@ export default function ClientProgress() {
               </div>
             </section>
 
-            <section className="card client-progress__panel">
+            <section className="client-progress__panel">
               <h2>Ближайшие и прошлые встречи</h2>
               {data.recentEvents.length === 0 ? (
                 <p className="client-progress__muted">
-                  Пока нет сессий.{' '}
-                  <Link to="/client/sessions">Записаться</Link>
+                  Пока нет сессий. <Link to="/client/sessions">Записаться</Link>
                 </p>
               ) : (
                 <ul className="client-progress__timeline">
@@ -123,7 +126,13 @@ export default function ClientProgress() {
                           hour: '2-digit',
                           minute: '2-digit',
                         })}
-                        {e.sessionStatus ? ` · ${e.sessionStatus}` : ''}
+                        {e.sessionStatus === 'accepted'
+                          ? ' · принята'
+                          : e.sessionStatus === 'pending'
+                            ? ' · ожидает'
+                            : e.sessionStatus === 'declined'
+                              ? ' · отклонена'
+                              : ''}
                       </div>
                     </li>
                   ))}
@@ -132,7 +141,7 @@ export default function ClientProgress() {
             </section>
 
             {data.openHomework.length > 0 && (
-              <section className="card client-progress__panel">
+              <section className="client-progress__panel">
                 <h2>Открытые задания</h2>
                 <ul className="client-progress__list">
                   {data.openHomework.map((h) => (

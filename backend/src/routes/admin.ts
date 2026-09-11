@@ -4,6 +4,7 @@ import fs from 'fs';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { requireRole } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import { ensurePageAnalyticsTables, featureMeta } from '../utils/pageAnalytics';
 import { acceptingClientsByIds } from '../utils/acceptingClients';
 import { runDailyDreamSymbolValidation } from '../jobs/dailyDreamSymbols';
 import { processPendingDreamSymbolsBatch, migrateDreamSymbolsToAi } from '../jobs/dreamSymbolExtraction';
@@ -283,21 +284,73 @@ router.get('/psychologists-catalog', async (_req: AuthedRequest, res) => {
     });
     const ids = psychologists.map(p => p.id);
     const searchMap = await acceptingClientsByIds(ids);
-    const profiles = await prisma.profile.findMany({
-      where: { userId: { in: ids } },
-      select: { userId: true, name: true, avatarUrl: true, specialization: true }
-    });
-    const profileMap = new Map(profiles.map(p => [p.userId, p]));
+
+    const parseJson = (raw: unknown): unknown => {
+      if (typeof raw !== 'string') return raw;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return raw;
+      }
+    };
+    const asStringArray = (raw: unknown): string[] => {
+      const v = parseJson(raw);
+      if (Array.isArray(v)) return v.map(String).filter(Boolean);
+      if (typeof v === 'string' && v.trim()) {
+        return v.split(/[,;|/]/).map((s) => s.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    let profiles: any[] = [];
+    if (ids.length) {
+      try {
+        const placeholders = ids.map(() => '?').join(',');
+        profiles = await prisma.$queryRawUnsafe(
+          `SELECT * FROM "Profile" WHERE "userId" IN (${placeholders})`,
+          ...ids
+        );
+      } catch {
+        profiles = await prisma.profile.findMany({ where: { userId: { in: ids } } });
+      }
+    }
+    const profileMap = new Map(profiles.map((p: any) => [p.userId, p]));
+
+    let reviewStats = new Map<string, { avg: number; count: number }>();
+    try {
+      const rows = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT "psychologistId", AVG("rating") as avgRating, COUNT(*) as cnt
+         FROM "PsychologistReview" GROUP BY "psychologistId"`
+      );
+      reviewStats = new Map(
+        rows.map((r) => [
+          r.psychologistId,
+          { avg: Number(r.avgRating || 0), count: Number(r.cnt || 0) },
+        ])
+      );
+    } catch {
+      /* reviews optional */
+    }
+
     res.json({
       items: psychologists.map((p, index) => {
         const profile = profileMap.get(p.id);
         const accepting = searchMap.get(p.id) !== false;
+        const stats = reviewStats.get(p.id);
+        const specialization = asStringArray(profile?.specialization);
         return {
           id: p.id,
           email: p.email,
           name: profile?.name || p.email.split('@')[0],
           avatarUrl: profile?.avatarUrl || null,
-          specialization: profile?.specialization || null,
+          bio: profile?.bio || null,
+          therapyMethod: profile?.therapyMethod || null,
+          specialization,
+          worksWith: asStringArray(profile?.worksWith),
+          experience: profile?.experience ? parseInt(String(profile.experience), 10) || 0 : 0,
+          sessionPriceRub: profile?.sessionPriceRub ?? null,
+          rating: stats && stats.count >= 1 ? Number(stats.avg.toFixed(1)) : null,
+          reviewsCount: stats?.count ?? 0,
           isVerified: p.isVerified,
           sortOrder: p.catalogSortOrder ?? index,
           hidden: Boolean(p.catalogHidden),
@@ -486,11 +539,87 @@ router.get('/analytics', async (req: AuthedRequest, res) => {
         registrations: seriesDays.map((d) => registrationsByDay[d] || 0),
         sessions: seriesDays.map((d) => sessionsByDay[d] || 0),
       },
+      product: await buildProductUsage(from),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load analytics' });
   }
 });
+
+async function buildProductUsage(from: Date) {
+  try {
+    await ensurePageAnalyticsTables();
+    const visits = (await (prisma as any).$queryRawUnsafe(
+      `SELECT pathKey, durationMs, userId FROM "UserPageVisit"
+       WHERE startedAt >= ? LIMIT 20000`,
+      from.toISOString()
+    )) as Array<{ pathKey: string; durationMs: number; userId: string }>;
+    const byKey = new Map<
+      string,
+      { pathKey: string; visits: number; durationMs: number; users: Set<string> }
+    >();
+    for (const v of visits || []) {
+      const key = String(v.pathKey || '/');
+      const cur = byKey.get(key) || { pathKey: key, visits: 0, durationMs: 0, users: new Set<string>() };
+      cur.visits += 1;
+      cur.durationMs += Number(v.durationMs) || 0;
+      cur.users.add(String(v.userId));
+      byKey.set(key, cur);
+    }
+    const features = Array.from(byKey.values())
+      .map((row) => {
+        const meta = featureMeta(row.pathKey);
+        return {
+          pathKey: row.pathKey,
+          label: meta.label,
+          area: meta.area,
+          visits: row.visits,
+          uniqueUsers: row.users.size,
+          durationMs: row.durationMs,
+          avgDurationMs: row.visits ? Math.round(row.durationMs / row.visits) : 0,
+        };
+      })
+      .sort((a, b) => b.durationMs - a.durationMs || b.visits - a.visits)
+      .slice(0, 50);
+
+    const byArea = new Map<string, { area: string; visits: number; durationMs: number; uniqueUsers: Set<string> }>();
+    for (const f of features) {
+      const cur = byArea.get(f.area) || {
+        area: f.area,
+        visits: 0,
+        durationMs: 0,
+        uniqueUsers: new Set<string>(),
+      };
+      cur.visits += f.visits;
+      cur.durationMs += f.durationMs;
+      byArea.set(f.area, cur);
+    }
+
+    // rebuild unique users per area from raw visits
+    for (const v of visits || []) {
+      const meta = featureMeta(String(v.pathKey || '/'));
+      const cur = byArea.get(meta.area);
+      if (cur) cur.uniqueUsers.add(String(v.userId));
+    }
+
+    return {
+      totalVisits: visits.length,
+      totalDurationMs: features.reduce((a, f) => a + f.durationMs, 0),
+      features,
+      areas: Array.from(byArea.values())
+        .map((a) => ({
+          area: a.area,
+          visits: a.visits,
+          durationMs: a.durationMs,
+          uniqueUsers: a.uniqueUsers.size,
+        }))
+        .sort((a, b) => b.durationMs - a.durationMs),
+    };
+  } catch (e) {
+    console.warn('[admin analytics] product usage:', (e as Error)?.message || e);
+    return { totalVisits: 0, totalDurationMs: 0, features: [], areas: [] };
+  }
+}
 
 export default router;
 

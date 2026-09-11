@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
 import { AdminNavbar } from '../../components/AdminNavbar';
+import { PsychologistMiniCard } from '../../components/PsychologistMiniCard';
+import '../../styles/landing-tokens.css';
+import '../psychologists/Catalog.css';
+import './admin.css';
 
 type CatalogItem = {
   id: string;
   email: string;
   name: string;
   avatarUrl: string | null;
-  specialization: string | null;
+  bio?: string | null;
+  therapyMethod?: string | null;
+  specialization?: string[] | string | null;
+  worksWith?: string[];
+  experience?: number;
+  sessionPriceRub?: number | null;
+  rating?: number | null;
+  reviewsCount?: number;
   isVerified: boolean;
   sortOrder: number;
   hidden: boolean;
@@ -18,21 +28,25 @@ type CatalogItem = {
   visibleOnSite: boolean;
 };
 
+function asSpecArray(v: CatalogItem['specialization']): string[] {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string' && v.trim()) return [v.trim()];
+  return [];
+}
+
 function reindex(items: CatalogItem[]): CatalogItem[] {
   return items.map((it, index) => ({ ...it, sortOrder: index }));
 }
 
 export default function AdminPsychologistsCatalog() {
   const { token } = useAuth();
-  const { appearance } = useAppearance();
-  const isLight = appearance.colorMode === 'light';
-  const border = isLight ? '1px solid rgba(15, 23, 42, 0.1)' : '1px solid rgba(255, 255, 255, 0.1)';
 
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedHint, setSavedHint] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'visible' | 'hidden'>('all');
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -41,20 +55,20 @@ export default function AdminPsychologistsCatalog() {
     try {
       const res = await api<{ items: CatalogItem[] }>('/api/admin/psychologists-catalog', { token });
       setItems(reindex(res.items || []));
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось загрузить каталог');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить каталог');
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   function moveItem(id: string, direction: -1 | 1) {
-    setItems(prev => {
-      const index = prev.findIndex(p => p.id === id);
+    setItems((prev) => {
+      const index = prev.findIndex((p) => p.id === id);
       if (index < 0) return prev;
       const nextIndex = index + direction;
       if (nextIndex < 0 || nextIndex >= prev.length) return prev;
@@ -67,8 +81,8 @@ export default function AdminPsychologistsCatalog() {
   }
 
   function toggleHidden(id: string) {
-    setItems(prev =>
-      prev.map(p => {
+    setItems((prev) =>
+      prev.map((p) => {
         if (p.id !== id) return p;
         const hidden = !p.hidden;
         return {
@@ -89,168 +103,171 @@ export default function AdminPsychologistsCatalog() {
       const payload = reindex(items).map((p, index) => ({
         id: p.id,
         sortOrder: index,
-        hidden: p.hidden
+        hidden: p.hidden,
       }));
       await api('/api/admin/psychologists-catalog', {
         method: 'PUT',
         token,
-        body: { items: payload }
+        body: { items: payload },
       });
       setSavedHint(true);
       await load();
-    } catch (e: any) {
-      setError(e?.message || 'Не удалось сохранить');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить');
     } finally {
       setSaving(false);
     }
   }
 
-  const visibleCount = items.filter(p => p.isVerified && !p.hidden && p.acceptingClients !== false).length;
+  const visibleCount = items.filter((p) => p.isVerified && !p.hidden && p.acceptingClients !== false).length;
+  const shown = items.filter((p) => {
+    if (filter === 'visible') return p.visibleOnSite;
+    if (filter === 'hidden') return p.hidden || !p.isVerified || p.acceptingClients === false;
+    return true;
+  });
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="admin-shell">
       <AdminNavbar />
-      <main style={{ flex: 1, padding: '24px 32px 40px', maxWidth: 920, margin: '0 auto', width: '100%' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+      <main className="admin-main" style={{ maxWidth: 1120 }}>
+        <header className="admin-head">
           <div>
-            <Link to="/admin" className="small" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
-              ← Админ-панель
-            </Link>
-            <h1 style={{ margin: '8px 0 6px', fontSize: 26, fontWeight: 800 }}>Каталог психологов</h1>
-            <p className="small" style={{ color: 'var(--text-muted)', margin: 0, lineHeight: 1.5, maxWidth: 560 }}>
-              Порядок карточек на странице «Психологи» для гостей и клиентов. В каталоге показываются только верифицированные и не скрытые.
+            <p className="admin-head__eyebrow">Люди</p>
+            <h1 className="admin-head__title">Каталог психологов</h1>
+            <p className="admin-head__lead">
+              Тот же вид, что на /psychologists — можно менять порядок и скрывать из публичного списка. На сайте:{' '}
+              {visibleCount} из {items.length}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" className="button secondary" onClick={() => load()} disabled={loading || saving} style={{ padding: '8px 14px', fontSize: 13 }}>
+          <div className="admin-head__actions">
+            <Link to="/psychologists" className="button secondary" target="_blank" rel="noreferrer">
+              Открыть каталог
+            </Link>
+            <button type="button" className="button secondary" onClick={() => void load()} disabled={loading || saving}>
               Обновить
             </button>
-            <button type="button" className="button" onClick={save} disabled={loading || saving} style={{ padding: '8px 16px', fontSize: 13 }}>
-              {saving ? 'Сохранение…' : 'Сохранить порядок'}
+            <button type="button" className="button" onClick={() => void save()} disabled={loading || saving}>
+              {saving ? 'Сохранение…' : 'Сохранить'}
             </button>
           </div>
-        </div>
+        </header>
 
-        {error && <div style={{ color: '#ef4444', marginBottom: 12 }}>{error}</div>}
-        {savedHint && !error && (
-          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.35)', fontSize: 13 }}>
+        {error ? <div className="admin-alert admin-alert--err">{error}</div> : null}
+        {savedHint && !error ? (
+          <div className="admin-alert admin-alert--ok">
             Сохранено. На сайте сейчас {visibleCount} психолог(ов) в публичном списке.
           </div>
-        )}
+        ) : null}
 
-        <div className="small" style={{ color: 'var(--text-muted)', marginBottom: 12 }}>
-          В публичном списке: <strong style={{ color: 'var(--text)' }}>{visibleCount}</strong> из {items.length}
+        <div className="admin-periods" style={{ marginBottom: 16 }}>
+          {(
+            [
+              ['all', 'Все'],
+              ['visible', 'На сайте'],
+              ['hidden', 'Скрытые / не в списке'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={filter === id ? 'is-on' : undefined}
+              onClick={() => setFilter(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
-          <div className="card" style={{ padding: 24, textAlign: 'center' }}>Загрузка…</div>
+          <div className="admin-loading">Загрузка…</div>
         ) : items.length === 0 ? (
-          <div className="card" style={{ padding: 24 }}>Нет учётных записей с ролью «психолог».</div>
+          <div className="admin-panel admin-empty">Нет учётных записей с ролью «психолог».</div>
+        ) : shown.length === 0 ? (
+          <div className="admin-panel admin-empty">Нет карточек в этом фильтре.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {items.map((p, index) => (
-              <div
-                key={p.id}
-                className="card"
-                style={{
-                  padding: '12px 14px',
-                  display: 'grid',
-                  gridTemplateColumns: 'auto 1fr auto',
-                  gap: 12,
-                  alignItems: 'center',
-                  border,
-                  opacity: p.hidden || !p.isVerified ? 0.72 : 1
-                }}
-              >
+          <div className="psy-catalog__grid admin-catalog-grid">
+            {shown.map((p) => {
+              const index = items.findIndex((x) => x.id === p.id);
+              return (
                 <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 10,
-                    background: 'var(--surface-2)',
-                    border,
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 800,
-                    fontSize: 15,
-                    color: 'var(--primary)',
-                    flexShrink: 0
-                  }}
+                  key={p.id}
+                  className={`admin-catalog-card${!p.visibleOnSite ? ' is-offsite' : ''}${p.hidden ? ' is-hidden' : ''}`}
                 >
-                  {index + 1}
-                </div>
-
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</div>
-                  <div className="small" style={{ color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {p.email}
+                  <div className="admin-catalog-card__order" title="Позиция в каталоге">
+                    #{index + 1}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    {p.isVerified ? (
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
-                        Верифицирован
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.15)', color: '#d97706' }}>
-                        Не в каталоге (нет верификации)
-                      </span>
-                    )}
-                    {p.hidden && (
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(148, 163, 184, 0.2)', color: 'var(--text-muted)' }}>
-                        Скрыт
-                      </span>
-                    )}
-                    {p.acceptingClients === false && (
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(148, 163, 184, 0.2)', color: 'var(--text-muted)' }}>
-                        Поиск выключен
-                      </span>
-                    )}
-                    {p.visibleOnSite && (
-                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>
-                        На сайте
-                      </span>
-                    )}
+                  <PsychologistMiniCard
+                    data={{
+                      id: p.id,
+                      name: p.name,
+                      bio: p.bio,
+                      therapyMethod: p.therapyMethod,
+                      specialization: asSpecArray(p.specialization),
+                      worksWith: p.worksWith,
+                      experience: p.experience,
+                      avatarUrl: p.avatarUrl,
+                      sessionPriceRub: p.sessionPriceRub,
+                      verified: p.isVerified,
+                      rating: p.rating,
+                      reviewsCount: p.reviewsCount,
+                    }}
+                    profileCtaLabel="Профиль"
+                    showWrite={false}
+                  />
+                  <div className="admin-catalog-card__controls">
+                    <div className="admin-catalog-card__status">
+                      {p.visibleOnSite ? (
+                        <span className="admin-badge admin-badge--ok">На сайте</span>
+                      ) : null}
+                      {!p.isVerified ? (
+                        <span className="admin-badge admin-badge--warn">Нет верификации</span>
+                      ) : null}
+                      {p.hidden ? <span className="admin-badge admin-badge--muted">Скрыт</span> : null}
+                      {p.acceptingClients === false ? (
+                        <span className="admin-badge admin-badge--muted">Поиск выключен</span>
+                      ) : null}
+                      <span className="admin-catalog-card__email">{p.email}</span>
+                    </div>
+                    <div className="admin-catalog-card__actions">
+                      <button
+                        type="button"
+                        className="button secondary"
+                        title="Выше"
+                        disabled={index <= 0}
+                        onClick={() => moveItem(p.id, -1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        title="Ниже"
+                        disabled={index < 0 || index >= items.length - 1}
+                        onClick={() => moveItem(p.id, 1)}
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        className={p.hidden ? 'button' : 'button secondary'}
+                        onClick={() => toggleHidden(p.id)}
+                      >
+                        {p.hidden ? 'Вернуть в каталог' : 'Скрыть из каталога'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    title="Выше"
-                    disabled={index === 0}
-                    onClick={() => moveItem(p.id, -1)}
-                    style={{ padding: '6px 10px', fontSize: 14 }}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    title="Ниже"
-                    disabled={index === items.length - 1}
-                    onClick={() => moveItem(p.id, 1)}
-                    style={{ padding: '6px 10px', fontSize: 14 }}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    className={p.hidden ? 'button' : 'button secondary'}
-                    onClick={() => toggleHidden(p.id)}
-                    style={{ padding: '6px 12px', fontSize: 12, whiteSpace: 'nowrap' }}
-                  >
-                    {p.hidden ? 'Показать' : 'Скрыть'}
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         <p className="small" style={{ color: 'var(--text-muted)', marginTop: 16, lineHeight: 1.5 }}>
-          Подсказка: измените порядок стрелками ↑↓ и нажмите «Сохранить порядок». Скрытые психологи не отображаются на{' '}
-          <Link to="/psychologists" style={{ color: 'var(--primary)' }}>/psychologists</Link>.
+          Измените порядок стрелками и нажмите «Сохранить». Скрытые психологи не показываются на{' '}
+          <Link to="/psychologists" style={{ color: 'var(--brand)' }}>
+            /psychologists
+          </Link>
+          .
         </p>
       </main>
     </div>

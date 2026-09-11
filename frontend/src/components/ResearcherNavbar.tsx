@@ -52,11 +52,8 @@ export function ResearcherNavbar() {
     },
     {
       label: 'Сообщества',
-      icon: 'book',
-      children: [
-        { label: 'Публикации', path: '/publications', icon: 'file' },
-        { label: 'Лента', path: '/feed', icon: 'messages' }
-      ]
+      path: '/communities',
+      icon: 'book'
     },
     {
       label: 'Профиль',
@@ -101,6 +98,15 @@ export function ResearcherNavbar() {
     if (!path) return false;
     if (path === '/researcher') {
       return location.pathname === '/researcher';
+    }
+    if (path === '/communities') {
+      const p = location.pathname;
+      return (
+        p === '/communities' ||
+        p.startsWith('/communities/') ||
+        p.startsWith('/publications') ||
+        p === '/feed'
+      );
     }
     return location.pathname.startsWith(path);
   };

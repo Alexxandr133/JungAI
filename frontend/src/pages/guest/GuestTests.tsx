@@ -1,6 +1,6 @@
 import { useAuth } from '../../context/AuthContext';
 import { GuestNavbar } from '../../components/GuestNavbar';
-import ClientTests from '../client/Tests';
+import ClientTests from '../client/TestsCatalog';
 
 export default function GuestTests() {
   const { user } = useAuth();

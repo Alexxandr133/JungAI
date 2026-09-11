@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
 import { formatDateTimeInAppTz, formatTimeInAppTz, toWallInputValue } from '../../lib/eventsCalendarUtils';
+import { SessionDurationField, capSessionDurationMin } from './SessionDurationField';
 
 export type IncomingRequestItem = {
   id: string;
@@ -144,7 +145,7 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
     }
     await accept(acceptInquiryItem, {
       startsAt,
-      durationMin: introDurationMin,
+      durationMin: capSessionDurationMin(introDurationMin) || 60,
     });
   }
 
@@ -389,19 +390,16 @@ export function EventsIncomingRequests({ token, items, onChanged, onToast }: Pro
               onChange={(e) => setIntroLocal(e.target.value)}
               required
             />
-            <label className="events-page__dlg-label" htmlFor="events-intro-duration" style={{ marginTop: 12 }}>
-              Длительность
-            </label>
-            <select
-              id="events-intro-duration"
-              className="events-page__field"
-              value={introDurationMin}
-              onChange={(e) => setIntroDurationMin(Number(e.target.value))}
-            >
-              <option value={45}>45 минут</option>
-              <option value={60}>60 минут</option>
-              <option value={90}>90 минут</option>
-            </select>
+            <div style={{ marginTop: 12 }}>
+              <SessionDurationField
+                key={acceptInquiryItem.id}
+                id="events-intro-duration"
+                label="Длительность"
+                labelClassName="events-page__dlg-label"
+                value={introDurationMin}
+                onChange={setIntroDurationMin}
+              />
+            </div>
             <div className="events-page__dlg-actions">
               <button
                 type="button"

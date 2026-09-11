@@ -76,9 +76,11 @@ export function MoodCheckInControl({
         <div className="mood-tracker__title">Трекер настроения</div>
         <div className="mood-tracker__sub">
           {locked
-            ? 'Сегодня уже отмечено — можно изменить, если настроение сменилось.'
+            ? compact
+              ? 'Уже отмечено сегодня'
+              : 'Сегодня уже отмечено — можно изменить, если настроение сменилось.'
             : compact
-              ? 'Одна отметка в день, можно обновить'
+              ? 'Одна отметка в день'
               : 'Выберите настроение, энергию и тревогу — затем сохраните. Одну отметку за день можно обновить.'}
         </div>
       </div>
@@ -172,15 +174,21 @@ export function MoodMiniChart({
   points,
   height = 200,
   sessionMarkers,
+  fillContainer = false,
 }: {
   points: MoodDailyPoint[];
   height?: number;
   /** YYYY-MM-DD keys — дни с сессиями на графике */
   sessionMarkers?: string[];
+  /** Растянуть SVG на всю доступную ширину/высоту родителя */
+  fillContainer?: boolean;
 }) {
   if (!points.length) {
     return (
-      <div className="mood-chart mood-chart--empty" style={{ minHeight: height }}>
+      <div
+        className={`mood-chart mood-chart--empty${fillContainer ? ' mood-chart--fill' : ''}`}
+        style={fillContainer ? undefined : { minHeight: height }}
+      >
         Пока нет отметок — сохраните настроение слева
       </div>
     );
@@ -188,7 +196,8 @@ export function MoodMiniChart({
 
   const filled = points.filter((p) => p.mood != null);
   const w = 560;
-  const h = height;
+  /** Более «высокий» viewBox при fill — меньше пустоты по вертикали */
+  const h = fillContainer ? Math.max(height, 280) : height;
   const padL = 36;
   const padR = 12;
   const padT = 22;
@@ -235,8 +244,16 @@ export function MoodMiniChart({
   const labelEvery = points.length > 10 ? 2 : 1;
 
   return (
-    <div className="mood-chart-wrap">
-      <svg className="mood-chart" viewBox={`0 0 ${w} ${h}`} width="100%" height={height} role="img" aria-label="График настроения за период">
+    <div className={`mood-chart-wrap${fillContainer ? ' mood-chart-wrap--fill' : ''}`}>
+      <svg
+        className={`mood-chart${fillContainer ? ' mood-chart--fill' : ''}`}
+        viewBox={`0 0 ${w} ${h}`}
+        width="100%"
+        height={fillContainer ? '100%' : height}
+        preserveAspectRatio={fillContainer ? 'none' : 'xMidYMid meet'}
+        role="img"
+        aria-label="График настроения за период"
+      >
         {yTicks.map((tick) => {
           const y = yAt(tick);
           return (

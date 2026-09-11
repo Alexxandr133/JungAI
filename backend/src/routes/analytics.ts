@@ -1,8 +1,73 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, requireVerification, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
+import {
+  cuidLike,
+  ensurePageAnalyticsTables,
+  featureMeta,
+  normalizePathKey,
+} from '../utils/pageAnalytics';
 
 const router = Router();
+
+/** Heartbeat визита страницы (длительность на маршруте) */
+router.post('/analytics/page-visit', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    await ensurePageAnalyticsTables();
+    const pathRaw = String(req.body?.path || '').trim().slice(0, 300);
+    const durationMs = Math.max(0, Math.min(30 * 60 * 1000, Number(req.body?.durationMs) || 0));
+    const visitIdRaw = typeof req.body?.visitId === 'string' ? req.body.visitId.trim().slice(0, 64) : '';
+    const visitId = visitIdRaw || cuidLike();
+    const nowIso = new Date().toISOString();
+
+    await (prisma as any).$executeRawUnsafe(
+      `UPDATE "User" SET "lastSeenAt" = ? WHERE id = ?`,
+      nowIso,
+      req.user!.id
+    );
+
+    if (!pathRaw || durationMs < 1000) {
+      return res.json({ ok: true, skipped: true });
+    }
+
+    const pathKey = normalizePathKey(pathRaw);
+    const startedAt = new Date(Date.now() - durationMs).toISOString();
+
+    const existing = (await (prisma as any).$queryRawUnsafe(
+      `SELECT id, durationMs, userId FROM "UserPageVisit" WHERE id = ? LIMIT 1`,
+      visitId
+    )) as Array<{ id: string; durationMs: number; userId: string }>;
+
+    if (existing?.[0]?.userId === req.user!.id) {
+      const nextDur = Math.max(Number(existing[0].durationMs) || 0, durationMs);
+      await (prisma as any).$executeRawUnsafe(
+        `UPDATE "UserPageVisit" SET durationMs = ?, endedAt = ?, path = ?, pathKey = ? WHERE id = ?`,
+        nextDur,
+        nowIso,
+        pathRaw,
+        pathKey,
+        visitId
+      );
+    } else {
+      await (prisma as any).$executeRawUnsafe(
+        `INSERT INTO "UserPageVisit"(id, userId, path, pathKey, durationMs, startedAt, endedAt, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        visitId,
+        req.user!.id,
+        pathRaw,
+        pathKey,
+        durationMs,
+        startedAt,
+        nowIso,
+        nowIso
+      );
+    }
+
+    res.json({ ok: true, pathKey, feature: featureMeta(pathKey), visitId });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to record page visit' });
+  }
+});
 
 // Дашборд психолога
 router.get('/analytics/dashboard', requireAuth, requireRole(['psychologist', 'admin']), requireVerification, async (req: AuthedRequest, res) => {

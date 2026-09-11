@@ -1,15 +1,68 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Moon, Plus, Send, Trash2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { syncClientActivityPoints } from '../../lib/clientActivityPoints';
 import { ClientNavbar } from '../../components/ClientNavbar';
-import '../../styles/tokens.css';
+import './ClientAIChat.css';
 
-const STORAGE_KEY = 'client_chat_history';
+type Msg = { role: 'user' | 'assistant'; content: string };
+type ChatThread = {
+  id: string;
+  title: string;
+  messages: Msg[];
+  updatedAt: string;
+};
 
-function useMobileChat(breakpoint = 768) {
+const STORAGE_KEY = 'client_ai_chats_v2';
+const LEGACY_KEY = 'client_chat_history';
+
+const PROMPT_CHIPS = [
+  'Как рассказать психологу о тревоге?',
+  'Помоги сформулировать вопрос к сессии',
+  'Что записать в дневник после тяжёлого дня?',
+];
+
+function uid() {
+  return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function loadChats(): ChatThread[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatThread[];
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      const msgs = JSON.parse(legacy) as Msg[];
+      if (Array.isArray(msgs) && msgs.length) {
+        return [
+          {
+            id: uid(),
+            title: msgs.find((m) => m.role === 'user')?.content.slice(0, 42) || 'Диалог',
+            messages: msgs,
+            updatedAt: new Date().toISOString(),
+          },
+        ];
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return [
+    {
+      id: uid(),
+      title: 'Новый чат',
+      messages: [],
+      updatedAt: new Date().toISOString(),
+    },
+  ];
+}
+
+function useMobile(breakpoint = 900) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false
   );
@@ -25,246 +78,248 @@ function useMobileChat(breakpoint = 768) {
 
 export default function ClientAIChat() {
   const { token, user } = useAuth();
-  const isMobileView = useMobileChat(768);
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const isMobile = useMobile();
+  const initialRef = useRef<{ chats: ChatThread[]; activeId: string } | null>(null);
+  if (!initialRef.current) {
+    const loaded = loadChats();
+    initialRef.current = { chats: loaded, activeId: loaded[0]?.id || '' };
+  }
+  const [chats, setChats] = useState<ChatThread[]>(() => initialRef.current!.chats);
+  const [activeId, setActiveId] = useState(() => initialRef.current!.activeId);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [disclaimerShown, setDisclaimerShown] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const active = useMemo(() => chats.find((c) => c.id === activeId) || chats[0], [chats, activeId]);
+  const messages = active?.messages || [];
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length) setMessages(parsed);
-      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
     } catch {
       /* ignore */
     }
-  }, []);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-    }
-  }, [messages]);
+  }, [chats]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, loading, activeId]);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || !token || loading) return;
+  function updateActive(patch: Partial<ChatThread> | ((prev: ChatThread) => ChatThread)) {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id !== activeId) return c;
+        return typeof patch === 'function' ? patch(c) : { ...c, ...patch, updatedAt: new Date().toISOString() };
+      })
+    );
+  }
+
+  function createChat() {
+    const next: ChatThread = {
+      id: uid(),
+      title: 'Новый чат',
+      messages: [],
+      updatedAt: new Date().toISOString(),
+    };
+    setChats((prev) => [next, ...prev]);
+    setActiveId(next.id);
+    setSidebarOpen(false);
+    setDisclaimerShown(false);
+  }
+
+  function deleteChat(id: string) {
+    if (!window.confirm('Удалить этот чат?')) return;
+    setChats((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      if (!next.length) {
+        const fresh: ChatThread = {
+          id: uid(),
+          title: 'Новый чат',
+          messages: [],
+          updatedAt: new Date().toISOString(),
+        };
+        setActiveId(fresh.id);
+        return [fresh];
+      }
+      if (id === activeId) setActiveId(next[0].id);
+      return next;
+    });
+  }
+
+  async function onSubmit(e?: FormEvent) {
+    e?.preventDefault();
+    if (!input.trim() || !token || loading || !active) return;
     const userMessage = input.trim();
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    if (taRef.current) taRef.current.style.height = 'auto';
+
+    const historyBefore = messages;
+    const withUser: Msg[] = [...historyBefore, { role: 'user', content: userMessage }];
+    updateActive((c) => ({
+      ...c,
+      title: c.messages.length === 0 ? userMessage.slice(0, 48) : c.title,
+      messages: withUser,
+      updatedAt: new Date().toISOString(),
+    }));
     setLoading(true);
     try {
       const response = await api<{
         message: string;
-        conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+        conversationHistory: Msg[];
       }>('/api/ai/client/chat', {
         method: 'POST',
         token,
-        body: { message: userMessage, conversationHistory: messages }
+        body: { message: userMessage, conversationHistory: historyBefore },
       });
       const next = response.conversationHistory;
-      setMessages(next);
-      try {
-        if (next.length > 0) localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
+      updateActive({ messages: next });
       if (token && user?.id) {
         syncClientActivityPoints(token, user.id).catch(() => {});
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Не удалось отправить';
-      setMessages(prev => [...prev, { role: 'assistant', content: `Ошибка: ${msg}` }]);
+      updateActive((c) => ({
+        ...c,
+        messages: [...c.messages, { role: 'assistant', content: `Ошибка: ${msg}` }],
+        updatedAt: new Date().toISOString(),
+      }));
     } finally {
       setLoading(false);
     }
   }
 
-  function clearHistory() {
-    if (!window.confirm('Очистить историю диалога с помощником?')) return;
-    setMessages([]);
-    localStorage.removeItem(STORAGE_KEY);
+  function applyChip(text: string) {
+    setInput(text);
+    taRef.current?.focus();
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+    <div className="client-ai">
       <ClientNavbar />
-      <main
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          padding: isMobileView ? '14px clamp(12px, 4vw, 20px) 20px' : '20px clamp(20px, 4vw, 48px)',
-          maxWidth: isMobileView ? 560 : 'min(100%, 1320px)',
-          margin: '0 auto',
-          width: '100%',
-          minHeight: 0
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: isMobileView ? 12 : 20, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-              <Link
-                to="/client"
-                className="small"
-                style={{ color: 'var(--text-muted)', textDecoration: 'none', fontSize: isMobileView ? 12 : undefined }}
-              >
-                ← Главная
-              </Link>
-            </div>
-            <h1 style={{ margin: 0, fontSize: isMobileView ? 20 : 28, fontWeight: 800 }}>ИИ-помощник</h1>
-            <p
-              className="small"
-              style={{
-                margin: '8px 0 0',
-                color: 'var(--text-muted)',
-                maxWidth: isMobileView ? 420 : 640,
-                lineHeight: 1.5,
-                fontSize: isMobileView ? 12 : 14
-              }}
-            >
-              Мягкая рефлексия и поддержка в формулировках. Не заменяет психолога: без диагнозов и жёстких интерпретаций снов.
-            </p>
-          </div>
-          {messages.length > 0 && (
-            <button type="button" className="button secondary" style={{ padding: '8px 14px', fontSize: 13 }} onClick={clearHistory}>
-              Очистить чат
+      <div className="client-ai__layout">
+        <aside className={`client-ai__sidebar${sidebarOpen || !isMobile ? ' is-open' : ''}`}>
+          <div className="client-ai__sidebar-head">
+            <h2>Чаты</h2>
+            <button type="button" className="button" onClick={createChat}>
+              <Plus size={16} /> Новый
             </button>
-          )}
-        </div>
+          </div>
+          <ul className="client-ai__chat-list">
+            {[...chats]
+              .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+              .map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className={`client-ai__chat-row${c.id === activeId ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setActiveId(c.id);
+                      setSidebarOpen(false);
+                    }}
+                  >
+                    <span className="client-ai__chat-title">{c.title || 'Без названия'}</span>
+                    <span className="client-ai__chat-meta">{c.messages.length ? `${c.messages.length} сообщ.` : 'пусто'}</span>
+                  </button>
+                  <button type="button" className="client-ai__chat-del" title="Удалить" onClick={() => deleteChat(c.id)}>
+                    <Trash2 size={14} />
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </aside>
 
-        <div
-          className="card"
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: isMobileView ? 'min(48vh, 360px)' : 'min(72vh, 720px)',
-            padding: 0,
-            overflow: 'hidden',
-            borderRadius: isMobileView ? 12 : 16
-          }}
-        >
-          <div
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: isMobileView ? 14 : 20,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: isMobileView ? 10 : 12,
-              background: 'var(--surface-2)'
-            }}
-          >
-            {messages.length === 0 && (
-              <div
-                style={{
-                  margin: 'auto',
-                  textAlign: 'center',
-                  maxWidth: 400,
-                  color: 'var(--text-muted)',
-                  lineHeight: 1.6,
-                  fontSize: isMobileView ? 13 : 15
+        {isMobile && sidebarOpen && <button type="button" className="client-ai__scrim" aria-label="Закрыть" onClick={() => setSidebarOpen(false)} />}
+
+        <main className="client-ai__main">
+          <header className="client-ai__top">
+            <div>
+              {isMobile && (
+                <button type="button" className="button secondary client-ai__menu-btn" onClick={() => setSidebarOpen(true)}>
+                  Чаты
+                </button>
+              )}
+              <p className="client-ai__eyebrow">Поддержка</p>
+              <h1 className="client-ai__h1">ИИ-помощник</h1>
+              <p className="client-ai__lead">Мягкая рефлексия. Не заменяет психолога.</p>
+            </div>
+          </header>
+
+          <div className="client-ai__panel">
+            <div className="client-ai__thread">
+              {messages.length === 0 && (
+                <div className="client-ai__empty">
+                  <Moon size={28} strokeWidth={1.5} />
+                  <h2>Начните диалог</h2>
+                  <p>Можно описать настроение или попросить помочь сформулировать мысль к сессии.</p>
+                  <div className="client-ai__chips">
+                    {PROMPT_CHIPS.map((chip) => (
+                      <button key={chip} type="button" className="client-ai__chip" onClick={() => applyChip(chip)}>
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {messages.length > 0 && !disclaimerShown && (
+                <div className="client-ai__disclaimer">
+                  ИИ не ставит диагнозов и не заменяет терапию.
+                  <button type="button" onClick={() => setDisclaimerShown(true)}>
+                    Понятно
+                  </button>
+                </div>
+              )}
+
+              {messages.map((msg, idx) => (
+                <div key={`${activeId}-${idx}`} className={`client-ai__bubble-row client-ai__bubble-row--${msg.role}`}>
+                  {msg.role === 'assistant' && (
+                    <span className="client-ai__bot" aria-hidden>
+                      <Moon size={16} />
+                    </span>
+                  )}
+                  <div className={`client-ai__bubble client-ai__bubble--${msg.role}`}>{msg.content}</div>
+                </div>
+              ))}
+              {loading && (
+                <div className="client-ai__bubble-row client-ai__bubble-row--assistant">
+                  <span className="client-ai__bot" aria-hidden>
+                    <Moon size={16} />
+                  </span>
+                  <div className="client-ai__bubble client-ai__bubble--assistant client-ai__bubble--typing">Печатаю…</div>
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+
+            <form className="client-ai__composer" onSubmit={(e) => void onSubmit(e)}>
+              <textarea
+                ref={taRef}
+                value={input}
+                rows={1}
+                placeholder={token ? 'Спросите о настроении, сессии, формулировке…' : 'Войдите, чтобы писать'}
+                disabled={loading || !token}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
                 }}
-              >
-                <div style={{ fontSize: isMobileView ? 32 : 40, marginBottom: 12 }}>🌙</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>Начните диалог</div>
-                <div>Можно описать настроение, задать вопрос о процессе терапии или попросить помочь сформулировать мысль для сессии.</div>
-                <div style={{ marginTop: 14, fontSize: 13, opacity: 0.85 }}>
-                  Пример: «Как мягче рассказать психологу, что мне тревожно?»
-                </div>
-              </div>
-            )}
-            {messages.map((msg, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void onSubmit();
+                  }
                 }}
-              >
-                <div
-                  style={{
-                    maxWidth: '88%',
-                    padding: '12px 16px',
-                    borderRadius: 14,
-                    background:
-                      msg.role === 'user'
-                        ? 'linear-gradient(135deg, var(--primary), var(--accent))'
-                        : 'var(--surface)',
-                    color: msg.role === 'user' ? '#0b0f1a' : 'var(--text)',
-                    fontSize: isMobileView ? 13 : 14,
-                    lineHeight: 1.55,
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    border: msg.role === 'assistant' ? '1px solid rgba(255,255,255,0.06)' : 'none'
-                  }}
-                >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {loading && (
-              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                <div
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: 14,
-                    background: 'var(--surface)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    fontSize: 14,
-                    color: 'var(--text-muted)'
-                  }}
-                >
-                  Печатаю…
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef} />
+              />
+              <button type="submit" className="client-ai__send" disabled={loading || !input.trim() || !token} aria-label="Отправить">
+                <Send size={18} />
+              </button>
+            </form>
           </div>
-          <form
-            onSubmit={onSubmit}
-            style={{
-              display: 'flex',
-              gap: isMobileView ? 8 : 10,
-              padding: isMobileView ? 12 : 16,
-              borderTop: '1px solid rgba(255,255,255,0.08)',
-              background: 'var(--surface)'
-            }}
-          >
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              placeholder={token ? 'Напишите сообщение…' : 'Войдите, чтобы писать помощнику'}
-              disabled={loading || !token}
-              style={{
-                flex: 1,
-                padding: isMobileView ? '10px 12px' : '12px 16px',
-                borderRadius: 12,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'var(--surface-2)',
-                color: 'var(--text)',
-                fontSize: isMobileView ? 14 : 15
-              }}
-            />
-            <button
-              type="submit"
-              className="button"
-              disabled={loading || !input.trim() || !token}
-              style={{ padding: isMobileView ? '10px 14px' : '12px 22px', fontSize: isMobileView ? 13 : undefined }}
-            >
-              Отправить
-            </button>
-          </form>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

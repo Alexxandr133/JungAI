@@ -1,9 +1,9 @@
-import { type CSSProperties, useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useAppearance } from '../../context/AppearanceContext';
 import { api } from '../../lib/api';
 import { AdminNavbar } from '../../components/AdminNavbar';
+import './admin.css';
 
 type DashboardStats = {
   support: {
@@ -41,339 +41,356 @@ type DashboardStats = {
   }>;
 };
 
-function StatCard({
+type AnalyticsLite = {
+  summary: {
+    registrationsInRange: number;
+    sessionsInRange: number;
+  };
+  series: {
+    days: string[];
+    registrations: number[];
+    sessions: number[];
+  };
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  open: 'Открыт',
+  in_progress: 'В работе',
+  resolved: 'Решён',
+  closed: 'Закрыт',
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  open: 'admin-badge admin-badge--open',
+  in_progress: 'admin-badge admin-badge--progress',
+  resolved: 'admin-badge admin-badge--resolved',
+  closed: 'admin-badge admin-badge--closed',
+};
+
+function Kpi({
   label,
   value,
   hint,
-  accent,
-  isLight
+  tone,
+  to,
 }: {
   label: string;
   value: number | string;
   hint?: string;
-  accent?: 'blue' | 'amber' | 'green' | 'red' | 'slate';
-  isLight: boolean;
+  tone?: 'attention' | 'ok' | 'danger' | 'brand';
+  to?: string;
 }) {
-  const borderAccent =
-    accent === 'blue'
-      ? isLight
-        ? '1px solid rgba(59, 130, 246, 0.35)'
-        : '1px solid rgba(59, 130, 246, 0.4)'
-      : accent === 'amber'
-        ? isLight
-          ? '1px solid rgba(245, 158, 11, 0.4)'
-          : '1px solid rgba(251, 191, 36, 0.35)'
-        : accent === 'green'
-          ? isLight
-            ? '1px solid rgba(16, 185, 129, 0.4)'
-            : '1px solid rgba(52, 211, 153, 0.35)'
-          : accent === 'red'
-            ? isLight
-              ? '1px solid rgba(239, 68, 68, 0.4)'
-              : '1px solid rgba(248, 113, 113, 0.35)'
-            : isLight
-              ? '1px solid rgba(15, 23, 42, 0.08)'
-              : '1px solid rgba(255, 255, 255, 0.08)';
+  const cls = `admin-kpi${tone ? ` admin-kpi--${tone}` : ''}`;
+  const body = (
+    <>
+      <div className="admin-kpi__label">{label}</div>
+      <div className="admin-kpi__value">{value}</div>
+      {hint ? <div className="admin-kpi__hint">{hint}</div> : null}
+    </>
+  );
+  if (to) return <Link to={to} className={cls}>{body}</Link>;
+  return <div className={cls}>{body}</div>;
+}
 
-  const valueColor =
-    accent === 'blue'
-      ? '#3b82f6'
-      : accent === 'amber'
-        ? isLight
-          ? '#b45309'
-          : '#fbbf24'
-        : accent === 'green'
-          ? '#10b981'
-          : accent === 'red'
-            ? '#ef4444'
-            : 'var(--text)';
-
-  const cardStyle: CSSProperties = {
-    padding: '12px 14px',
-    borderRadius: 10,
-    background: 'var(--surface)',
-    border: borderAccent,
-    minHeight: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4
-  };
+function MiniSpark({
+  values,
+  labels,
+  stroke = 'var(--brand)',
+  fill = 'rgba(108, 91, 212, 0.12)',
+}: {
+  values: number[];
+  labels: string[];
+  stroke?: string;
+  fill?: string;
+}) {
+  const w = 480;
+  const h = 140;
+  const padX = 8;
+  const padY = 16;
+  const max = Math.max(1, ...values);
+  const n = Math.max(1, values.length - 1);
+  const coords = values.map((v, i) => {
+    const x = padX + (i * (w - padX * 2)) / n;
+    const y = h - padY - (v / max) * (h - padY * 2);
+    return { x, y, v };
+  });
+  const line = coords.map((c) => `${c.x},${c.y}`).join(' ');
+  const area = `${padX},${h - padY} ${line} ${coords[coords.length - 1]?.x ?? padX},${h - padY}`;
+  const sum = values.reduce((a, b) => a + b, 0);
 
   return (
-    <div style={cardStyle}>
-      <div className="small" style={{ color: 'var(--text-muted)', fontWeight: 600, fontSize: 12, lineHeight: 1.25 }}>
-        {label}
+    <div className="admin-spark">
+      <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label="Динамика">
+        <defs>
+          <linearGradient id="adminSparkFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={fill} />
+            <stop offset="100%" stopColor="transparent" />
+          </linearGradient>
+        </defs>
+        <polygon points={area} fill="url(#adminSparkFill)" />
+        <polyline fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" points={line} />
+        {coords.map((c, i) => {
+          if (values.length > 24 && i % Math.ceil(values.length / 12) !== 0 && i !== values.length - 1) return null;
+          return <circle key={i} cx={c.x} cy={c.y} r="2.8" fill={stroke} />;
+        })}
+      </svg>
+      <div className="admin-spark__meta">
+        <span>{labels[0] || '—'}</span>
+        <span>
+          Σ {sum} · max {max}
+        </span>
+        <span>{labels[labels.length - 1] || '—'}</span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: valueColor, lineHeight: 1.15 }}>{value}</div>
-      {hint ? (
-        <div className="small" style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.3 }}>
-          {hint}
-        </div>
-      ) : null}
     </div>
   );
 }
 
 export default function AdminDashboard() {
   const { token } = useAuth();
-  const { appearance } = useAppearance();
-  const isLight = appearance.colorMode === 'light';
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [trend, setTrend] = useState<AnalyticsLite | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (token) {
-      loadStats();
-    }
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [dash, analytics] = await Promise.all([
+          api<DashboardStats>('/api/admin/dashboard', { token }),
+          api<AnalyticsLite>('/api/admin/analytics?days=14', { token }).catch(() => null),
+        ]);
+        if (cancelled) return;
+        setStats(dash);
+        setTrend(analytics);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Не удалось загрузить статистику');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
-  async function loadStats() {
-    if (!token) return;
-    try {
-      setLoading(true);
-      const res = await api<DashboardStats>('/api/admin/dashboard', { token });
-      setStats(res);
-    } catch (e: any) {
-      setError(e.message || 'Не удалось загрузить статистику');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const attentionOpen = (stats?.support.open || 0) + (stats?.support.inProgress || 0);
+  const pendingVerify = stats?.verification.pending || 0;
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      open: { background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' },
-      in_progress: { background: 'rgba(255, 193, 7, 0.2)', color: '#ffc107' },
-      resolved: { background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' },
-      closed: { background: 'rgba(156, 163, 175, 0.2)', color: '#9ca3af' }
-    };
-    const labels = {
-      open: 'Открыт',
-      in_progress: 'В работе',
-      resolved: 'Решен',
-      closed: 'Закрыт'
-    };
-    const style = styles[status as keyof typeof styles] || styles.open;
-    const label = labels[status as keyof typeof labels] || status;
-    return (
-      <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, ...style }}>
-        {label}
-      </span>
-    );
-  };
-
-  const gridStats: CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))',
-    gap: 10
-  };
+  const regSeries = useMemo(() => trend?.series.registrations || [], [trend]);
+  const sessSeries = useMemo(() => trend?.series.sessions || [], [trend]);
+  const dayLabels = useMemo(() => trend?.series.days || [], [trend]);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="admin-shell">
       <AdminNavbar />
-      <main
-        style={{
-          flex: 1,
-          padding: '20px clamp(14px, 4vw, 40px)',
-          maxWidth: 1100,
-          margin: '0 auto',
-          width: '100%',
-          overflowX: 'hidden'
-        }}
-      >
-        <div style={{ marginBottom: 22 }}>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, marginBottom: 4 }}>Дашборд администратора</h1>
-          <div className="small" style={{ color: 'var(--text-muted)' }}>Обзор системы и техподдержки</div>
-        </div>
-
-        {error && (
-          <div className="card" style={{ padding: 12, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', marginBottom: 16, borderRadius: 10, color: '#ef4444' }}>
-            {error}
+      <main className="admin-main">
+        <header className="admin-head">
+          <div>
+            <p className="admin-head__eyebrow">Администрирование</p>
+            <h1 className="admin-head__title">Обзор платформы</h1>
+            <p className="admin-head__lead">
+              Очереди, требующие реакции, снимок системы и динамика за 14 дней.
+            </p>
           </div>
-        )}
+          <div className="admin-head__actions">
+            <Link to="/admin/analytics" className="button secondary">
+              Аналитика
+            </Link>
+            <Link to="/admin/support" className="button">
+              Тех. запросы
+            </Link>
+          </div>
+        </header>
+
+        {error ? <div className="admin-alert admin-alert--err">{error}</div> : null}
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Загрузка...</div>
+          <div className="admin-loading">Загрузка панели…</div>
         ) : stats ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div
-              className="card"
-              style={{
-                padding: '14px 16px',
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                borderRadius: 12
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>Каталог психологов на сайте</div>
-                <div className="small" style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.45 }}>
-                  Порядок карточек на /psychologists и скрытие из публичного списка
-                </div>
-              </div>
-              <Link to="/admin/psychologists-catalog" className="button secondary" style={{ padding: '8px 16px', fontSize: 13, flexShrink: 0 }}>
-                Настроить →
+          <>
+            <section className="admin-attention" aria-label="Требует внимания">
+              <Link
+                to="/admin/support"
+                className={`admin-attention__card${attentionOpen > 0 ? ' admin-attention__card--warn' : ''}`}
+              >
+                <span className="admin-attention__kicker">Техподдержка</span>
+                <div className="admin-attention__num">{attentionOpen}</div>
+                <p className="admin-attention__text">
+                  Открытых и в работе · всего {stats.support.total} · решено {stats.support.resolved}
+                </p>
+                <span className="admin-attention__cta">Открыть очередь →</span>
               </Link>
-            </div>
-
-            <div
-              className="card"
-              style={{
-                padding: '14px 16px',
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                borderRadius: 12
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>Управление пользователями</div>
-                <div className="small" style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.45 }}>
-                  Пароли, снятие верификации, удаление учётных записей, перенос CRM-клиентов между психологами
-                </div>
-              </div>
-              <Link to="/admin/users" className="button" style={{ padding: '8px 16px', fontSize: 13, flexShrink: 0 }}>
-                Открыть →
+              <Link
+                to="/admin/verification"
+                className={`admin-attention__card${pendingVerify > 0 ? ' admin-attention__card--info' : ''}`}
+              >
+                <span className="admin-attention__kicker">Верификация</span>
+                <div className="admin-attention__num">{pendingVerify}</div>
+                <p className="admin-attention__text">
+                  На проверке · одобрено {stats.verification.approved} · отклонено{' '}
+                  {stats.verification.rejected}
+                </p>
+                <span className="admin-attention__cta">Проверить заявки →</span>
               </Link>
-            </div>
+            </section>
 
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
-                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Техподдержка</h2>
-                <Link to="/admin/support" className="button secondary" style={{ padding: '6px 12px', fontSize: 13 }}>
-                  Все запросы →
+            <section className="admin-section">
+              <div className="admin-section__head">
+                <h2 className="admin-section__title">Быстрые действия</h2>
+              </div>
+              <div className="admin-actions">
+                <Link to="/admin/users" className="admin-action">
+                  <strong>Пользователи</strong>
+                  <span>Пароли, роли, AI-лимиты, перенос CRM</span>
+                </Link>
+                <Link to="/admin/psychologists-catalog" className="admin-action">
+                  <strong>Каталог психологов</strong>
+                  <span>Порядок и скрытие на сайте</span>
+                </Link>
+                <Link to="/admin/open-access" className="admin-action">
+                  <strong>Открытый функционал</strong>
+                  <span>
+                    Доступ к РО · {stats.support.withWorkAreaAccess} активных
+                  </span>
+                </Link>
+                <Link to="/admin/mailings" className="admin-action">
+                  <strong>Рассылки</strong>
+                  <span>Группы, шаблоны, кампании</span>
                 </Link>
               </div>
-              <div style={gridStats}>
-                <StatCard label="Всего запросов" value={stats.support.total} hint="За всё время" isLight={isLight} accent="slate" />
-                <StatCard label="Открытых" value={stats.support.open} hint="Требуют внимания" isLight={isLight} accent="blue" />
-                <StatCard label="В работе" value={stats.support.inProgress} isLight={isLight} accent="amber" />
-                <StatCard label="Решенных" value={stats.support.resolved} isLight={isLight} accent="green" />
-                <StatCard
-                  label="С доступом к РО"
-                  value={stats.support.withWorkAreaAccess}
-                  hint="Открытый функционал"
-                  isLight={isLight}
-                  accent="blue"
-                />
-              </div>
-              {stats.support.withWorkAreaAccess > 0 ? (
-                <div style={{ marginTop: 8 }}>
-                  <Link to="/admin/open-access" className="small" style={{ color: '#3b82f6', textDecoration: 'underline', fontSize: 12 }}>
-                    Открыть функционал →
+            </section>
+
+            {trend ? (
+              <section className="admin-section">
+                <div className="admin-section__head">
+                  <div>
+                    <h2 className="admin-section__title">Динамика · 14 дней</h2>
+                    <p className="admin-section__sub">
+                      Регистрации +{trend.summary.registrationsInRange} · сессии{' '}
+                      {trend.summary.sessionsInRange}
+                    </p>
+                  </div>
+                  <Link to="/admin/analytics" className="button secondary">
+                    Подробнее
                   </Link>
                 </div>
-              ) : null}
-            </div>
+                <div className="admin-chart-grid">
+                  <div className="admin-panel">
+                    <h3 className="admin-panel__title">Регистрации</h3>
+                    <p className="admin-panel__hint">Новые аккаунты по дням</p>
+                    <MiniSpark values={regSeries} labels={dayLabels} />
+                  </div>
+                  <div className="admin-panel">
+                    <h3 className="admin-panel__title">Сессии терапии</h3>
+                    <p className="admin-panel__hint">Завершённые сессии по дням</p>
+                    <MiniSpark
+                      values={sessSeries}
+                      labels={dayLabels}
+                      stroke="var(--sage)"
+                      fill="rgba(62, 138, 110, 0.14)"
+                    />
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
-                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Верификация</h2>
-                <Link to="/admin/verification" className="button secondary" style={{ padding: '6px 12px', fontSize: 13 }}>
-                  Все запросы →
-                </Link>
+            <section className="admin-section">
+              <div className="admin-section__head">
+                <h2 className="admin-section__title">Система</h2>
+                <p className="admin-section__sub">Снимок на сейчас</p>
               </div>
-              <div style={gridStats}>
-                <StatCard label="Всего запросов" value={stats.verification.total} isLight={isLight} accent="slate" />
-                <StatCard label="На проверке" value={stats.verification.pending} isLight={isLight} accent="amber" />
-                <StatCard label="Одобрено" value={stats.verification.approved} isLight={isLight} accent="green" />
-                <StatCard label="Отклонено" value={stats.verification.rejected} isLight={isLight} accent="red" />
-              </div>
-            </div>
-
-            <div>
-              <h2 style={{ margin: '0 0 10px', fontSize: 17, fontWeight: 700 }}>Система</h2>
-              <div style={gridStats}>
-                <StatCard label="Пользователей" value={stats.system.totalUsers} isLight={isLight} accent="slate" />
-                <StatCard label="Психологов" value={stats.system.totalPsychologists} isLight={isLight} accent="slate" />
-                <StatCard label="Клиентов" value={stats.system.totalClients} isLight={isLight} accent="slate" />
-                <StatCard label="Снов" value={stats.system.totalDreams} isLight={isLight} accent="slate" />
-                <StatCard label="Сессий (терапия)" value={stats.system.totalSessions} isLight={isLight} accent="slate" />
-                <StatCard
-                  label="Видео: предстоящие"
-                  value={stats.system.videoMeetingsUpcoming ?? 0}
-                  hint="События с комнатой, старт в будущем"
-                  isLight={isLight}
-                  accent="blue"
-                />
-                <StatCard
-                  label="Видео: по расписанию сейчас"
+              <div className="admin-kpi-grid">
+                <Kpi label="Пользователи" value={stats.system.totalUsers} tone="brand" to="/admin/users" />
+                <Kpi label="Психологи" value={stats.system.totalPsychologists} />
+                <Kpi label="Клиенты CRM" value={stats.system.totalClients} />
+                <Kpi label="Сны" value={stats.system.totalDreams} />
+                <Kpi label="Сессии терапии" value={stats.system.totalSessions} />
+                <Kpi
+                  label="Видео сейчас"
                   value={stats.system.videoMeetingsInSlot ?? 0}
-                  hint="Окно встречи: началось, не закончилось"
-                  isLight={isLight}
-                  accent="amber"
+                  hint="Окно встречи идёт"
+                  tone={stats.system.videoMeetingsInSlot ? 'attention' : undefined}
                 />
-                <StatCard
-                  label="Видео: прошедшие"
-                  value={stats.system.videoMeetingsPast ?? 0}
-                  hint="Есть endsAt и время окончания прошло"
-                  isLight={isLight}
-                  accent="slate"
+                <Kpi
+                  label="Видео скоро"
+                  value={stats.system.videoMeetingsUpcoming ?? 0}
+                  hint="Старт в будущем"
                 />
-                <StatCard
-                  label="Комнат LiveKit (всего)"
+                <Kpi
+                  label="Комнаты LiveKit"
                   value={stats.system.voiceRoomsTotal ?? 0}
-                  hint="Записей VoiceRoom в БД"
-                  isLight={isLight}
-                  accent="green"
+                  hint="Записей в БД"
                 />
               </div>
-            </div>
+            </section>
 
-            {stats.recentSupportRequests.length > 0 && (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12 }}>
-                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>Последние запросы</h2>
-                  <Link to="/admin/support" className="button secondary" style={{ padding: '6px 12px', fontSize: 13 }}>
-                    Все запросы →
-                  </Link>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {stats.recentSupportRequests.map((req) => (
-                    <Link
-                      key={req.id}
-                      to="/admin/support"
-                      className="card"
-                      style={{
-                        padding: '12px 14px',
-                        textDecoration: 'none',
-                        color: 'inherit',
-                        display: 'block',
-                        borderRadius: 10,
-                        transition: 'transform 0.2s, box-shadow 0.2s'
-                      }}
-                      onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                        e.currentTarget.style.boxShadow = isLight ? '0 6px 18px rgba(15,23,42,0.08)' : '0 8px 24px rgba(0,0,0,0.35)';
-                      }}
-                      onMouseLeave={(e: React.MouseEvent<HTMLElement>) => {
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = '';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-                            <div style={{ fontWeight: 700, fontSize: 14 }}>{req.title}</div>
-                            {getStatusBadge(req.status)}
-                          </div>
-                          <div className="small" style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                            {req.psychologistName || req.psychologistEmail} • {new Date(req.createdAt).toLocaleString('ru-RU')}
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
+            <section className="admin-section">
+              <div className="admin-section__head">
+                <div>
+                  <h2 className="admin-section__title">Очереди</h2>
+                  <p className="admin-section__sub">Детализация по статусам</p>
                 </div>
               </div>
-            )}
-          </div>
+              <div className="admin-split">
+                <div>
+                  <div className="admin-kpi-grid" style={{ marginBottom: 14 }}>
+                    <Kpi label="ТП · открыто" value={stats.support.open} tone="brand" to="/admin/support" />
+                    <Kpi label="ТП · в работе" value={stats.support.inProgress} tone="attention" to="/admin/support" />
+                    <Kpi label="ТП · решено" value={stats.support.resolved} tone="ok" />
+                    <Kpi label="ТП · закрыто" value={stats.support.closed} />
+                    <Kpi
+                      label="Доступ к РО"
+                      value={stats.support.withWorkAreaAccess}
+                      to="/admin/open-access"
+                    />
+                    <Kpi
+                      label="Верификация · ожидает"
+                      value={stats.verification.pending}
+                      tone={stats.verification.pending ? 'attention' : undefined}
+                      to="/admin/verification"
+                    />
+                  </div>
+                </div>
+                <div className="admin-panel admin-panel--flush">
+                  <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+                    <h3 className="admin-panel__title" style={{ margin: 0 }}>
+                      Последние техзапросы
+                    </h3>
+                  </div>
+                  {stats.recentSupportRequests.length === 0 ? (
+                    <div className="admin-empty" style={{ padding: 28 }}>
+                      Запросов пока нет
+                    </div>
+                  ) : (
+                    <div className="admin-list">
+                      {stats.recentSupportRequests.map((req) => (
+                        <Link key={req.id} to="/admin/support" className="admin-list__row">
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <p className="admin-list__title">{req.title}</p>
+                              <span className={STATUS_BADGE[req.status] || STATUS_BADGE.open}>
+                                {STATUS_LABEL[req.status] || req.status}
+                              </span>
+                            </div>
+                            <p className="admin-list__meta">
+                              {req.psychologistName || req.psychologistEmail || '—'} ·{' '}
+                              {new Date(req.createdAt).toLocaleString('ru-RU')}
+                            </p>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+          </>
         ) : null}
       </main>
     </div>

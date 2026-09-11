@@ -9,6 +9,7 @@ import {
   PLATFORM_TRANSCRIPTION_PRESETS,
   setPlatformSetting,
 } from '../services/platformSettings';
+import { ensurePageAnalyticsTables, featureMeta } from '../utils/pageAnalytics';
 
 const router = Router();
 router.use(requireAuth);
@@ -124,6 +125,22 @@ router.get('/users', async (req: AuthedRequest, res) => {
       take: 200
     });
 
+    // lastSeenAt может отсутствовать в Prisma Client до generate — читаем raw
+    const lastSeenMap = new Map<string, string | null>();
+    if (users.length) {
+      try {
+        const lastSeenRows = (await (prisma as any).$queryRawUnsafe(
+          `SELECT id, lastSeenAt FROM "User" WHERE id IN (${users.map(() => '?').join(',')})`,
+          ...users.map((u) => u.id)
+        )) as Array<{ id: string; lastSeenAt: string | null }>;
+        for (const r of lastSeenRows || []) {
+          lastSeenMap.set(r.id, r.lastSeenAt ? new Date(r.lastSeenAt).toISOString() : null);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     const userIds = users.map(u => u.id);
     const profiles = await prisma.profile.findMany({
       where: { userId: { in: userIds } },
@@ -157,6 +174,7 @@ router.get('/users', async (req: AuthedRequest, res) => {
       aiModel: typeof (u as any).aiModel === 'string' && (u as any).aiModel.trim() ? (u as any).aiModel.trim() : null,
       isVerified: u.isVerified,
       createdAt: u.createdAt.toISOString(),
+      lastSeenAt: lastSeenMap.get(u.id) ?? null,
       profileName: profileMap.get(u.id) ?? null,
       clientCount: u.role === 'psychologist' || u.role === 'admin' ? countByPsych.get(u.id) ?? 0 : undefined,
       linkedClient:
@@ -174,6 +192,171 @@ router.get('/users', async (req: AuthedRequest, res) => {
     res.json({ items });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to list users' });
+  }
+});
+
+/** Карточка пользователя: действия + клиенты + аналитика страниц */
+router.get('/users/:id/detail', async (req: AuthedRequest, res) => {
+  try {
+    await ensurePageAnalyticsTables();
+    const id = String(req.params.id || '');
+    const daysRaw = Number(req.query.days);
+    const days = [7, 30, 90].includes(daysRaw) ? daysRaw : 30;
+    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        aiTokenPlan: true,
+        aiTokensUsed: true,
+        aiTokensResetAt: true,
+        aiModel: true,
+        isVerified: true,
+        createdAt: true,
+        acceptingClients: true,
+      },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    let lastSeenAt: string | null = null;
+    try {
+      const ls = (await (prisma as any).$queryRawUnsafe(
+        `SELECT lastSeenAt FROM "User" WHERE id = ? LIMIT 1`,
+        id
+      )) as Array<{ lastSeenAt: string | null }>;
+      if (ls?.[0]?.lastSeenAt) lastSeenAt = new Date(ls[0].lastSeenAt).toISOString();
+    } catch {
+      /* column may be missing until ensure */
+    }
+
+    const profile = await prisma.profile.findUnique({
+      where: { userId: id },
+      select: { name: true, avatarUrl: true, bio: true, phone: true, specialization: true },
+    });
+
+    let crmClients: Array<{
+      id: string;
+      name: string;
+      email: string | null;
+      psychologistId: string;
+      createdAt: string;
+      therapyEndedAt: string | null;
+    }> = [];
+    let linkedClient: { id: string; name: string; psychologistId: string; psychologistName: string | null } | null = null;
+
+    if (user.role === 'psychologist' || user.role === 'admin') {
+      const clients = await prisma.client.findMany({
+        where: { psychologistId: id },
+        orderBy: { name: 'asc' },
+        take: 300,
+        select: { id: true, name: true, email: true, psychologistId: true, createdAt: true, therapyEndedAt: true },
+      });
+      crmClients = clients.map((c) => ({
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        psychologistId: c.psychologistId,
+        createdAt: c.createdAt.toISOString(),
+        therapyEndedAt: c.therapyEndedAt ? c.therapyEndedAt.toISOString() : null,
+      }));
+    }
+
+    if (user.role === 'client') {
+      const c = await prisma.client.findFirst({
+        where: { email: user.email },
+        select: { id: true, name: true, psychologistId: true },
+      });
+      if (c) {
+        const psych = await prisma.user.findUnique({
+          where: { id: c.psychologistId },
+          select: { email: true },
+        });
+        const psychProfile = await prisma.profile.findUnique({
+          where: { userId: c.psychologistId },
+          select: { name: true },
+        });
+        linkedClient = {
+          id: c.id,
+          name: c.name,
+          psychologistId: c.psychologistId,
+          psychologistName: psychProfile?.name || psych?.email || null,
+        };
+      }
+    }
+
+    const visits = (await (prisma as any).$queryRawUnsafe(
+      `SELECT pathKey, durationMs, startedAt FROM "UserPageVisit"
+       WHERE userId = ? AND startedAt >= ?
+       ORDER BY startedAt DESC LIMIT 5000`,
+      id,
+      from.toISOString()
+    )) as Array<{ pathKey: string; durationMs: number; startedAt: string }>;
+
+    const byKey = new Map<string, { pathKey: string; visits: number; durationMs: number }>();
+    let totalDurationMs = 0;
+    for (const v of visits || []) {
+      const key = String(v.pathKey || '/');
+      const dur = Number(v.durationMs) || 0;
+      totalDurationMs += dur;
+      const cur = byKey.get(key) || { pathKey: key, visits: 0, durationMs: 0 };
+      cur.visits += 1;
+      cur.durationMs += dur;
+      byKey.set(key, cur);
+    }
+
+    const pages = Array.from(byKey.values())
+      .map((row) => ({
+        ...row,
+        ...featureMeta(row.pathKey),
+        avgDurationMs: row.visits ? Math.round(row.durationMs / row.visits) : 0,
+      }))
+      .sort((a, b) => b.durationMs - a.durationMs || b.visits - a.visits)
+      .slice(0, 40);
+
+    const psychUsers = await prisma.user.findMany({
+      where: { role: { in: ['psychologist', 'admin'] }, NOT: { id } },
+      select: { id: true, email: true, isVerified: true },
+      orderBy: { email: 'asc' },
+      take: 200,
+    });
+    const psychProfiles = await prisma.profile.findMany({
+      where: { userId: { in: psychUsers.map((p) => p.id) } },
+      select: { userId: true, name: true },
+    });
+    const psychNameMap = new Map(psychProfiles.map((p) => [p.userId, p.name]));
+
+    res.json({
+      user: {
+        ...user,
+        createdAt: user.createdAt.toISOString(),
+        lastSeenAt,
+        aiTokensResetAt: user.aiTokensResetAt.toISOString(),
+        profileName: profile?.name || null,
+        avatarUrl: profile?.avatarUrl || null,
+        bio: profile?.bio || null,
+        phone: profile?.phone || null,
+        specialization: profile?.specialization || null,
+      },
+      crmClients,
+      linkedClient,
+      psychOptions: psychUsers.map((p) => ({
+        id: p.id,
+        email: p.email,
+        name: psychNameMap.get(p.id) || p.email.split('@')[0],
+        isVerified: p.isVerified,
+      })),
+      usage: {
+        days,
+        totalVisits: visits.length,
+        totalDurationMs,
+        pages,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load user detail' });
   }
 });
 
