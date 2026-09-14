@@ -75,14 +75,31 @@
   box-shadow: var(--shadow-mock);
   overflow: hidden;
   background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.psy-hero__mock-img {
-  max-height: min(560px, 70vh);
-  object-fit: contain;
-  object-position: top center;
-  background: var(--paper-soft);
+.psy-hero__mock-chrome {
+  display: flex;
+  gap: 6px;
+  padding: 2px 4px 0;
+}
+
+.psy-hero__mock-chrome span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.psy-hero__mock-body {
   border-radius: 12px;
+  overflow: hidden;
+}
+
+.psy-hero__mock-body .mock-desk {
+  height: min(480px, 62vh);
 }
 
 .psy-hero__chip {
@@ -97,6 +114,24 @@
   box-shadow: var(--shadow-card);
   white-space: nowrap;
   max-width: 90%;
+}
+
+.psy-hero__chip--sage {
+  background: var(--sage-soft);
+  border-color: color-mix(in srgb, var(--sage) 22%, transparent);
+  color: color-mix(in srgb, var(--sage) 78%, var(--ink));
+}
+
+.psy-hero__chip--brand {
+  background: var(--brand-soft);
+  border-color: color-mix(in srgb, var(--brand) 22%, transparent);
+  color: color-mix(in srgb, var(--brand-deep) 85%, var(--ink));
+}
+
+.psy-hero__chip--peach {
+  background: var(--peach-soft);
+  border-color: color-mix(in srgb, var(--peach) 28%, transparent);
+  color: color-mix(in srgb, #b56a24 70%, var(--ink));
 }
 
 .psy-hero__chip--1 {

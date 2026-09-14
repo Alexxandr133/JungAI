@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useMessengerUi } from '../../context/MessengerUiContext';
 import { api } from '../../lib/api';
@@ -31,11 +31,19 @@ type TaskItem = {
   createdAt: string;
 };
 
+const TASK_PRESETS = [
+  'Записать сон в дневник',
+  'Отметить настроение',
+  'Практика дыхания 5 мин',
+  'Записать ассоциации к сну',
+  'Подготовиться к сессии',
+];
+
 const TABS: { id: TabId; label: string }[] = [
   { id: 'overview', label: 'Обзор' },
   { id: 'timeline', label: 'Таймлайн' },
   { id: 'notes', label: 'Заметки' },
-  { id: 'tasks', label: 'Задачи' },
+  { id: 'tasks', label: 'Задания' },
   { id: 'info', label: 'Информация' },
   { id: 'stats', label: 'Статистика' },
   { id: 'sessions', label: 'Сессии' },
@@ -76,6 +84,7 @@ function activityTypeLabel(type: string) {
 
 export default function ClientProfileView() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { token } = useAuth();
   const { openMessenger } = useMessengerUi();
   const [client, setClient] = useState<any>(null);
@@ -115,7 +124,25 @@ export default function ClientProfileView() {
   const [error, setError] = useState<string | null>(null);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
   const [verificationStatus, setVerificationStatus] = useState<VerificationStatus | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const tabFromUrl = searchParams.get('tab');
+  const initialTab: TabId =
+    tabFromUrl && TABS.some((t) => t.id === tabFromUrl) ? (tabFromUrl as TabId) : 'overview';
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t && TABS.some((x) => x.id === t)) {
+      setActiveTab(t as TabId);
+    }
+  }, [searchParams]);
+
+  function selectTab(tab: TabId) {
+    setActiveTab(tab);
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'overview') next.delete('tab');
+    else next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  }
 
   useEffect(() => {
     if (!token) {
@@ -239,7 +266,7 @@ export default function ClientProfileView() {
     setSavingTask(true);
     setError(null);
     try {
-      await api('/api/tasks', {
+      const created = await api<TaskItem>('/api/tasks', {
         method: 'POST',
         token,
         body: {
@@ -250,7 +277,7 @@ export default function ClientProfileView() {
       });
       setTaskDraft('');
       setTaskDue('');
-      await loadCrmExtras();
+      setTasks((prev) => [created, ...prev]);
     } catch (err: any) {
       setError(err.message || 'Не удалось создать задачу');
     } finally {
@@ -261,15 +288,29 @@ export default function ClientProfileView() {
   async function toggleTaskDone(task: TaskItem) {
     if (!token) return;
     const nextStatus = task.status === 'done' ? 'todo' : 'done';
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)));
     try {
       await api(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         token,
         body: { status: nextStatus },
       });
-      await loadCrmExtras();
     } catch (err: any) {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status: task.status } : t)));
       setError(err.message || 'Не удалось обновить задачу');
+    }
+  }
+
+  async function deleteTask(taskId: string) {
+    if (!token) return;
+    if (!window.confirm('Удалить задание?')) return;
+    const prev = tasks;
+    setTasks((list) => list.filter((t) => t.id !== taskId));
+    try {
+      await api(`/api/tasks/${taskId}`, { method: 'DELETE', token });
+    } catch (err: any) {
+      setTasks(prev);
+      setError(err.message || 'Не удалось удалить задание');
     }
   }
 
@@ -387,7 +428,7 @@ export default function ClientProfileView() {
                   role="tab"
                   aria-selected={activeTab === tab.id}
                   className={`client-profile-tabs__btn${activeTab === tab.id ? ' is-active' : ''}`}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => selectTab(tab.id)}
                 >
                   {tab.label}
                   {tab.id === 'tasks' && openTasks.length > 0 ? ` (${openTasks.length})` : ''}
@@ -436,7 +477,7 @@ export default function ClientProfileView() {
                       type="button"
                       className="client-profile__btn client-profile__btn--secondary"
                       style={{ marginTop: 8, padding: '6px 10px', fontSize: 12 }}
-                      onClick={() => setActiveTab('tasks')}
+                      onClick={() => selectTab('tasks')}
                     >
                       {openTasks.length > 0 ? 'К задачам' : 'Поставить задачу'}
                     </button>
@@ -450,7 +491,7 @@ export default function ClientProfileView() {
                       type="button"
                       className="client-profile__btn client-profile__btn--secondary"
                       style={{ marginTop: 8, padding: '6px 10px', fontSize: 12 }}
-                      onClick={() => setActiveTab('timeline')}
+                      onClick={() => selectTab('timeline')}
                     >
                       Открыть таймлайн
                     </button>
@@ -494,7 +535,7 @@ export default function ClientProfileView() {
                           type="button"
                           className="client-profile__btn client-profile__btn--ghost"
                           style={{ alignSelf: 'start' }}
-                          onClick={() => setActiveTab('notes')}
+                          onClick={() => selectTab('notes')}
                         >
                           Все заметки →
                         </button>
@@ -605,50 +646,83 @@ export default function ClientProfileView() {
 
             {activeTab === 'tasks' && (
               <div className="client-profile__panel">
-                <h2>Задачи</h2>
-                <form onSubmit={createTask} className="client-profile-form">
+                <h2>Задания клиенту</h2>
+                <p className="client-profile-stat__muted" style={{ marginTop: 0, marginBottom: 14, lineHeight: 1.45 }}>
+                  Короткие задания. Клиент увидит их на рабочем столе и во вкладке «Забота» и сможет отметить выполнение.
+                </p>
+                <form onSubmit={createTask} className="client-profile-form client-profile-form--task">
                   <input
+                    type="text"
                     value={taskDraft}
                     onChange={(e) => setTaskDraft(e.target.value)}
-                    placeholder="Название задачи"
+                    placeholder="Название задания"
                     required
+                    maxLength={200}
                   />
                   <input
                     type="datetime-local"
                     value={taskDue}
                     onChange={(e) => setTaskDue(e.target.value)}
+                    aria-label="Срок"
                   />
                   <button type="submit" className="client-profile__btn" disabled={savingTask || !taskDraft.trim()}>
-                    {savingTask ? 'Создание…' : 'Поставить задачу'}
+                    {savingTask ? '…' : 'Выдать'}
                   </button>
                 </form>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                  {TASK_PRESETS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className="client-profile__btn client-profile__btn--secondary"
+                      style={{ fontSize: 12, padding: '6px 10px' }}
+                      onClick={() => setTaskDraft(p)}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 12, marginTop: 16, fontSize: 13, color: 'var(--ink-muted, var(--text-muted))' }}>
+                  <span>Открыто: {openTasks.length}</span>
+                  <span>Выполнено: {tasks.filter((t) => t.status === 'done').length}</span>
+                </div>
                 {tasks.length === 0 ? (
-                  <div className="client-profile-empty">Нет открытых задач</div>
+                  <div className="client-profile-empty">Пока нет заданий — добавьте первое выше</div>
                 ) : (
                   <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
                     {tasks.map((t) => (
-                      <div key={t.id} className="client-profile-list-item">
-                        <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flex: 1, cursor: 'pointer' }}>
+                      <div key={t.id} className={`client-profile-task-card${t.status === 'done' ? ' is-done' : ''}`}>
+                        <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flex: 1, cursor: 'pointer' }}>
                           <input
                             type="checkbox"
                             checked={t.status === 'done'}
                             onChange={() => toggleTaskDone(t)}
-                            style={{ marginTop: 4 }}
+                            style={{ marginTop: 5 }}
                           />
                           <div>
-                            <div style={{ fontWeight: 600, textDecoration: t.status === 'done' ? 'line-through' : 'none', opacity: t.status === 'done' ? 0.65 : 1 }}>
-                              {t.title}
-                            </div>
-                            {t.dueAt && (
-                              <div className="client-profile-stat__muted" style={{ marginTop: 2 }}>
-                                Срок: {formatDateTime(t.dueAt)}
+                            <div className="client-profile-task-card__title">{t.title}</div>
+                            {t.dueAt ? (
+                              <div className="client-profile-task-card__meta">Срок: {formatDateTime(t.dueAt)}</div>
+                            ) : (
+                              <div className="client-profile-task-card__meta">
+                                Создано: {formatDateTime(t.createdAt)}
                               </div>
                             )}
                           </div>
                         </label>
-                        <span className="client-profile-stat__muted">
-                          {t.status === 'done' ? 'Готово' : 'Открыта'}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                          <span className={`client-profile-task-card__badge${t.status === 'done' ? ' is-done' : ''}`}>
+                            {t.status === 'done' ? 'Сделано' : 'Открыто'}
+                          </span>
+                          <button
+                            type="button"
+                            className="client-profile__btn client-profile__btn--secondary"
+                            style={{ fontSize: 12, padding: '4px 8px' }}
+                            onClick={() => void deleteTask(t.id)}
+                          >
+                            Удалить
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -752,7 +826,7 @@ export default function ClientProfileView() {
                     type="button"
                     className="client-profile-stat"
                     style={{ textAlign: 'center', cursor: 'pointer', width: '100%' }}
-                    onClick={() => setActiveTab('sessions')}
+                    onClick={() => selectTab('sessions')}
                   >
                     <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--brand)' }}>{stats?.sessions || 0}</div>
                     <div className="client-profile-stat__muted">Сессий</div>
@@ -761,7 +835,7 @@ export default function ClientProfileView() {
                     type="button"
                     className="client-profile-stat"
                     style={{ textAlign: 'center', cursor: 'pointer', width: '100%' }}
-                    onClick={() => setActiveTab('journal')}
+                    onClick={() => selectTab('journal')}
                   >
                     <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--brand)' }}>{stats?.journalEntries || 0}</div>
                     <div className="client-profile-stat__muted">Записей в дневнике</div>

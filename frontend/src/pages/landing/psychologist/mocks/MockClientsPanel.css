@@ -1,0 +1,249 @@
+.mock-clients {
+  pointer-events: none;
+  user-select: none;
+  height: min(420px, 58vh);
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--paper-soft);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+.mock-clients__toolbar {
+  flex-shrink: 0;
+  padding: 12px 14px 10px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mock-clients__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mock-clients__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.mock-clients__add {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mock-clients__search {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.mock-clients__tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mock-clients__tab {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.mock-clients__tab--active {
+  background: var(--brand-soft);
+  border-color: transparent;
+  color: var(--brand-deep);
+}
+
+.mock-clients__count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.mock-clients__grid {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  align-content: start;
+}
+
+.mock-clients__card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  padding: 11px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mock-clients__head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.mock-clients__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--brand);
+  background: var(--brand-soft);
+  border: 2px solid var(--line);
+}
+
+.mock-clients__identity {
+  min-width: 0;
+}
+
+.mock-clients__name-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.mock-clients__name {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.mock-clients__badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mock-clients__badge--registered {
+  background: var(--sage-soft);
+  color: var(--sage);
+}
+
+.mock-clients__badge--pending {
+  background: var(--peach-soft);
+  color: #b56a24;
+}
+
+.mock-clients__subtitle,
+.mock-clients__meta,
+.mock-clients__email {
+  font-size: 11px;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
+.mock-clients__subtitle {
+  margin-top: 2px;
+}
+
+.mock-clients__email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-clients__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mock-clients__tag {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.mock-clients__crm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.mock-clients__crm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+
+.mock-clients__crm-row strong {
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+}
+
+.mock-clients__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.mock-clients__btn {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--brand);
+  color: #fff;
+}
+
+.mock-clients__btn--ghost {
+  background: transparent;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+
+@media (max-width: 800px) {
+  .mock-clients {
+    height: min(380px, 55vh);
+  }
+
+  .mock-clients__grid {
+    grid-template-columns: 1fr;
+  }
+}

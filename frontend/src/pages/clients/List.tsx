@@ -312,6 +312,10 @@ export default function ClientsList() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const urlTags = params.get('tags');
+    const filter = params.get('filter');
+    if (filter === 'has_tasks' || filter === 'needs_attention' || filter === 'no_upcoming' || filter === 'expired_invite' || filter === 'all') {
+      setCrmFilter(filter);
+    }
     const stored = localStorage.getItem('clients.tagFilter');
     let initial: string[] = [];
     if (urlTags) initial = urlTags.split(',').filter(Boolean);

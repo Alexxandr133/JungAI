@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { GuestNavbar } from '../../components/GuestNavbar';
 import { useAuth } from '../../context/AuthContext';
 import { api, resolvePublicFileUrl } from '../../lib/api';
 import { PlatformIcon } from '../../components/icons';
+import { usePageMeta } from '../../hooks/usePageMeta';
 import { ThreadCard } from './ThreadCard';
 import { canCreateForum, canSpeakAsCommunity, formatForumTime, type ForumCommunity, type ForumPost } from './forumUtils';
 import './communities.css';
@@ -12,6 +14,7 @@ type SortKey = 'new' | 'active' | 'top';
 
 export default function CommunityView() {
   const { slug = '' } = useParams();
+  const navigate = useNavigate();
   const { token, user } = useAuth();
   const [community, setCommunity] = useState<ForumCommunity | null>(null);
   const [posts, setPosts] = useState<ForumPost[]>([]);
@@ -21,31 +24,48 @@ export default function CommunityView() {
   const [error, setError] = useState('');
   const [sort, setSort] = useState<SortKey>('new');
   const [flair, setFlair] = useState('');
+  const [authPrompt, setAuthPrompt] = useState(false);
+
+  const [locked, setLocked] = useState(false);
 
   const canManage = Boolean(
     community && (canSpeakAsCommunity(user?.role, community.currentRole) || user?.role === 'admin')
   );
+  const canWrite = canCreateForum(user?.role) && !locked && Boolean(community?.isSubscribed || !community?.isPrivate);
+
+  usePageMeta({
+    title: community?.name || 'Сообщество',
+    description: community?.description || 'Сообщество на JungAI — читайте посты без регистрации.',
+    path: slug ? `/publications/community/${slug}` : '/communities',
+    image: community?.coverUrl || community?.avatarUrl,
+    type: 'website',
+  });
 
   async function load() {
-    if (!token || !slug) return;
+    if (!slug) return;
     setLoading(true);
     setError('');
     try {
       const q = new URLSearchParams({ sort });
       if (flair) q.set('flair', flair);
+      const path = token
+        ? `/api/communities/${encodeURIComponent(slug)}?${q.toString()}`
+        : `/api/public/communities/${encodeURIComponent(slug)}?${q.toString()}`;
       const res = await api<{
         community: ForumCommunity;
         posts: ForumPost[];
         flairs?: string[];
         moderators?: Array<{ role: string; user?: { name?: string | null; email?: string | null } | null }>;
-      }>(`/api/communities/${slug}?${q.toString()}`, { token });
+        locked?: boolean;
+      }>(path, token ? { token } : undefined);
       setCommunity(res.community);
+      setLocked(Boolean(res.locked));
       setPosts(
         (res.posts || []).map((p) => ({
           ...p,
           canPin: Boolean(
             p.canPin || canSpeakAsCommunity(user?.role, res.community?.currentRole) || p.authorId === user?.id
-          )
+          ),
         }))
       );
       setFlairs(res.flairs || []);
@@ -59,16 +79,23 @@ export default function CommunityView() {
 
   useEffect(() => {
     load().catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, slug, sort, flair]);
 
   async function toggleSubscription() {
-    if (!token || !community) return;
+    if (!token || !community) {
+      setAuthPrompt(true);
+      return;
+    }
     await api(`/api/communities/${community.id}/subscription`, { method: 'POST', token });
     await load();
   }
 
   async function toggleLike(post: ForumPost) {
-    if (!token) return;
+    if (!token) {
+      setAuthPrompt(true);
+      return;
+    }
     const res = await api<{ active: boolean; reactionsCount: number }>(
       `/api/publications/posts/${post.id}/reactions`,
       { method: 'POST', token, body: { type: 'like' } }
@@ -83,7 +110,7 @@ export default function CommunityView() {
     await api(`/api/publications/posts/${post.id}`, {
       method: 'PATCH',
       token,
-      body: { isPinned: !post.isPinned }
+      body: { isPinned: !post.isPinned },
     });
     await load();
   }
@@ -97,10 +124,11 @@ export default function CommunityView() {
 
   const cover = resolvePublicFileUrl(community?.coverUrl);
   const avatar = resolvePublicFileUrl(community?.avatarUrl);
+  const Nav = user ? UniversalNavbar : GuestNavbar;
 
   return (
     <div className="forum">
-      <UniversalNavbar />
+      <Nav />
       <main className="forum__main forum__main--hub">
         <div className="forum__page forum__page--bleed">
           {error && <div className="forum__error">{error}</div>}
@@ -135,29 +163,48 @@ export default function CommunityView() {
                 className="forum__text-btn forum__text-btn--strong"
                 onClick={() => void toggleSubscription()}
               >
-                {community?.isSubscribed ? 'Отписка' : 'Подписка'}
+                {community?.joinPending
+                  ? 'Отменить заявку'
+                  : community?.isSubscribed
+                    ? 'Отписка'
+                    : community?.isPrivate
+                      ? 'Заявка на вступление'
+                      : 'Подписка'}
               </button>
               {canManage && community && (
                 <Link className="forum__text-btn forum__text-btn--strong" to={`/publications/community/${community.id}/manage`}>
                   Управление
                 </Link>
               )}
-              {canCreateForum(user?.role) && (
+              {canWrite ? (
                 <Link to={`/publications/new?community=${community?.id || ''}`} className="forum__new-post">
                   <PlatformIcon name="plus" size={14} strokeWidth={2} />
                   Новый пост
                 </Link>
-              )}
+              ) : !token ? (
+                <button type="button" className="forum__new-post" onClick={() => setAuthPrompt(true)}>
+                  Войти, чтобы писать
+                </button>
+              ) : null}
             </div>
           </header>
 
+          {locked && (
+            <div className="forum__error" style={{ marginBottom: 12 }}>
+              Это приватное сообщество. Посты доступны только участникам
+              {community?.joinPending ? ' — ваша заявка ожидает решения.' : '. Отправьте заявку на вступление.'}
+            </div>
+          )}
+
           <div className="forum__toolbar">
             <div className="forum__segment" role="group" aria-label="Сортировка">
-              {([
-                ['new', 'Новые'],
-                ['active', 'Активные'],
-                ['top', 'Топ']
-              ] as Array<[SortKey, string]>).map(([key, label]) => (
+              {(
+                [
+                  ['new', 'Новые'],
+                  ['active', 'Активные'],
+                  ['top', 'Топ'],
+                ] as Array<[SortKey, string]>
+              ).map(([key, label]) => (
                 <button
                   key={key}
                   type="button"
@@ -191,9 +238,9 @@ export default function CommunityView() {
                   key={post.id}
                   post={post}
                   showCommunity={false}
-                  onLike={toggleLike}
-                  onPin={togglePin}
-                  onDelete={deletePost}
+                  onLike={token ? toggleLike : () => setAuthPrompt(true)}
+                  onPin={token ? togglePin : undefined}
+                  onDelete={token ? deletePost : undefined}
                 />
               ))}
               {!loading && posts.length === 0 && (
@@ -223,6 +270,26 @@ export default function CommunityView() {
           </div>
         </div>
       </main>
+
+      {authPrompt && (
+        <div className="forum__modal-backdrop" onClick={() => setAuthPrompt(false)}>
+          <div className="forum__modal" onClick={(e) => e.stopPropagation()}>
+            <div className="forum__modal-title">Только чтение</div>
+            <p className="forum__muted">Комментарии, лайки и подписки доступны после входа. Читать можно без регистрации.</p>
+            <div className="forum__actions">
+              <button className="forum__text-btn" type="button" onClick={() => setAuthPrompt(false)}>
+                Отмена
+              </button>
+              <button className="forum__new-post" type="button" onClick={() => navigate('/login')}>
+                Войти
+              </button>
+              <button className="forum__new-post" type="button" onClick={() => navigate('/register')}>
+                Регистрация
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

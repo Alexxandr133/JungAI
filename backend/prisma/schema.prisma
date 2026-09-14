@@ -643,6 +643,7 @@ model Community {
   avatarUrl   String?
   coverUrl    String?
   ownerId     String
+  isPrivate   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -651,7 +652,7 @@ model CommunityMember {
   id          String   @id @default(cuid())
   communityId String
   userId      String
-  role        String   @default("member") // owner | moderator | member
+  role        String   @default("member") // owner | moderator | member | pending
   joinedAt    DateTime @default(now())
 
   @@unique([communityId, userId])

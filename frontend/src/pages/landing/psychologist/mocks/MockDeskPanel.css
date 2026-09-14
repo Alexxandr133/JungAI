@@ -1,0 +1,227 @@
+.mock-desk {
+  pointer-events: none;
+  user-select: none;
+  height: min(480px, 62vh);
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+.mock-desk__header {
+  flex-shrink: 0;
+}
+
+.mock-desk__h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.mock-desk__welcome {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+}
+
+.mock-desk__welcome-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mock-desk__date {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.mock-desk__greeting {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.mock-desk__welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mock-desk__note-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mock-desk__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mock-desk__session {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.mock-desk__session-label {
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.mock-desk__session-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mock-desk__session-meta {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.mock-desk__session-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mock-desk__chip {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  border: 1px solid var(--brand);
+  color: var(--brand-deep);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.mock-desk__quick {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mock-desk__quick-btn {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mock-desk__quick-btn:nth-child(4),
+.mock-desk__quick-btn:nth-child(5) {
+  grid-column: span 1;
+}
+
+.mock-desk__nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+  align-content: start;
+}
+
+.mock-desk__nav-card {
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mock-desk__nav-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mock-desk__nav-note {
+  font-size: 10px;
+  color: var(--ink-soft);
+  line-height: 1.3;
+}
+
+.mock-desk__nav-live {
+  margin-top: 4px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  background: var(--surface-2);
+}
+
+.mock-desk__nav-live--active {
+  color: var(--brand-deep);
+  background: var(--brand-soft);
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .mock-desk {
+    height: min(420px, 58vh);
+  }
+
+  .mock-desk__quick {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mock-desk__session {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

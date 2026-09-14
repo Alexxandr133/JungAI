@@ -1,25 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { GuestNavbar } from '../../components/GuestNavbar';
 import { useAuth } from '../../context/AuthContext';
 import { api, resolvePublicFileUrl } from '../../lib/api';
+import { usePageMeta } from '../../hooks/usePageMeta';
 import { type ForumCommunity } from './forumUtils';
 import './communities.css';
 
 type FilterKey = 'all' | 'open' | 'joined';
 
 export default function CommunitiesDirectory() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const navigate = useNavigate();
   const [items, setItems] = useState<ForumCommunity[]>([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [authPrompt, setAuthPrompt] = useState(false);
+
+  usePageMeta({
+    title: 'Каталог сообществ',
+    description: 'Все сообщества JungAI. Читайте открыто, подписывайтесь после входа.',
+    path: '/communities/catalog',
+  });
 
   async function load() {
-    if (!token) return;
     setLoading(true);
     try {
-      const res = await api<{ items: ForumCommunity[] }>('/api/communities', { token });
+      const res = await api<{ items: ForumCommunity[] }>(
+        '/api/communities',
+        token ? { token } : undefined
+      );
       setItems(res.items || []);
     } finally {
       setLoading(false);
@@ -31,7 +43,10 @@ export default function CommunitiesDirectory() {
   }, [token]);
 
   async function toggleSub(community: ForumCommunity) {
-    if (!token) return;
+    if (!token) {
+      setAuthPrompt(true);
+      return;
+    }
     await api(`/api/communities/${community.id}/subscription`, { method: 'POST', token });
     await load();
   }
@@ -53,7 +68,7 @@ export default function CommunitiesDirectory() {
 
   return (
     <div className="forum">
-      <UniversalNavbar />
+      {user ? <UniversalNavbar /> : <GuestNavbar />}
       <main className="forum__main forum__main--hub">
         <div className="forum__page forum__page--bleed">
           <header className="forum__hub-top">
@@ -131,6 +146,22 @@ export default function CommunitiesDirectory() {
           </div>
         </div>
       </main>
+      {authPrompt && (
+        <div className="forum__modal-backdrop" onClick={() => setAuthPrompt(false)}>
+          <div className="forum__modal" onClick={(e) => e.stopPropagation()}>
+            <div className="forum__modal-title">Нужен вход</div>
+            <p className="forum__muted">Подписка доступна после входа. Читать сообщества можно без регистрации.</p>
+            <div className="forum__actions">
+              <button className="forum__text-btn" type="button" onClick={() => setAuthPrompt(false)}>
+                Отмена
+              </button>
+              <button className="forum__new-post" type="button" onClick={() => navigate('/login')}>
+                Войти
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

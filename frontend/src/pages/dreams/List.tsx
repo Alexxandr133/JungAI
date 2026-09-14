@@ -13,6 +13,7 @@ import { PlatformIcon } from '../../components/icons';
 import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
 import { PSYCHOLOGIST_DREAMS_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
+import './Dreams.css';
 
 type Dream = {
   id: string;
@@ -409,143 +410,100 @@ export default function DreamsList() {
             </div>
           )}
           {!loading && !error && filtered.length > 0 && (
-            <>
-              <style>{`
-                @media (max-width: 768px) {
-                  .dreams-grid {
-                    grid-template-columns: 1fr !important;
-                    gap: 16px !important;
-                  }
-                }
-              `}</style>
-              <div 
-                data-tour="dreams-grid"
-                className="dreams-grid"
-                style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: 12, 
-                  maxWidth: 1400, 
-                  margin: '0 auto', 
-                  width: '100%'
-                }}
-              >
-              {filtered.map(d => (
-                  <div 
-                    key={d.id} 
-                    className="card card-hover-shimmer" 
-                    onClick={() => navigate(`/dreams/${d.id}`)} 
-                    style={{ 
-                      padding: 'clamp(16px, 4vw, 20px)', 
-                      cursor: 'pointer', 
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      background: 'linear-gradient(135deg, rgba(30, 35, 50, 0.9) 0%, rgba(25, 30, 45, 0.95) 100%)',
-                      backdropFilter: 'blur(10px)',
-                      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.15) inset',
-                      borderRadius: 12,
-                      minHeight: 0,
-                      transition: 'all 0.3s ease',
-                      position: 'relative',
-                      overflow: 'hidden'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-4px)';
-                      e.currentTarget.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.25) inset, 0 0 20px rgba(91, 124, 250, 0.2)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.15) inset';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'start', gap: 'clamp(10px, 3vw, 12px)' }}>
-                      <div style={{ flexShrink: 0, color: 'var(--primary)', display: 'flex', alignItems: 'center' }}>
-                        <PlatformIcon name="dreams" size={28} strokeWidth={1.5} />
+            <div data-tour="dreams-grid" className="dreams-grid">
+              {filtered.map((d) => (
+                <article
+                  key={d.id}
+                  className="dream-card"
+                  onClick={() => navigate(`/dreams/${d.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/dreams/${d.id}`);
+                    }
+                  }}
+                  role="link"
+                  tabIndex={0}
+                >
+                  <div className="dream-card__body">
+                    <div className="dream-card__top">
+                      <div className="dream-card__icon" aria-hidden>
+                        <PlatformIcon name="dreams" size={22} strokeWidth={1.6} />
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'clamp(8px, 2vw, 10px)', flexWrap: 'wrap', gap: 8 }}>
-                          <h3 style={{ margin: 0, fontSize: 'clamp(16px, 4vw, 18px)', fontWeight: 700, lineHeight: 1.3 }}>{d.title || 'Без названия'}</h3>
-                          <div className="small" style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', fontSize: 'clamp(10px, 2.5vw, 11px)' }}>
-                            {new Date(d.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
-                          </div>
+                      <div className="dream-card__meta">
+                        <div className="dream-card__title-row">
+                          <h3 className="dream-card__title">{d.title || 'Без названия'}</h3>
+                          <time className="dream-card__date" dateTime={d.createdAt}>
+                            {new Date(d.createdAt).toLocaleDateString('ru-RU', {
+                              day: 'numeric',
+                              month: 'short',
+                            })}
+                          </time>
                         </div>
-                        <p
-                          style={{
-                            margin: 0,
-                            color: 'rgba(255,255,255,0.85)',
-                            lineHeight: 1.5,
-                            fontSize: 'clamp(13px, 3.5vw, 14px)',
-                            marginBottom: 0,
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden'
-                          }}
-                        >
-                          {d.content}
-                        </p>
-                        {token && d.symbols && Array.isArray(d.symbols) && d.symbols.length > 0 && (
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 'clamp(8px, 2vw, 10px)' }}>
-                            {d.symbols.slice(0, 10).map((s, idx) => (
-                              <span key={idx} className="small" style={{ background: 'var(--surface-2)', border: '1px solid rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 4, fontSize: 'clamp(9px, 2.5vw, 10px)' }}>{s}</span>
-                            ))}
-                          </div>
-                        )}
-                        {token && (
-                          <div style={{ display: 'flex', gap: 'clamp(4px, 1.5vw, 6px)', marginTop: 'clamp(10px, 3vw, 12px)', paddingTop: 'clamp(10px, 3vw, 12px)', borderTop: '1px solid rgba(255,255,255,0.08)' }} onClick={e => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              className="button secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditModal(d);
-                              }}
-                              style={{ padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 8px)', fontSize: 'clamp(10px, 2.5vw, 11px)' }}
-                              title="Изменить текст сна"
-                            >
-                              Изменить
-                            </button>
-                            {!isClient && (
-                              <button
-                                type="button"
-                                className="button secondary"
-                                disabled={!dreamWorkspaceClientId(d)}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  const cid = dreamWorkspaceClientId(d);
-                                  if (cid) navigate(`/psychologist/work-area?client=${encodeURIComponent(cid)}`);
-                                }}
-                                style={{ padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 8px)', fontSize: 'clamp(10px, 2.5vw, 11px)' }}
-                                title={dreamWorkspaceClientId(d) ? 'Открыть рабочую область клиента' : 'Клиент не указан'}
-                              >
-                                {t('dreams.toClient')}
-                              </button>
-                            )}
-                            <button 
-                              className="button secondary" 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteDream(d.id, d.title);
-                              }} 
-                              style={{ 
-                                padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 8px)', 
-                                fontSize: 'clamp(10px, 2.5vw, 11px)',
-                                color: '#ff7b7b',
-                                borderColor: 'rgba(255, 123, 123, 0.3)'
-                              }}
-                              title="Удалить сон"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>
+
+                    {d.content ? <p className="dream-card__excerpt">{d.content}</p> : null}
+
+                    {token && d.symbols && Array.isArray(d.symbols) && d.symbols.length > 0 && (
+                      <div className="dream-card__symbols">
+                        {d.symbols.slice(0, 8).map((s, idx) => (
+                          <span key={idx} className="dream-card__symbol">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
+
+                  {token && (
+                    <div className="dream-card__actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="button secondary dream-card__action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditModal(d);
+                        }}
+                        title="Изменить текст сна"
+                      >
+                        Изменить
+                      </button>
+                      {!isClient && (
+                        <button
+                          type="button"
+                          className="button secondary dream-card__action"
+                          disabled={!dreamWorkspaceClientId(d)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const cid = dreamWorkspaceClientId(d);
+                            if (cid) navigate(`/psychologist/work-area?client=${encodeURIComponent(cid)}`);
+                          }}
+                          title={
+                            dreamWorkspaceClientId(d)
+                              ? 'Открыть рабочую область клиента'
+                              : 'Клиент не указан'
+                          }
+                        >
+                          {t('dreams.toClient')}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="button secondary dream-card__action dream-card__action--danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteDream(d.id, d.title);
+                        }}
+                        title="Удалить сон"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  )}
+                </article>
               ))}
-              </div>
-            </>
+            </div>
           )}
         </div>
       </main>

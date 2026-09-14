@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { api, resolvePublicFileUrl } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
 import { EmailChangeFlow } from '../../components/EmailChangeFlow';
+import { DailyQuoteModal } from '../../components/client/DailyQuoteModal';
 import {
   PHONE_COUNTRIES,
   composePhone,
@@ -214,6 +215,7 @@ export default function ClientProfile() {
   return (
     <div className={`client-profile${dirty ? ' is-dirty' : ''}`}>
       <ClientNavbar />
+      <DailyQuoteModal enabled={Boolean(token)} />
       <div className={`landing psy-profile-editor${dirty ? ' is-dirty' : ''}`}>
         <h1 className="psy-profile-editor__title">Профиль</h1>
         <p className="psy-profile-editor__lead">Личные данные и настройки аккаунта</p>

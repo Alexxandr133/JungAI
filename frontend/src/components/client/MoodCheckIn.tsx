@@ -14,7 +14,7 @@ type Props = {
   onUnlock?: () => void;
 };
 
-/** Soft muted red → green */
+/** Soft muted red → green — color used on labels only */
 const MOOD_META = [
   { n: 1, label: 'Очень тяжело', tone: 'bad', color: '#c48b8b' },
   { n: 2, label: 'Тяжело', tone: 'low', color: '#c9a08a' },
@@ -23,24 +23,38 @@ const MOOD_META = [
   { n: 5, label: 'Отлично', tone: 'great', color: '#7fad8f' },
 ] as const;
 
-function MoodFaceIcon({ level, color }: { level: number; color: string }) {
+/** Thin line-art faces — monochrome stroke, no fill tint */
+function MoodFaceIcon({ level }: { level: number }) {
   const mouth =
     level === 1
-      ? 'M8 16.2c1.6-2.2 4-3.2 6.5-3.2S19.4 14 21 16.2'
+      ? 'M9 18c1.4-2.4 3.6-3.5 5-3.5s3.6 1.1 5 3.5'
       : level === 2
-        ? 'M9 15.6c1.3-1.4 3.2-2.1 5.5-2.1s4.2.7 5.5 2.1'
+        ? 'M9.5 17.2c1.2-1.5 3-2.2 4.5-2.2s3.3.7 4.5 2.2'
         : level === 3
-          ? 'M9.5 15.2h11'
+          ? 'M9.5 16.5h9'
           : level === 4
-            ? 'M9 14.2c1.3 1.5 3.2 2.3 5.5 2.3s4.2-.8 5.5-2.3'
-            : 'M8.5 13.6c1.6 2.4 4.1 3.6 6.5 3.6s4.9-1.2 6.5-3.6';
+            ? 'M9.5 15.8c1.2 1.6 3 2.4 4.5 2.4s3.3-.8 4.5-2.4'
+            : 'M9 15c1.5 2.6 3.8 3.8 5 3.8S17.5 17.6 19 15';
 
   return (
-    <svg className="mood-tracker__icon" viewBox="0 0 28 28" width="28" height="28" aria-hidden>
-      <circle cx="14" cy="14" r="12" fill={color} fillOpacity="0.22" stroke={color} strokeWidth="1.5" />
-      <circle cx="10" cy="11.2" r="1.35" fill={color} />
-      <circle cx="18" cy="11.2" r="1.35" fill={color} />
-      <path d={mouth} fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" />
+    <svg
+      className="mood-tracker__icon"
+      viewBox="0 0 28 28"
+      width="28"
+      height="28"
+      fill="none"
+      aria-hidden
+    >
+      <circle cx="14" cy="14" r="10.25" stroke="currentColor" strokeWidth="1.15" />
+      <circle cx="10.25" cy="11.5" r="1.05" fill="currentColor" />
+      <circle cx="17.75" cy="11.5" r="1.05" fill="currentColor" />
+      <path d={mouth} stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+      {level === 1 && (
+        <path d="M8.2 9.2c.9-.7 1.9-.9 2.7-.55M17.1 8.65c.8-.35 1.8-.15 2.7.55" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      )}
+      {level === 5 && (
+        <path d="M8.4 9.6c.7.55 1.5.7 2.2.35M17.4 9.95c.7.35 1.5.2 2.2-.35" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      )}
     </svg>
   );
 }
@@ -92,22 +106,26 @@ export function MoodCheckInControl({
             type="button"
             disabled={!canEdit}
             className={`mood-tracker__face mood-tracker__face--${m.tone}${draftMood === m.n ? ' is-active' : ''}`}
-            style={{ ['--mood-tone' as string]: m.color }}
             title={m.label}
             aria-label={`${m.n}: ${m.label}`}
             aria-pressed={draftMood === m.n}
             onClick={() => setDraftMood(m.n)}
           >
-            <MoodFaceIcon level={m.n} color={m.color} />
-            <span className={`mood-tracker__n${compact ? ' mood-tracker__n--compact' : ''}`}>{compact ? m.label : m.n}</span>
+            <MoodFaceIcon level={m.n} />
+            <span
+              className={`mood-tracker__n${compact ? ' mood-tracker__n--compact' : ''}`}
+              style={{ color: m.color }}
+            >
+              {compact ? m.label : m.n}
+            </span>
           </button>
         ))}
       </div>
 
       {active && (
-        <div className={`mood-tracker__status mood-tracker__status--${active.tone}`}>
-          <MoodFaceIcon level={active.n} color={active.color} />
-          <span>{active.label}</span>
+        <div className="mood-tracker__status">
+          <MoodFaceIcon level={active.n} />
+          <span style={{ color: active.color }}>{active.label}</span>
         </div>
       )}
 

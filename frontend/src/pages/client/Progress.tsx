@@ -16,6 +16,7 @@ type ProgressPayload = {
   recentEvents: Array<{ id: string; title: string; startsAt: string; sessionStatus?: string }>;
   flaggedDreams: Array<{ id: string; title: string; createdAt: string }>;
   openHomework: Array<{ id: string; date: string; homework: string }>;
+  openAssignments?: Array<{ id: string; title: string; dueAt?: string | null; createdAt: string; status: string }>;
   reflections: Array<{ id: string; moodAfter: number; text?: string | null; createdAt: string }>;
 };
 
@@ -140,10 +141,20 @@ export default function ClientProgress() {
               )}
             </section>
 
-            {data.openHomework.length > 0 && (
+            {((data.openAssignments && data.openAssignments.length > 0) || data.openHomework.length > 0) && (
               <section className="client-progress__panel">
                 <h2>Открытые задания</h2>
                 <ul className="client-progress__list">
+                  {(data.openAssignments || []).map((a) => (
+                    <li key={a.id}>
+                      <span>{a.title}</span>
+                      <span>
+                        {a.dueAt
+                          ? `до ${new Date(a.dueAt).toLocaleDateString('ru-RU')}`
+                          : new Date(a.createdAt).toLocaleDateString('ru-RU')}
+                      </span>
+                    </li>
+                  ))}
                   {data.openHomework.map((h) => (
                     <li key={h.id}>
                       <span style={{ whiteSpace: 'pre-wrap' }}>{h.homework}</span>

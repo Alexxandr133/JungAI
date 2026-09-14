@@ -43,6 +43,7 @@ import mailPublic from './routes/mailPublic';
 import support from './routes/support';
 import platform from './routes/platform';
 import clientWellness from './routes/clientWellness';
+import seoPublic from './routes/seoPublic';
 import cron from 'node-cron';
 import { runDailyDreamSymbolValidation } from './jobs/dailyDreamSymbols';
 import {
@@ -163,6 +164,9 @@ app.use('/api', mailPublic);
 app.use('/api', support);
 app.use('/api', platform);
 app.use('/api', clientWellness);
+app.use('/api/public', seoPublic);
+// SEO entrypoints also at site root (nginx can proxy /robots.txt and /sitemap.xml here)
+app.use(seoPublic);
 
 // Catch-all для всех остальных путей (только если это не /uploads)
 app.use((req, res, next) => {

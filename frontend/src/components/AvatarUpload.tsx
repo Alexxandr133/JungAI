@@ -148,10 +148,6 @@ export function AvatarUpload({ currentAvatarUrl, onUpload, uploading, userName, 
   const displayName = userName || (userEmail || '').split('@')[0] || 'U';
   const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
   const avatarUrl = getAvatarUrl(currentAvatarUrl);
-  
-  // Отладочная информация
-  console.log('AvatarUpload - currentAvatarUrl:', currentAvatarUrl);
-  console.log('AvatarUpload - avatarUrl (formatted):', avatarUrl);
 
   return (
     <>
@@ -162,7 +158,7 @@ export function AvatarUpload({ currentAvatarUrl, onUpload, uploading, userName, 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, marginBottom: 24 }}>
           {avatarUrl ? (
             <img 
-              key={avatarUrl} // Принудительное обновление при изменении URL
+              key={avatarUrl}
               src={avatarUrl} 
               alt="Аватар"
               style={{ 
@@ -174,11 +170,7 @@ export function AvatarUpload({ currentAvatarUrl, onUpload, uploading, userName, 
                 border: '1px solid rgba(255,255,255,0.12)'
               }}
               onError={(e) => {
-                console.error('Failed to load avatar in profile:', avatarUrl);
                 (e.target as HTMLImageElement).style.display = 'none';
-              }}
-              onLoad={() => {
-                console.log('Avatar loaded successfully in profile:', avatarUrl);
               }}
             />
           ) : (

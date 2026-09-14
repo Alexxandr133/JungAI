@@ -80,7 +80,6 @@ import RegisterClient from './pages/auth/RegisterClient'
 import Register from './pages/Register'
 import GuestPage from './pages/guest/Guest'
 import GuestTests from './pages/guest/GuestTests'
-import GuestPublications from './pages/guest/GuestPublications'
 import GuestDreams from './pages/guest/GuestDreams'
 import PsychologistsCatalog from './pages/psychologists/Catalog'
 import PublicPsychologistProfile from './pages/psychologists/PublicProfile'
@@ -130,7 +129,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 }
               />
               <Route path="/guest/tests" element={<GuestTests />} />
-              <Route path="/guest/publications" element={<GuestPublications />} />
+              <Route path="/guest/publications" element={<Navigate to="/communities" replace />} />
               <Route path="/publications/post/:id" element={<PostView />} />
               <Route path="/guest/dreams" element={<GuestDreams />} />
               <Route path="/psychologists" element={<PsychologistsCatalog />} />
@@ -401,30 +400,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                 path="/feed"
                 element={<Navigate to="/communities" replace />}
               />
-              <Route
-                path="/communities/catalog"
-                element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
-                    <CommunitiesDirectory />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/communities"
-                element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
-                    <CommunitiesCatalog />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/publications/community/:slug"
-                element={
-                  <ProtectedRoute roles={['psychologist', 'researcher', 'admin', 'client']}>
-                    <CommunityView />
-                  </ProtectedRoute>
-                }
-              />
+              <Route path="/communities/catalog" element={<CommunitiesDirectory />} />
+              <Route path="/communities" element={<CommunitiesCatalog />} />
+              <Route path="/publications/community/:slug" element={<CommunityView />} />
               <Route
                 path="/publications/community/:id/manage"
                 element={

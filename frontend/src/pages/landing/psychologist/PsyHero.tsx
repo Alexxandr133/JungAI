@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom';
 import { OPERATOR_INFO } from '../../../content/operatorInfo';
+import { MockDeskPanel } from './mocks/MockDeskPanel';
 import './PsyHero.css';
+
+/* Hero preview: рабочий стол (MockDeskPanel), не CRM. */
 
 type PublicStats = {
   psychologists: number;
@@ -15,9 +18,9 @@ type PsyHeroProps = {
 };
 
 const FLOAT_CHIPS = [
-  { text: 'Клиент подтвердил сессию', className: 'psy-hero__chip--1' },
-  { text: 'Транскрипция готова', className: 'psy-hero__chip--2' },
-  { text: 'ИИ выделил символы сна', className: 'psy-hero__chip--3' },
+  { text: 'Клиент подтвердил сессию', className: 'psy-hero__chip--1 psy-hero__chip--sage' },
+  { text: 'Транскрипция готова', className: 'psy-hero__chip--2 psy-hero__chip--brand' },
+  { text: 'ИИ выделил символы сна', className: 'psy-hero__chip--3 psy-hero__chip--peach' },
 ] as const;
 
 export function PsyHero({ stats, statsLoading }: PsyHeroProps) {
@@ -30,7 +33,7 @@ export function PsyHero({ stats, statsLoading }: PsyHeroProps) {
         <div>
           <p className="landing-eyebrow">Практикующим психологам и исследователям</p>
           <h1 className="landing-h1" style={{ marginBottom: 20 }}>
-            Меньше рутины — больше терапии
+            Меньше рутины
           </h1>
           <p className="landing-lead" style={{ marginBottom: 28, maxWidth: 540 }}>
             JungAI собирает то, что сейчас разбросано по пяти сервисам: карточки клиентов, календарь с
@@ -68,17 +71,18 @@ export function PsyHero({ stats, statsLoading }: PsyHeroProps) {
         </div>
 
         <div className="psy-hero__mock-wrap">
-          <div className="landing-card psy-hero__mock">
-            <div className="landing-mock-shot">
-              <img
-                className="psy-hero__mock-img landing-mock-shot__img"
-                src="/landing/mocks/hero-clients.png"
-                alt="Интерфейс JungAI: список клиентов"
-                width={960}
-                height={640}
-                loading="eager"
-                decoding="async"
-              />
+          <div
+            className="landing-card psy-hero__mock"
+            role="img"
+            aria-label="Интерфейс JungAI: рабочий стол психолога"
+          >
+            <div className="psy-hero__mock-chrome" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="psy-hero__mock-body">
+              <MockDeskPanel />
             </div>
           </div>
 

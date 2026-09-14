@@ -16,7 +16,8 @@ export type WidgetType =
   | 'dreamsStats'
   | 'clientProgress'
   | 'monthlyStats'
-  | 'symbolsChart';
+  | 'symbolsChart'
+  | 'openClientTasks';
 
 export type WidgetConfig = {
   id: string;
@@ -197,7 +198,20 @@ export const WIDGET_DEFINITIONS: Record<WidgetType, WidgetConfig> = {
     defaultSize: 'large',
     minSize: 'medium',
     maxSize: 'large'
+  },
+  openClientTasks: {
+    id: 'openClientTasks',
+    type: 'openClientTasks',
+    title: 'Задания клиентам',
+    icon: 'clipboard',
+    description: 'Открытые задания, выданные клиентам',
+    defaultSize: 'medium',
+    minSize: 'small',
+    maxSize: 'medium'
   }
 };
 
 export const WIDGET_STORAGE_KEY = 'psychologist_dashboard_widgets';
+/** Bump when forcing a one-time layout migration for all psychologists. */
+export const WIDGET_LAYOUT_VERSION = 2;
+export const WIDGET_LAYOUT_VERSION_KEY = 'psychologist_dashboard_widgets_version';

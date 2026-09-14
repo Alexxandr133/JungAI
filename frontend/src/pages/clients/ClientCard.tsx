@@ -220,7 +220,23 @@ export function ClientCard({
               {formatShortDate(c.lastContactAt) || '—'}
             </span>
           </div>
-          <div className="client-card__crm-row">
+          <div
+            className="client-card__crm-row"
+            role="link"
+            tabIndex={0}
+            style={{ cursor: 'pointer' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/clients/${c.id}/profile?tab=tasks`);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                navigate(`/clients/${c.id}/profile?tab=tasks`);
+              }
+            }}
+          >
             <span className="client-card__crm-label">Задачи</span>
             <span className="client-card__crm-value">
               {(c.openTasksCount ?? 0) > 0

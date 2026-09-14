@@ -44,12 +44,22 @@ type Props = {
   onChange: (html: string) => void;
 };
 
+function isComposerEmpty(html: string) {
+  return !String(html || '')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
 export function PublicationComposer({ html, onChange }: Props) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const seededRef = useRef(false);
   const [fontSizePx, setFontSizePx] = useState(16);
   const [textColor, setTextColor] = useState('#1f2937');
+  const empty = isComposerEmpty(html);
 
   useEffect(() => {
     if (seededRef.current || !editorRef.current) return;
@@ -222,28 +232,37 @@ export function PublicationComposer({ html, onChange }: Props) {
           </button>
         </div>
       </div>
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onPaste={(e) => {
-          e.preventDefault();
-          const pasted = e.clipboardData.getData('text/html');
-          const text = e.clipboardData.getData('text/plain');
-          if (pasted) document.execCommand('insertHTML', false, sanitizePastedRichHtml(pasted));
-          else document.execCommand('insertText', false, text || '');
-          if (editorRef.current) onChange(editorRef.current.innerHTML);
-        }}
-        onMouseUp={saveSelectionRange}
-        onKeyUp={saveSelectionRange}
-        onInput={(e) => onChange((e.target as HTMLDivElement).innerHTML)}
-        style={{ ...fieldStyle, minHeight: 260, lineHeight: 1.7 }}
-      />
-      {!html.trim() && (
-        <div className="small" style={{ color: 'var(--text-muted)', marginTop: -4 }}>
-          Заголовок, списки и ссылки — через панель выше.
-        </div>
-      )}
+      <div className={`forum__composer-shell${empty ? ' is-empty' : ''}`}>
+        {empty ? (
+          <div className="forum__composer-placeholder" aria-hidden>
+            Напишите текст поста здесь…
+          </div>
+        ) : null}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          className="forum__composer-editor"
+          data-placeholder="Напишите текст поста здесь…"
+          onPaste={(e) => {
+            e.preventDefault();
+            const pasted = e.clipboardData.getData('text/html');
+            const text = e.clipboardData.getData('text/plain');
+            if (pasted) document.execCommand('insertHTML', false, sanitizePastedRichHtml(pasted));
+            else document.execCommand('insertText', false, text || '');
+            if (editorRef.current) onChange(editorRef.current.innerHTML);
+          }}
+          onMouseUp={saveSelectionRange}
+          onKeyUp={saveSelectionRange}
+          onFocus={() => editorRef.current?.closest('.forum__composer-shell')?.classList.add('is-focused')}
+          onBlur={() => editorRef.current?.closest('.forum__composer-shell')?.classList.remove('is-focused')}
+          onInput={(e) => onChange((e.target as HTMLDivElement).innerHTML)}
+          style={{ ...fieldStyle, minHeight: 260, lineHeight: 1.7, position: 'relative', zIndex: 1 }}
+        />
+      </div>
+      <div className="small" style={{ color: 'var(--text-muted)', marginTop: -2 }}>
+        Заголовок поста — поле выше. Здесь — основной текст; списки и ссылки через панель.
+      </div>
     </div>
   );
 }

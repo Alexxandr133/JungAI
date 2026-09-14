@@ -202,160 +202,182 @@ export const StarfieldBackground: React.FC<{
   /** §28: ≤60 звёзд, 1–2px, opacity ≤ .5, без плотного фона */
   sparse?: boolean;
 }> = ({ opacity = 1, contained = false, sparse = false }) => {
-  const [mousePos, setMousePos] = React.useState({ x: 0, y: 0 });
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   React.useEffect(() => {
-    const updatePosition = (clientX: number, clientY: number) => {
-      const centerX = window.innerWidth / 2;
-      const centerY = window.innerHeight / 2;
-      const deltaX = (clientX - centerX) / centerX;
-      const deltaY = (clientY - centerY) / centerY;
-      setMousePos({ x: deltaX, y: deltaY });
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    type Star = {
+      x: number;
+      y: number;
+      size: number;
+      baseAlpha: number;
+      speedX: number;
+      speedY: number;
+      twinkle: number;
+      twinkleSpeed: number;
+      tint: [number, number, number];
+      layer: number;
     };
 
-    const handleMouseMove = (e: MouseEvent) => {
-      updatePosition(e.clientX, e.clientY);
+    const tints: [number, number, number][] = [
+      [255, 255, 255],
+      [238, 244, 255],
+      [220, 232, 255],
+      [245, 240, 255],
+      [232, 247, 255],
+    ];
+
+    let stars: Star[] = [];
+    let w = 0;
+    let h = 0;
+    let dpr = 1;
+    let raf = 0;
+    let last = 0;
+    let disposed = false;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const motionScale = reduceMotion ? 0.25 : 1;
+
+    const rebuild = () => {
+      const count = sparse ? 60 : Math.min(420, Math.max(180, Math.floor((w * h) / 4500)));
+      stars = Array.from({ length: count }, (_, i) => {
+        const layer = i % 3; // 0 far, 1 mid, 2 near
+        const depth = layer === 0 ? 0.35 : layer === 1 ? 0.7 : 1.15;
+        return {
+          x: Math.random() * w,
+          y: Math.random() * h,
+          size: sparse
+            ? 1 + Math.random()
+            : (layer === 0 ? 0.9 : layer === 1 ? 1.5 : 2.3) + Math.random() * (layer + 1) * 0.65,
+          baseAlpha: sparse
+            ? 0.15 + Math.random() * 0.3
+            : 0.4 + Math.random() * 0.4 + layer * 0.08,
+          // Visible autonomous drift (px per frame @60fps)
+          speedX: (Math.random() - 0.5) * (0.18 + depth * 0.22) * motionScale * (sparse ? 0.45 : 1),
+          speedY: (0.08 + Math.random() * 0.2 + depth * 0.12) * motionScale * (sparse ? 0.45 : 1),
+          twinkle: Math.random() * Math.PI * 2,
+          twinkleSpeed: 1.2 + Math.random() * 2.4,
+          tint: tints[i % tints.length],
+          layer,
+        };
+      });
     };
 
-    const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length > 0) {
-        const touch = e.touches[0];
-        updatePosition(touch.clientX, touch.clientY);
+    const resize = () => {
+      const rect = wrap.getBoundingClientRect();
+      w = Math.max(1, Math.floor(rect.width));
+      h = Math.max(1, Math.floor(rect.height));
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      rebuild();
+    };
+
+    const draw = (ts: number) => {
+      if (disposed) return;
+      const prev = last || ts;
+      last = ts;
+      const dt = Math.min(2.5, (ts - prev) / 16.67);
+
+      ctx.clearRect(0, 0, w, h);
+
+      for (let i = 0; i < stars.length; i++) {
+        const s = stars[i];
+        s.x += s.speedX * dt;
+        s.y += s.speedY * dt;
+        s.twinkle += s.twinkleSpeed * dt * 0.045;
+
+        if (s.x < -6) s.x = w + 6;
+        if (s.x > w + 6) s.x = -6;
+        if (s.y < -6) s.y = h + 6;
+        if (s.y > h + 6) s.y = -6;
+
+        const pulse = 0.55 + 0.45 * Math.sin(s.twinkle);
+        const alpha = Math.min(sparse ? 0.5 : 1, s.baseAlpha * pulse);
+        const [r, g, b] = s.tint;
+        const glow = s.size * (1.8 + s.layer * 0.9);
+
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        ctx.shadowColor = `rgba(${r},${g},${b},${alpha * 0.85})`;
+        ctx.shadowBlur = glow;
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    const onVis = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+        last = 0;
+      } else {
+        last = 0;
+        raf = requestAnimationFrame(draw);
       }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    const ro = new ResizeObserver(resize);
+    ro.observe(wrap);
+    resize();
+    document.addEventListener('visibilitychange', onVis);
+    raf = requestAnimationFrame(draw);
+
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('touchmove', handleTouchMove);
-    };
-  }, []);
-
-  const stars = React.useMemo(() => {
-    const generateStars = (count: number, size: number, baseOpacity: number) => {
-      return Array.from({ length: count }, (_, i) => ({
-        id: i,
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        size: sparse ? 1 + Math.random() : size + Math.random() * size * 0.5,
-        opacity: sparse
-          ? 0.15 + Math.random() * 0.35
-          : baseOpacity + Math.random() * 0.3
-      }));
-    };
-
-    if (sparse) {
-      return {
-        far: generateStars(28, 1, 0.25),
-        mid: generateStars(20, 1.2, 0.35),
-        near: generateStars(12, 1.6, 0.45)
-      };
-    }
-
-    return {
-      far: generateStars(250, 1, 0.5),
-      mid: generateStars(150, 1.5, 0.7),
-      near: generateStars(80, 2.5, 0.9)
+      disposed = true;
+      cancelAnimationFrame(raf);
+      document.removeEventListener('visibilitychange', onVis);
+      ro.disconnect();
     };
   }, [sparse]);
 
-  const farMultiplier = sparse ? 0.2 : 0.5;
-  const midMultiplier = sparse ? 0.4 : 1.0;
-  const nearMultiplier = sparse ? 0.7 : 1.8;
-  const parallax = sparse ? 18 : 50;
-
   return (
-    <div style={{ 
-      position: contained ? 'absolute' : 'fixed', 
-      inset: 0, 
-      zIndex: 0, 
-      pointerEvents: 'none', 
-      overflow: 'hidden', 
-      opacity,
-      background: contained || sparse
-        ? 'transparent'
-        : 'linear-gradient(180deg, #0a0e1a 0%, #050810 50%, #000000 100%)'
-    }}>
-      <div
+    <div
+      ref={wrapRef}
+      style={{
+        position: contained ? 'absolute' : 'fixed',
+        inset: 0,
+        zIndex: 0,
+        pointerEvents: 'none',
+        overflow: 'hidden',
+        opacity,
+        background:
+          contained || sparse
+            ? 'transparent'
+            : 'linear-gradient(180deg, #12182a 0%, #0c1220 45%, #070b14 100%)',
+      }}
+    >
+      {!contained && !sparse && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(90, 120, 200, 0.18) 0%, transparent 62%), radial-gradient(ellipse 60% 40% at 80% 70%, rgba(120, 100, 180, 0.08) 0%, transparent 55%)',
+          }}
+        />
+      )}
+      <canvas
+        ref={canvasRef}
         style={{
           position: 'absolute',
           inset: 0,
-          transform: `translate(${mousePos.x * farMultiplier * parallax}px, ${mousePos.y * farMultiplier * parallax}px)`,
-          transition: 'transform 0.08s ease-out'
+          display: 'block',
+          width: '100%',
+          height: '100%',
         }}
-      >
-        {stars.far.map(star => (
-          <div
-            key={star.id}
-            style={{
-              position: 'absolute',
-              left: `${star.x}%`,
-              top: `${star.y}%`,
-              width: star.size,
-              height: star.size,
-              background: '#ffffff',
-              borderRadius: '50%',
-              opacity: Math.min(star.opacity, sparse ? 0.5 : 1),
-              boxShadow: sparse ? 'none' : `0 0 ${star.size * 2}px rgba(255, 255, 255, ${star.opacity})`
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          transform: `translate(${mousePos.x * midMultiplier * parallax}px, ${mousePos.y * midMultiplier * parallax}px)`,
-          transition: 'transform 0.06s ease-out'
-        }}
-      >
-        {stars.mid.map(star => (
-          <div
-            key={star.id}
-            style={{
-              position: 'absolute',
-              left: `${star.x}%`,
-              top: `${star.y}%`,
-              width: star.size,
-              height: star.size,
-              background: '#ffffff',
-              borderRadius: '50%',
-              opacity: Math.min(star.opacity, sparse ? 0.5 : 1),
-              boxShadow: sparse ? 'none' : `0 0 ${star.size * 3}px rgba(255, 255, 255, ${star.opacity})`
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          transform: `translate(${mousePos.x * nearMultiplier * parallax}px, ${mousePos.y * nearMultiplier * parallax}px)`,
-          transition: 'transform 0.04s ease-out'
-        }}
-      >
-        {stars.near.map(star => (
-          <div
-            key={star.id}
-            style={{
-              position: 'absolute',
-              left: `${star.x}%`,
-              top: `${star.y}%`,
-              width: star.size,
-              height: star.size,
-              background: '#ffffff',
-              borderRadius: '50%',
-              opacity: Math.min(star.opacity, sparse ? 0.5 : 1),
-              boxShadow: sparse
-                ? `0 0 ${star.size * 2}px rgba(255, 255, 255, ${star.opacity * 0.4})`
-                : `0 0 ${star.size * 4}px rgba(255, 255, 255, ${star.opacity}), 0 0 ${star.size * 8}px rgba(255, 255, 255, ${star.opacity * 0.3})`
-            }}
-          />
-        ))}
-      </div>
+      />
     </div>
   );
 };

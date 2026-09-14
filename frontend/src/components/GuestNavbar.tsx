@@ -14,6 +14,7 @@ const AUDIENCE_ITEMS: MenuItem[] = [
   { label: 'Для психолога', path: '/' },
   { label: 'Для клиента', path: '/for-clients' },
   { label: 'Для исследователя', path: '/for-researchers' },
+  { label: 'Сообщество', path: '/communities' },
 ];
 
 export function GuestNavbar() {

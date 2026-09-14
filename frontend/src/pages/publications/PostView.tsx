@@ -18,6 +18,7 @@ import {
   type ForumComment,
   type NestedForumComment
 } from './forumUtils';
+import { usePageMeta } from '../../hooks/usePageMeta';
 import './communities.css';
 
 const PAGE = 15;
@@ -62,7 +63,20 @@ export default function PostView() {
   const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
   const scrollRef = useRef<HTMLElement | null>(null);
   const paneScrollRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [commentsWidth, setCommentsWidth] = useState(() => {
+    try {
+      const raw = localStorage.getItem('forum_comments_width');
+      const n = raw ? Number(raw) : 420;
+      return Number.isFinite(n) ? Math.min(720, Math.max(280, n)) : 420;
+    } catch {
+      return 420;
+    }
+  });
+  const commentsWidthRef = useRef(commentsWidth);
+  const [resizing, setResizing] = useState(false);
   const canWrite = useMemo(() => canCreateForum(user?.role), [user?.role]);
+  commentsWidthRef.current = commentsWidth;
   const nested = useMemo(() => nestComments(comments), [comments]);
   const isDiscussion = isDiscussionType(post?.flair);
 
@@ -118,16 +132,52 @@ export default function PostView() {
   }
 
   useEffect(() => {
+    if (!resizing) return;
+    function onMove(e: MouseEvent) {
+      const shell = shellRef.current;
+      if (!shell) return;
+      const rect = shell.getBoundingClientRect();
+      const next = Math.min(720, Math.max(280, rect.right - e.clientX));
+      commentsWidthRef.current = next;
+      setCommentsWidth(next);
+    }
+    function onUp() {
+      setResizing(false);
+      try {
+        localStorage.setItem('forum_comments_width', String(commentsWidthRef.current));
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [resizing]);
+
+  useEffect(() => {
     loadPost().catch(() => undefined);
   }, [token, id]);
 
-  useEffect(() => {
-    if (!post?.title) return;
-    document.title = post.title;
-    return () => {
-      document.title = 'JungAI';
-    };
-  }, [post?.title]);
+  usePageMeta({
+    title: post?.title || 'Публикация',
+    description: post?.content
+      ? String(post.content)
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 220)
+      : 'Публикация в сообществе JungAI',
+    path: id ? `/publications/post/${id}` : undefined,
+    image: post?.imageUrl,
+    type: 'article',
+  });
 
   useEffect(() => {
     if (!isDiscussion) return;
@@ -525,7 +575,11 @@ export default function PostView() {
                 )}
               </nav>
 
-              <div className="forum__post-shell">
+              <div
+                ref={shellRef}
+                className={`forum__post-shell${resizing ? ' is-resizing' : ''}`}
+                style={{ ['--forum-comments-width' as string]: `${commentsWidth}px` }}
+              >
                 <section className="forum__post-pane">
                   {banner && (
                     <div className="forum__post-banner">
@@ -540,6 +594,27 @@ export default function PostView() {
                 </section>
 
                 <aside className="forum__comments-pane">
+                  <div
+                    className="forum__comments-resizer"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Изменить ширину комментариев"
+                    tabIndex={0}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setResizing(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowLeft') setCommentsWidth((w) => Math.min(720, w + 24));
+                      if (e.key === 'ArrowRight') setCommentsWidth((w) => Math.max(280, w - 24));
+                    }}
+                  >
+                    <div className="forum__comments-resizer-grip" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                  </div>
                   <div className="forum__comments-head">
                     <h2 className="forum__comments-title">{threadLabel}</h2>
                     <span className="forum__comments-count">{repliesCount}</span>

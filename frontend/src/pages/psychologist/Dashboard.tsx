@@ -7,7 +7,12 @@ import { VerificationRequired } from '../../components/VerificationRequired';
 import { checkVerification } from '../../utils/verification';
 import type { VerificationStatus } from '../../utils/verification';
 import type { WidgetInstance, WidgetType } from '../../components/widgets/WidgetTypes';
-import { WIDGET_DEFINITIONS, WIDGET_STORAGE_KEY } from '../../components/widgets/WidgetTypes';
+import {
+  WIDGET_DEFINITIONS,
+  WIDGET_LAYOUT_VERSION,
+  WIDGET_LAYOUT_VERSION_KEY,
+  WIDGET_STORAGE_KEY,
+} from '../../components/widgets/WidgetTypes';
 import WidgetRenderer from '../../components/widgets/WidgetRenderer';
 import AddWidgetButton from '../../components/widgets/AddWidgetButton';
 import WidgetSelectorModal from '../../components/widgets/WidgetSelectorModal';
@@ -39,6 +44,17 @@ type DashboardData = {
   pendingBookingRequests: number;
   discussOnSessionDreams: number;
   publicationDrafts: number;
+  openClientTasks?: {
+    count: number;
+    items: Array<{
+      id: string;
+      title: string;
+      clientId: string;
+      clientName: string;
+      dueAt?: string | null;
+      status?: string;
+    }>;
+  };
   topClients: Array<{
     id: string;
     name: string;
@@ -148,10 +164,19 @@ export default function PsychologistDashboard() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(WIDGET_STORAGE_KEY);
+      const layoutVersion = Number(localStorage.getItem(WIDGET_LAYOUT_VERSION_KEY) || '0');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setWidgets(parsed);
+          const next =
+            layoutVersion < WIDGET_LAYOUT_VERSION
+              ? placeOpenClientTasksThird(parsed as WidgetInstance[])
+              : (parsed as WidgetInstance[]);
+          setWidgets(next);
+          if (layoutVersion < WIDGET_LAYOUT_VERSION) {
+            saveWidgets(next);
+            localStorage.setItem(WIDGET_LAYOUT_VERSION_KEY, String(WIDGET_LAYOUT_VERSION));
+          }
         } else {
           setDefaultWidgets();
         }
@@ -185,15 +210,43 @@ export default function PsychologistDashboard() {
     }
   }, []);
 
+  function placeOpenClientTasksThird(list: WidgetInstance[]): WidgetInstance[] {
+    const without = list.filter((w) => w.type !== 'openClientTasks');
+    const existing = list.find((w) => w.type === 'openClientTasks');
+    const taskWidget: WidgetInstance = existing
+      ? { ...existing, position: 2 }
+      : {
+          id: `openClientTasks-${Date.now()}`,
+          type: 'openClientTasks',
+          position: 2,
+          size: WIDGET_DEFINITIONS.openClientTasks.defaultSize,
+        };
+    return [...without.slice(0, 2), taskWidget, ...without.slice(2)].map((w, idx) => ({
+      ...w,
+      position: idx,
+    }));
+  }
+
   function setDefaultWidgets() {
     const defaultWidgets: WidgetInstance[] = [
       { id: '1', type: 'totalClients', position: 0, size: 'small' },
       { id: '2', type: 'activeSessions', position: 1, size: 'small' },
-      { id: '3', type: 'newDreams', position: 2, size: 'small' },
-      { id: '4', type: 'newJournalEntries', position: 3, size: 'small' },
+      {
+        id: '3',
+        type: 'openClientTasks',
+        position: 2,
+        size: WIDGET_DEFINITIONS.openClientTasks.defaultSize,
+      },
+      { id: '4', type: 'newDreams', position: 3, size: 'small' },
+      { id: '5', type: 'newJournalEntries', position: 4, size: 'small' },
     ];
     setWidgets(defaultWidgets);
     saveWidgets(defaultWidgets);
+    try {
+      localStorage.setItem(WIDGET_LAYOUT_VERSION_KEY, String(WIDGET_LAYOUT_VERSION));
+    } catch {
+      /* ignore */
+    }
   }
 
   function saveWidgets(widgetsToSave: WidgetInstance[]) {
@@ -218,13 +271,15 @@ export default function PsychologistDashboard() {
     }
   }, [token, isVerified]);
 
-  async function loadDashboard() {
+  async function loadDashboard(opts?: { silent?: boolean }) {
     if (!token) {
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (!opts?.silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await api<DashboardData>('/api/analytics/dashboard', { token });
       setDashboardData(res);
@@ -233,11 +288,11 @@ export default function PsychologistDashboard() {
         const result = await checkVerification(token);
         setIsVerified(result.isVerified);
         setVerificationStatus(result.status);
-      } else {
+      } else if (!opts?.silent) {
         setError(e.message || 'Не удалось загрузить данные дашборда');
       }
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }
 
@@ -795,6 +850,7 @@ export default function PsychologistDashboard() {
                         isDragOver={dragOverPosition === index}
                         position={index}
                         onClick={handleWidgetClick}
+                        onRefresh={() => void loadDashboard({ silent: true })}
                       />
                     ))}
                     <AddWidgetButton onClick={() => setShowWidgetSelector(true)} />
@@ -814,6 +870,7 @@ export default function PsychologistDashboard() {
                         isDragOver={dragOverPosition === index + 1}
                         position={index + 1}
                         onClick={handleWidgetClick}
+                        onRefresh={() => void loadDashboard({ silent: true })}
                       />
                     ))}
                   </>
@@ -835,6 +892,7 @@ export default function PsychologistDashboard() {
                         isDragOver={dragOverPosition === index}
                         position={index}
                         onClick={handleWidgetClick}
+                        onRefresh={() => void loadDashboard({ silent: true })}
                       />
                     ))}
                     {pinnedPlaceholders.map((_, idx) => (
@@ -857,6 +915,7 @@ export default function PsychologistDashboard() {
                         isDragOver={dragOverPosition === index + 3}
                         position={index + 3}
                         onClick={handleWidgetClick}
+                        onRefresh={() => void loadDashboard({ silent: true })}
                       />
                     ))}
                   </>

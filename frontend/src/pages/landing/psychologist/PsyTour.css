@@ -101,7 +101,10 @@
 }
 
 .psy-tour__mock-body {
-  display: none;
+  display: block;
+  min-height: 0;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 @media (max-width: 800px) {

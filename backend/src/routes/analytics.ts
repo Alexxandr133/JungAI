@@ -244,6 +244,35 @@ router.get('/analytics/dashboard', requireAuth, requireRole(['psychologist', 'ad
       !dream.amplifications || (Array.isArray(dream.amplifications) && dream.amplifications.length === 0)
     ).slice(0, 5);
 
+    const openTasksRaw =
+      clientIds.length > 0
+        ? await (prisma as any).task.findMany({
+            where: {
+              ownerId: req.user!.id,
+              clientId: { in: activeClientIds.length ? activeClientIds : clientIds },
+              status: { not: 'done' },
+            },
+            orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+            take: 30,
+            select: { id: true, title: true, clientId: true, dueAt: true, status: true, createdAt: true },
+          })
+        : [];
+    const openClientTasks = {
+      count: openTasksRaw.length,
+      items: openTasksRaw.map((t: any) => {
+        const c = clients.find((x: any) => x.id === t.clientId);
+        return {
+          id: t.id,
+          title: t.title,
+          clientId: t.clientId,
+          clientName: c?.name || 'Клиент',
+          dueAt: t.dueAt,
+          status: t.status,
+          createdAt: t.createdAt,
+        };
+      }),
+    };
+
     res.json({
       totalClients,
       activeClients,
@@ -254,6 +283,7 @@ router.get('/analytics/dashboard', requireAuth, requireRole(['psychologist', 'ad
       pendingBookingRequests: pendingIncomingRequests,
       discussOnSessionDreams,
       publicationDrafts,
+      openClientTasks,
       topClients: clientActivity.slice(0, 5),
       topSymbols,
       requiresAttention: {

@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { UniversalNavbar } from '../../components/UniversalNavbar';
+import { GuestNavbar } from '../../components/GuestNavbar';
 import { useAuth } from '../../context/AuthContext';
 import { api, resolvePublicFileUrl } from '../../lib/api';
 import { PlatformIcon } from '../../components/icons';
 import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatformTour';
 import { PSYCHOLOGIST_FEED_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
+import { usePageMeta } from '../../hooks/usePageMeta';
 import { ImageDropzone } from './ImageDropzone';
 import { ThreadCard } from './ThreadCard';
 import { DEFAULT_FLAIRS, canCreateForum, type ForumCommunity, type ForumPost } from './forumUtils';
@@ -46,6 +48,13 @@ export default function CommunitiesCatalog() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [saving, setSaving] = useState(false);
+  const [authPrompt, setAuthPrompt] = useState(false);
+
+  usePageMeta({
+    title: 'Сообщества',
+    description: 'Лента и сообщества JungAI: читайте посты психологов, клиентов и исследователей без регистрации.',
+    path: '/communities',
+  });
 
   function setQuery(next: { scope?: ScopeKey; sort?: SortKey; flair?: string }) {
     const nextParams = new URLSearchParams(params);
@@ -62,40 +71,57 @@ export default function CommunitiesCatalog() {
   }
 
   async function loadRails() {
-    if (!token) return;
-    const [discovery, me] = await Promise.all([
-      api<{
-        managed?: ForumCommunity[];
-        subscriptions?: ForumCommunity[];
-        communities?: ForumCommunity[];
-      }>('/api/publications/discovery', { token }),
-      api<{ posts: ForumPost[] }>('/api/publications/me', { token })
-    ]);
+    if (token) {
+      const [discovery, me] = await Promise.all([
+        api<{
+          managed?: ForumCommunity[];
+          subscriptions?: ForumCommunity[];
+          communities?: ForumCommunity[];
+        }>('/api/publications/discovery', { token }),
+        api<{ posts: ForumPost[] }>('/api/publications/me', { token }),
+      ]);
 
-    const all = discovery.communities || [];
-    const managedList =
-      discovery.managed ||
-      all.filter((c) => c.currentRole === 'owner' || c.currentRole === 'moderator');
-    const subsList =
-      discovery.subscriptions ||
-      all.filter(
-        (c) => c.isSubscribed && c.currentRole !== 'owner' && c.currentRole !== 'moderator'
-      );
+      const all = discovery.communities || [];
+      const managedList =
+        discovery.managed ||
+        all.filter((c) => c.currentRole === 'owner' || c.currentRole === 'moderator');
+      const subsList =
+        discovery.subscriptions ||
+        all.filter(
+          (c) => c.isSubscribed && c.currentRole !== 'owner' && c.currentRole !== 'moderator'
+        );
 
-    setManaged(managedList);
-    setSubscriptions(subsList);
-    setCatalog(all);
-    setDrafts((me.posts || []).filter((p) => p.status === 'draft'));
+      setManaged(managedList);
+      setSubscriptions(subsList);
+      setCatalog(all);
+      setDrafts((me.posts || []).filter((p) => p.status === 'draft'));
+      return;
+    }
+
+    const discovery = await api<{
+      items?: ForumPost[];
+      communities?: ForumCommunity[];
+    }>('/api/public/publications/discovery');
+    setManaged([]);
+    setSubscriptions([]);
+    setCatalog(discovery.communities || []);
+    setDrafts([]);
   }
 
   async function loadFeed() {
-    if (!token) return;
     setLoading(true);
     try {
-      const q = new URLSearchParams({ sort, scope });
-      if (flair) q.set('flair', flair);
-      const res = await api<{ items: ForumPost[] }>(`/api/publications/feed?${q.toString()}`, { token });
-      setPosts(res.items || []);
+      if (token) {
+        const q = new URLSearchParams({ sort, scope });
+        if (flair) q.set('flair', flair);
+        const res = await api<{ items: ForumPost[] }>(`/api/publications/feed?${q.toString()}`, { token });
+        setPosts(res.items || []);
+      } else {
+        const q = new URLSearchParams({ sort });
+        if (flair) q.set('flair', flair);
+        const res = await api<{ items: ForumPost[] }>(`/api/public/publications/feed?${q.toString()}`);
+        setPosts(res.items || []);
+      }
     } finally {
       setLoading(false);
     }
@@ -110,7 +136,10 @@ export default function CommunitiesCatalog() {
   }, [token, sort, scope, flair]);
 
   async function toggleLike(post: ForumPost) {
-    if (!token) return;
+    if (!token) {
+      setAuthPrompt(true);
+      return;
+    }
     const prev = posts;
     setPosts((list) =>
       list.map((p) =>
@@ -154,7 +183,10 @@ export default function CommunitiesCatalog() {
   }
 
   async function toggleSub(community: ForumCommunity) {
-    if (!token) return;
+    if (!token) {
+      setAuthPrompt(true);
+      return;
+    }
     await api(`/api/communities/${community.id}/subscription`, { method: 'POST', token });
     await loadRails();
     if (scope === 'subs') await loadFeed();
@@ -235,43 +267,65 @@ export default function CommunitiesCatalog() {
 
   return (
     <div className="forum">
-      <UniversalNavbar />
+      {user ? <UniversalNavbar /> : <GuestNavbar />}
       <main className="forum__main forum__main--hub">
         <div className="forum__page forum__page--bleed">
           <header data-tour="feed-header" className="forum__hub-top">
             <div className="forum__hub-title-row">
               <div className="forum__hub-title-block">
                 <h1 className="forum__h1 forum__h1--hub">Сообщества</h1>
-                <p className="forum__lead forum__lead--hub">Сообщество → посты → обсуждения</p>
+                {!token ? (
+                  <p className="forum__lead forum__lead--hub">
+                    Читайте без регистрации. Писать, комментировать и лайкать — после входа.
+                  </p>
+                ) : null}
               </div>
               <div className="forum__hub-actions">
-                <PsychologistTourHelpButton
-                  tourId="feed"
-                  steps={PSYCHOLOGIST_FEED_TOUR_STEPS}
-                  userId={user?.id}
-                  role={user?.role}
-                />
-                {canCreateForum(user?.role) && (
+                {token ? (
+                  <PsychologistTourHelpButton
+                    tourId="feed"
+                    steps={PSYCHOLOGIST_FEED_TOUR_STEPS}
+                    userId={user?.id}
+                    role={user?.role}
+                  />
+                ) : null}
+                {canCreateForum(user?.role) ? (
                   <Link to="/publications/new" className="forum__new-post">
                     <PlatformIcon name="plus" size={14} strokeWidth={2} />
                     Новый пост
                   </Link>
+                ) : (
+                  <button type="button" className="forum__new-post" onClick={() => setAuthPrompt(true)}>
+                    Войти, чтобы писать
+                  </button>
                 )}
               </div>
             </div>
 
             <div className="forum__toolbar">
               <div className="forum__segment" role="group" aria-label="Скоуп ленты">
-                {([
-                  ['all', 'Все'],
-                  ['subs', 'Подписки'],
-                  ['mine', 'Мои']
-                ] as Array<[ScopeKey, string]>).map(([key, label]) => (
+                {(
+                  [
+                    ['all', 'Все'],
+                    ...(token
+                      ? ([
+                          ['subs', 'Подписки'],
+                          ['mine', 'Мои'],
+                        ] as Array<[ScopeKey, string]>)
+                      : []),
+                  ] as Array<[ScopeKey, string]>
+                ).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
                     className={scope === key ? 'is-active' : ''}
-                    onClick={() => setQuery({ scope: key })}
+                    onClick={() => {
+                      if (!token && key !== 'all') {
+                        setAuthPrompt(true);
+                        return;
+                      }
+                      setQuery({ scope: key });
+                    }}
                   >
                     {label}
                   </button>
@@ -320,30 +374,34 @@ export default function CommunitiesCatalog() {
 
           <div className="forum__layout forum__layout--hub">
             <aside className="forum__rail forum__rail--flush forum__rail--left">
+              {token ? (
+                <>
+                  <div className="forum__rail-section">
+                    <h3 className="forum__rail-label">Мои</h3>
+                    <div className="forum__nav-list">
+                      {managed.map((c) => (
+                        <div key={c.id}>{communityLink(c)}</div>
+                      ))}
+                      {managed.length === 0 && (
+                        <p className="forum__muted">Нет сообществ, которыми вы управляете</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="forum__rail-section">
+                    <h3 className="forum__rail-label">Подписки</h3>
+                    <div className="forum__nav-list">
+                      {subscriptions.map((c) => (
+                        <div key={c.id}>{communityLink(c)}</div>
+                      ))}
+                      {subscriptions.length === 0 && (
+                        <p className="forum__muted">Пока нет подписок</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : null}
               <div className="forum__rail-section">
-                <h3 className="forum__rail-label">Мои</h3>
-                <div className="forum__nav-list">
-                  {managed.map((c) => (
-                    <div key={c.id}>{communityLink(c)}</div>
-                  ))}
-                  {managed.length === 0 && (
-                    <p className="forum__muted">Нет сообществ, которыми вы управляете</p>
-                  )}
-                </div>
-              </div>
-              <div className="forum__rail-section">
-                <h3 className="forum__rail-label">Подписки</h3>
-                <div className="forum__nav-list">
-                  {subscriptions.map((c) => (
-                    <div key={c.id}>{communityLink(c)}</div>
-                  ))}
-                  {subscriptions.length === 0 && (
-                    <p className="forum__muted">Пока нет подписок</p>
-                  )}
-                </div>
-              </div>
-              <div className="forum__rail-section">
-                <h3 className="forum__rail-label">Другие</h3>
+                <h3 className="forum__rail-label">{token ? 'Другие' : 'Сообщества'}</h3>
                 <div className="forum__nav-list">
                   {catalogOthers.map((c) => (
                     <div key={c.id}>{communityDiscoverRow(c)}</div>
@@ -360,8 +418,17 @@ export default function CommunitiesCatalog() {
                 )}
               </div>
               {canCreateForum(user?.role) && (
-                <button type="button" className="forum__create-link" onClick={() => setShowCreate(true)}>
-                  + Создать сообщество
+                <button
+                  type="button"
+                  className="forum__create-link"
+                  onClick={() => {
+                    if (!token || !canCreateForum(user?.role)) {
+                      setAuthPrompt(true);
+                      return;
+                    }
+                    setShowCreate(true);
+                  }}
+                >                  + Создать сообщество
                 </button>
               )}
             </aside>
@@ -369,7 +436,13 @@ export default function CommunitiesCatalog() {
             <section data-tour="feed-posts" className="forum__feed">
               {loading && <div className="forum__muted">Загрузка...</div>}
               {posts.map((post) => (
-                <ThreadCard key={post.id} post={post} onLike={toggleLike} onPin={togglePin} onDelete={deletePost} />
+                <ThreadCard
+                  key={post.id}
+                  post={post}
+                  onLike={toggleLike}
+                  onPin={token ? togglePin : undefined}
+                  onDelete={token ? deletePost : undefined}
+                />
               ))}
               {!loading && posts.length === 0 && <div className="forum__muted forum__feed-empty">{emptyText}</div>}
             </section>
@@ -391,6 +464,26 @@ export default function CommunitiesCatalog() {
           </div>
         </div>
       </main>
+
+      {authPrompt && (
+        <div className="forum__modal-backdrop" onClick={() => setAuthPrompt(false)}>
+          <div className="forum__modal" onClick={(e) => e.stopPropagation()}>
+            <div className="forum__modal-title">Только чтение</div>
+            <p className="forum__muted">Комментарии, лайки и публикации доступны после входа.</p>
+            <div className="forum__actions">
+              <button className="forum__text-btn" type="button" onClick={() => setAuthPrompt(false)}>
+                Отмена
+              </button>
+              <button className="forum__new-post" type="button" onClick={() => navigate('/login')}>
+                Войти
+              </button>
+              <button className="forum__new-post" type="button" onClick={() => navigate('/register')}>
+                Регистрация
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <div className="forum__modal-backdrop" onClick={() => setShowCreate(false)}>

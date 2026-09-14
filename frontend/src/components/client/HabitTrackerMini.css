@@ -1,0 +1,48 @@
+.habit-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.habit-mini__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink, #211e2b);
+}
+
+.habit-mini__sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ink-muted, #8a8496);
+}
+
+.habit-mini__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.habit-mini__list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line, #e2dff0);
+  background: var(--card, #fff);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.habit-mini__list label.is-on {
+  background: var(--sage-soft, #e3f1ea);
+  border-color: color-mix(in srgb, var(--sage, #3e8a6e) 35%, var(--line));
+}
+
+.habit-mini--compact .habit-mini__list label {
+  padding: 6px 8px;
+  font-size: 12px;
+}

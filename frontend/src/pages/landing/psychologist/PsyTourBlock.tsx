@@ -1,5 +1,24 @@
 import { Link } from 'react-router-dom';
+import { MockClientsPanel } from './mocks/MockClientsPanel';
+import {
+  MockAiPanel,
+  MockCalendarPanel,
+  MockPublicationsPanel,
+  MockTranscriptionPanel,
+  MockVideoPanel,
+  MockWorkspacePanel,
+} from './mocks/TourMocks';
 import './PsyTour.css';
+
+export type TourMockKind =
+  | 'image'
+  | 'clients'
+  | 'calendar'
+  | 'video'
+  | 'ai'
+  | 'transcription'
+  | 'workspace'
+  | 'publications';
 
 export type TourBlockData = {
   id: string;
@@ -7,18 +26,41 @@ export type TourBlockData = {
   title: string;
   bullets: string[];
   microCta?: { label: string; to: string };
-  mockSrc: string;
+  mockKind?: TourMockKind;
+  mockSrc?: string;
   mockAlt: string;
 };
 
 type PsyTourBlockProps = {
   block: TourBlockData;
-  /** true = текст слева, мок справа; false = наоборот */
   textFirst: boolean;
   softBg: boolean;
 };
 
+function renderLiveMock(kind: TourMockKind | undefined) {
+  switch (kind) {
+    case 'clients':
+      return <MockClientsPanel />;
+    case 'calendar':
+      return <MockCalendarPanel />;
+    case 'video':
+      return <MockVideoPanel />;
+    case 'ai':
+      return <MockAiPanel />;
+    case 'transcription':
+      return <MockTranscriptionPanel />;
+    case 'workspace':
+      return <MockWorkspacePanel />;
+    case 'publications':
+      return <MockPublicationsPanel />;
+    default:
+      return null;
+  }
+}
+
 export function PsyTourBlock({ block, textFirst, softBg }: PsyTourBlockProps) {
+  const live = renderLiveMock(block.mockKind);
+
   const text = (
     <div className="psy-tour__text">
       <p className="landing-eyebrow">{block.eyebrow}</p>
@@ -39,23 +81,27 @@ export function PsyTourBlock({ block, textFirst, softBg }: PsyTourBlockProps) {
   );
 
   const mock = (
-    <div className="landing-card psy-tour__mock">
+    <div className="landing-card psy-tour__mock" role="img" aria-label={block.mockAlt}>
       <div className="psy-tour__mock-chrome" aria-hidden>
         <span />
         <span />
         <span />
       </div>
-      <div className="landing-mock-shot">
-        <img
-          className="psy-tour__mock-img landing-mock-shot__img"
-          src={block.mockSrc}
-          alt={block.mockAlt}
-          width={960}
-          height={640}
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
+      {live ? (
+        <div className="psy-tour__mock-body">{live}</div>
+      ) : block.mockSrc ? (
+        <div className="landing-mock-shot">
+          <img
+            className="psy-tour__mock-img landing-mock-shot__img"
+            src={block.mockSrc}
+            alt=""
+            width={960}
+            height={640}
+            loading="lazy"
+            decoding="async"
+          />
+        </div>
+      ) : null}
     </div>
   );
 

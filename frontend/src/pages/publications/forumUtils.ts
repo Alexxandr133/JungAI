@@ -27,9 +27,11 @@ export type ForumCommunity = {
   avatarUrl?: string | null;
   coverUrl?: string | null;
   ownerId?: string;
+  isPrivate?: boolean;
   membersCount?: number;
   postsCount?: number;
   isSubscribed?: boolean;
+  joinPending?: boolean;
   currentRole?: string | null;
   createdAt?: string;
 };

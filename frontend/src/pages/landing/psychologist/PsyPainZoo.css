@@ -93,9 +93,22 @@
 }
 
 .psy-zoo__jung {
-  padding: 28px;
+  align-self: start;
+  height: fit-content;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.landing .psy-zoo .psy-zoo__jung .psy-zoo__sub {
+  margin: 0;
+}
+
+.landing .psy-zoo .psy-zoo__jung-body {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 .psy-zoo__unified {
@@ -103,15 +116,15 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 10px;
 }
 
 .psy-zoo__unified-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--ink);
 }
@@ -120,12 +133,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   background: var(--sage-soft);
   color: var(--sage);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -135,6 +148,47 @@
   text-align: center;
 }
 
+.psy-zoo__prices {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.psy-zoo__prices li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+
+.psy-zoo__prices strong {
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.psy-zoo__prices-total {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line, var(--card-border));
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.psy-zoo__prices-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-muted, var(--ink-soft));
+}
+
 @media (max-width: 800px) {
   .psy-zoo__grid {
     grid-template-columns: 1fr;
@@ -142,6 +196,10 @@
 
   .psy-zoo__chips {
     min-height: 0;
+  }
+
+  .psy-zoo__unified {
+    grid-template-columns: 1fr 1fr;
   }
 
   .psy-zoo__chip--scatter-0,

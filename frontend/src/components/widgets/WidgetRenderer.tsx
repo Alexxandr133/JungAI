@@ -16,6 +16,7 @@ import DreamsStatsWidget from './widgets/DreamsStatsWidget.tsx';
 import ClientProgressWidget from './widgets/ClientProgressWidget.tsx';
 import MonthlyStatsWidget from './widgets/MonthlyStatsWidget.tsx';
 import SymbolsChartWidget from './widgets/SymbolsChartWidget.tsx';
+import OpenClientTasksWidget from './widgets/OpenClientTasksWidget.tsx';
 
 interface WidgetRendererProps {
   widget: WidgetInstance;
@@ -31,6 +32,7 @@ interface WidgetRendererProps {
   isDragOver?: boolean;
   position?: number;
   onClick?: (widgetType: string) => void;
+  onRefresh?: () => void;
 }
 
 export default function WidgetRenderer({ 
@@ -46,7 +48,8 @@ export default function WidgetRenderer({
   isDragged = false,
   isDragOver = false,
   position = 0,
-  onClick
+  onClick,
+  onRefresh,
 }: WidgetRendererProps) {
   const [showControls, setShowControls] = useState(false);
   const widgetRef = useRef<HTMLDivElement>(null);
@@ -89,6 +92,8 @@ export default function WidgetRenderer({
         return <MonthlyStatsWidget {...commonProps} />;
       case 'symbolsChart':
         return <SymbolsChartWidget {...commonProps} />;
+      case 'openClientTasks':
+        return <OpenClientTasksWidget {...commonProps} onRefresh={onRefresh} />;
       default:
         return <div>Неизвестный виджет</div>;
     }
@@ -118,7 +123,7 @@ export default function WidgetRenderer({
     onResize(widget.id, sizes[nextIndex]);
   };
 
-  // Определяем, кликабелен ли виджет
+  // openClientTasks: переход только по клику на иконку внутри виджета (форма с пробелом не должна навигировать)
   const isClickable = onClick && ['totalClients', 'activeSessions', 'newDreams', 'newJournalEntries', 'attentionClients', 'unanalyzedDreams', 'topClients', 'topSymbols', 'requiresAttention', 'sessionsCalendar', 'dreamsStats'].includes(widget.type);
 
 
@@ -165,6 +170,10 @@ export default function WidgetRenderer({
       tabIndex={isClickable ? 0 : undefined}
       onKeyDown={(e) => {
         if (!isClickable) return;
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('input, textarea, select, button, a, [contenteditable="true"], [data-widget-control]')) {
+          return;
+        }
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onClick?.(widget.type);

@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Video, MessageSquare, Trash2 } from 'lucide-react';
+import { CloudMoon, NotebookPen, PauseCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useMessengerUi } from '../../context/MessengerUiContext';
-import { useChatSocket } from '../../context/ChatSocketContext';
 import { api } from '../../lib/api';
 import { ClientNavbar } from '../../components/ClientNavbar';
 import { MoodCheckInControl, MoodMiniChart } from '../../components/client/MoodCheckIn';
+import { DailyQuoteModal } from '../../components/client/DailyQuoteModal';
+import { SessionMonthCalendar } from '../../components/client/SessionMonthCalendar';
+import { BreathingPracticeModal } from '../../components/client/BreathingPracticeModal';
+import { HabitTrackerMini } from '../../components/client/HabitTrackerMini';
+import { quoteForToday } from '../../lib/dailyQuotes';
+import { LECTURE_STUBS } from '../../lib/clientActivities';
+import { excerptFromHtml, type ForumPost } from '../publications/forumUtils';
 import './Workspace.css';
 
 type DreamBrief = { id: string; title: string; content?: string; createdAt: string; userId?: string | null; symbols?: unknown };
@@ -21,19 +27,16 @@ type EventBrief = {
 };
 
 type HomeworkItem = { id: string; date: string; homework: string; nextFocus?: string | null };
+type AssignmentItem = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  dueAt?: string | null;
+  createdAt: string;
+};
 
 type SessionReflectionItem = { id: string; eventId?: string | null; createdAt: string };
-
-const ROTATING_INSIGHTS = [
-  'Сон, записанный сразу после пробуждения, сохраняет больше деталей — даже одно предложение уже ценно.',
-  'Не обязательно «понимать» сон: достаточно отметить настроение и образы — смысл часто проявляется со временем.',
-  'Короткая запись в дневнике в тот же день, когда что-то произошло, помогает на сессии не упустить важное.',
-  'Если тревожно начать писать — начните с одного слова или цвета, который вспомнился.',
-  'Повторяющийся мотив во снах не всегда «предсказание» — чаще это способ психики обрабатывать опыт.',
-  'Пауза между сессиями — нормальная часть процесса: платформа помогает не терять нить между встречами.',
-  'Вопрос к психологу можно набросать черновиком здесь или в дневнике — так легче говорить вслух.',
-  '«Не помню сон» тоже данные: можно записать, как вы проснулись и что чувствовали.',
-];
 
 const PATH_MILESTONES: Array<{ id: string; label: string; check: (ctx: MilestoneCtx) => boolean }> = [
   { id: 'mood', label: 'Первый check-in настроения', check: (c) => c.hasMoodCheckIn },
@@ -42,16 +45,19 @@ const PATH_MILESTONES: Array<{ id: string; label: string; check: (ctx: Milestone
   { id: 'session', label: 'Первая принятая сессия', check: (c) => c.acceptedSessionCount > 0 },
   { id: 'journal5', label: 'Пять записей в дневнике', check: (c) => c.journalCount >= 5 },
   { id: 'discuss', label: 'Сон отмечен «обсудить на сессии»', check: (c) => c.discussCount > 0 },
+  { id: 'assignment', label: 'Первое задание выполнено', check: (c) => c.hasCompletedAssignment },
+  { id: 'test', label: 'Пройден первый тест', check: (c) => c.hasTestResult },
 ];
 
-/** Координаты звёзд созвездия вех (viewBox 0 0 320 200) */
 const MILESTONE_STAR_POS: Array<{ x: number; y: number }> = [
-  { x: 36, y: 120 },
-  { x: 88, y: 52 },
-  { x: 148, y: 96 },
-  { x: 198, y: 40 },
-  { x: 248, y: 110 },
-  { x: 292, y: 58 },
+  { x: 28, y: 118 },
+  { x: 68, y: 52 },
+  { x: 108, y: 100 },
+  { x: 148, y: 40 },
+  { x: 188, y: 112 },
+  { x: 228, y: 48 },
+  { x: 268, y: 96 },
+  { x: 302, y: 54 },
 ];
 
 type MilestoneCtx = {
@@ -60,6 +66,8 @@ type MilestoneCtx = {
   journalCount: number;
   acceptedSessionCount: number;
   discussCount: number;
+  hasCompletedAssignment: boolean;
+  hasTestResult: boolean;
 };
 
 function greetingForHour(): string {
@@ -71,12 +79,6 @@ function greetingForHour(): string {
   return 'Доброй ночи';
 }
 
-function insightForToday(): string {
-  const start = new Date(new Date().getFullYear(), 0, 0).getTime();
-  const day = Math.floor((Date.now() - start) / 86400000);
-  return ROTATING_INSIGHTS[day % ROTATING_INSIGHTS.length];
-}
-
 function filterOwnDreams(items: DreamBrief[], clientUserId: string | undefined): DreamBrief[] {
   if (!clientUserId) return items;
   return items.filter((d) => d.userId === clientUserId);
@@ -84,34 +86,6 @@ function filterOwnDreams(items: DreamBrief[], clientUserId: string | undefined):
 
 function dateKey(iso: string): string {
   return iso.slice(0, 10);
-}
-
-function weekSymbolFromDreams(dreams: DreamBrief[]): string | null {
-  const weekAgo = Date.now() - 7 * 86400000;
-  const recent = dreams.filter((d) => new Date(d.createdAt).getTime() >= weekAgo);
-  const counts = new Map<string, number>();
-  for (const d of recent) {
-    const syms = Array.isArray(d.symbols) ? (d.symbols as string[]) : [];
-    for (const s of syms) {
-      const k = String(s || '').trim().toLowerCase();
-      if (!k) continue;
-      counts.set(k, (counts.get(k) || 0) + 1);
-    }
-  }
-  let best: string | null = null;
-  let bestN = 0;
-  for (const [sym, n] of counts.entries()) {
-    if (n > bestN) {
-      bestN = n;
-      best = sym;
-    }
-  }
-  if (best !== null) return best.charAt(0).toUpperCase() + best.slice(1);
-  const fallback = recent[0];
-  if (!fallback) return null;
-  const syms = Array.isArray(fallback.symbols) ? (fallback.symbols as string[]) : [];
-  const first = syms[0] ? String(syms[0]).trim() : '';
-  return first ? first.charAt(0).toUpperCase() + first.slice(1) : null;
 }
 
 function parseHomeworkLines(text: string): string[] {
@@ -188,6 +162,10 @@ function discussWord(n: number): string {
   return 'вопросов';
 }
 
+function constellationRewardKey(userId?: string): string {
+  return `jungai_constellation_reward_${userId || 'guest'}`;
+}
+
 function useSessionCountdown(startsAt: string | null): string | null {
   const [label, setLabel] = useState<string | null>(null);
   useEffect(() => {
@@ -218,24 +196,15 @@ function useSessionCountdown(startsAt: string | null): string | null {
 export default function ClientWorkspace() {
   const { token, user } = useAuth();
   const { openMessenger } = useMessengerUi();
-  const { unread } = useChatSocket();
   const navigate = useNavigate();
 
   const [displayName, setDisplayName] = useState('');
   const [dreamTotal, setDreamTotal] = useState(0);
-  const [recentDreams, setRecentDreams] = useState<DreamBrief[]>([]);
-  const [weekSymbol, setWeekSymbol] = useState<string | null>(null);
   const [journalCount, setJournalCount] = useState(0);
   const [upcomingEvents, setUpcomingEvents] = useState<EventBrief[]>([]);
   const [nearestEvent, setNearestEvent] = useState<EventBrief | null>(null);
   const [hasPsychologist, setHasPsychologist] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
-  const [onboarding, setOnboarding] = useState<{
-    steps: Array<{ id: string; title: string; done: boolean; path: string }>;
-    doneCount: number;
-    total: number;
-    complete: boolean;
-  } | null>(null);
   const [todayMood, setTodayMood] = useState<number | null>(null);
   const [moodEnergy, setMoodEnergy] = useState(3);
   const [moodAnxiety, setMoodAnxiety] = useState(3);
@@ -245,6 +214,7 @@ export default function ClientWorkspace() {
   >([]);
   const [progressCtx, setProgressCtx] = useState<MilestoneCtx | null>(null);
   const [homework, setHomework] = useState<HomeworkItem[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
   const [discussCount, setDiscussCount] = useState(0);
   const [reflectionEventId, setReflectionEventId] = useState<string | null>(null);
   const [reflectMood, setReflectMood] = useState(3);
@@ -253,8 +223,15 @@ export default function ClientWorkspace() {
   const [hwDoneVersion, setHwDoneVersion] = useState(0);
   const [moodSaving, setMoodSaving] = useState(false);
   const [pathDay, setPathDay] = useState(1);
+  const [feedPosts, setFeedPosts] = useState<ForumPost[]>([]);
+  const [breathOpen, setBreathOpen] = useState(false);
+  const [lectureId, setLectureId] = useState<string | null>(null);
+  const [rewardClaimed, setRewardClaimed] = useState(false);
+  const [quickNote, setQuickNote] = useState('');
+  const [quickNoteSaving, setQuickNoteSaving] = useState(false);
+  const [quickNoteFlash, setQuickNoteFlash] = useState(false);
 
-  const insight = useMemo(() => insightForToday(), []);
+  const dailyQuote = useMemo(() => quoteForToday(), []);
   const greet = useMemo(() => greetingForHour(), []);
   const moon = useMemo(() => moonPhaseLabel(), []);
   const countdown = useSessionCountdown(nearestEvent?.startsAt ?? null);
@@ -277,15 +254,30 @@ export default function ClientWorkspace() {
     return PATH_MILESTONES.map((m) => ({ ...m, done: m.check(progressCtx) }));
   }, [progressCtx]);
 
+  const milestonesComplete = milestonesDone.length > 0 && milestonesDone.every((m) => m.done);
+
+  useEffect(() => {
+    try {
+      setRewardClaimed(localStorage.getItem(constellationRewardKey(user?.id)) === '1');
+    } catch {
+      setRewardClaimed(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (milestonesComplete && user?.id) {
+      try {
+        localStorage.setItem(constellationRewardKey(user.id), '1');
+        setRewardClaimed(true);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [milestonesComplete, user?.id]);
+
   useEffect(() => {
     (async () => {
       if (!token) {
-        setDreamTotal(2);
-        setRecentDreams([
-          { id: 'd1', title: 'Лечу над горящим городом', createdAt: new Date().toISOString(), userId: 'demo', symbols: ['полёт', 'огонь'] },
-          { id: 'd2', title: 'Красная дверь и коридор', createdAt: new Date().toISOString(), userId: 'demo', symbols: ['дверь'] },
-        ]);
-        setWeekSymbol('Дверь');
         setHasPsychologist(null);
         setPathDay(1);
         setLoading(false);
@@ -313,12 +305,6 @@ export default function ClientWorkspace() {
           items: [] as { createdAt: string }[],
         }));
         const eventsP = api<{ items: EventBrief[] }>('/api/my-events', { token }).catch(() => ({ items: [] as EventBrief[] }));
-        const onboardingP = api<{
-          steps: Array<{ id: string; title: string; done: boolean; path: string }>;
-          doneCount: number;
-          total: number;
-          complete: boolean;
-        }>('/api/client/onboarding', { token }).catch(() => null);
         const moodP = api<{
           daily: Array<{ date: string; mood: number | null; energy: number | null; anxiety: number | null }>;
           today: { mood: number; energy: number; anxiety: number } | null;
@@ -336,26 +322,33 @@ export default function ClientWorkspace() {
         const homeworkP = api<{ items: HomeworkItem[] }>('/api/client/homework', { token }).catch(() => ({
           items: [] as HomeworkItem[],
         }));
-        const remindP = api<{ upcoming: Array<{ id: string; title: string; startsAt: string; endsAt?: string }> }>(
-          '/api/client/session-reminders/sync',
-          { token, method: 'POST', body: {} }
-        ).catch(() => null);
+        const assignmentsP = api<{ items: AssignmentItem[] }>('/api/client/assignments', { token }).catch(() => ({
+          items: [] as AssignmentItem[],
+        }));
+        const testsP = api<{ items: unknown[] }>('/api/tests/my-results', { token }).catch(() => ({ items: [] as unknown[] }));
+        const feedP = api<{ items: ForumPost[] }>('/api/publications/feed?limit=6&listMode=1', { token }).catch(() =>
+          api<{ items: ForumPost[] }>('/api/public/publications/feed?limit=6').catch(() => ({ items: [] as ForumPost[] }))
+        );
+        void api('/api/client/session-reminders/sync', { token, method: 'POST', body: {} }).catch(() => null);
 
-        const [hasP, profile, dreams, journal, events, onboard, mood, progress, hwRes] = await Promise.all([
-          psychP,
-          profileP,
-          dreamsP,
-          journalP,
-          eventsP,
-          onboardingP,
-          moodP,
-          progressP,
-          homeworkP,
-          remindP,
-        ]);
+        const [hasP, profile, dreams, journal, events, mood, progress, hwRes, assignRes, testsRes, feedRes] =
+          await Promise.all([
+            psychP,
+            profileP,
+            dreamsP,
+            journalP,
+            eventsP,
+            moodP,
+            progressP,
+            homeworkP,
+            assignmentsP,
+            testsP,
+            feedP,
+          ]);
 
         setHasPsychologist(hasP);
-        setOnboarding(onboard);
+        setAssignments(assignRes?.items || []);
+        setFeedPosts((feedRes?.items || []).slice(0, 6));
         if (mood?.today) {
           setTodayMood(mood.today.mood);
           setMoodEnergy(mood.today.energy);
@@ -366,8 +359,6 @@ export default function ClientWorkspace() {
 
         const ownDreams = filterOwnDreams(dreams.items || [], uid);
         setDreamTotal(ownDreams.length);
-        setRecentDreams(ownDreams.slice(0, 5));
-        setWeekSymbol(weekSymbolFromDreams(ownDreams));
 
         const jItems = journal.items || [];
         setJournalCount(jItems.length);
@@ -382,6 +373,9 @@ export default function ClientWorkspace() {
         setUpcomingEvents(upcoming);
         setNearestEvent(upcoming[0] || null);
 
+        const assignItems = assignRes?.items || [];
+        const testItems = testsRes?.items || [];
+
         if (progress) {
           setDiscussCount(progress.flaggedDreams?.length ?? 0);
           setProgressCtx({
@@ -390,6 +384,18 @@ export default function ClientWorkspace() {
             journalCount: progress.journalCount ?? jItems.length,
             acceptedSessionCount: (events.items || []).filter((e) => e.sessionStatus === 'accepted').length,
             discussCount: progress.flaggedDreams?.length ?? 0,
+            hasCompletedAssignment: assignItems.some((a) => a.status === 'done'),
+            hasTestResult: testItems.length > 0,
+          });
+        } else {
+          setProgressCtx({
+            hasMoodCheckIn: (mood?.daily || []).some((d) => d.mood != null),
+            dreamCount: ownDreams.length,
+            journalCount: jItems.length,
+            acceptedSessionCount: (events.items || []).filter((e) => e.sessionStatus === 'accepted').length,
+            discussCount: 0,
+            hasCompletedAssignment: assignItems.some((a) => a.status === 'done'),
+            hasTestResult: testItems.length > 0,
           });
         }
 
@@ -408,10 +414,7 @@ export default function ClientWorkspace() {
         const needReflect = reflectionCandidates.find((ev) => !reflectedEventIds.has(ev.id));
         setReflectionEventId(needReflect?.id ?? null);
 
-        const dates = [
-          ...ownDreams.map((d) => d.createdAt),
-          ...jItems.map((j) => j.createdAt),
-        ].filter(Boolean);
+        const dates = [...ownDreams.map((d) => d.createdAt), ...jItems.map((j) => j.createdAt)].filter(Boolean);
         const earliest = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
         setPathDay(pathDayForUser(uid, earliest));
       } catch {
@@ -445,14 +448,32 @@ export default function ClientWorkspace() {
     }
   }
 
-  async function deleteDream(id: string) {
-    if (!token || !window.confirm('Удалить запись сна?')) return;
+  async function saveQuickJournalNote() {
+    const content = quickNote.trim();
+    if (!token || !content || quickNoteSaving) return;
+    setQuickNoteSaving(true);
     try {
-      await api(`/api/dreams/${id}`, { method: 'DELETE', token });
-      setRecentDreams((prev) => prev.filter((d) => d.id !== id));
-      setDreamTotal((n) => Math.max(0, n - 1));
+      await api('/api/journal/entries', {
+        token,
+        method: 'POST',
+        body: { content },
+      });
+      setQuickNote('');
+      setJournalCount((n) => n + 1);
+      setProgressCtx((c) =>
+        c
+          ? {
+              ...c,
+              journalCount: c.journalCount + 1,
+            }
+          : c
+      );
+      setQuickNoteFlash(true);
+      window.setTimeout(() => setQuickNoteFlash(false), 2200);
     } catch {
-      /* ignore */
+      window.alert('Не удалось сохранить заметку. Попробуйте ещё раз.');
+    } finally {
+      setQuickNoteSaving(false);
     }
   }
 
@@ -476,13 +497,30 @@ export default function ClientWorkspace() {
     }
   }
 
-  function toggleHomeworkLine(homeworkId: string, lineIndex: number, totalLines: number) {
+  function toggleHomeworkLine(homeworkId: string, lineIndex: number) {
     const done = loadHomeworkDone(homeworkId);
     if (done.has(lineIndex)) done.delete(lineIndex);
     else done.add(lineIndex);
     saveHomeworkDone(homeworkId, done);
     setHwDoneVersion((v) => v + 1);
-    void totalLines;
+  }
+
+  async function toggleAssignment(task: AssignmentItem) {
+    if (!token) return;
+    const nextStatus = task.status === 'done' ? 'todo' : 'done';
+    setAssignments((prev) => prev.map((a) => (a.id === task.id ? { ...a, status: nextStatus } : a)));
+    try {
+      await api(`/api/client/assignments/${task.id}`, {
+        method: 'PATCH',
+        token,
+        body: { status: nextStatus },
+      });
+      if (nextStatus === 'done') {
+        setProgressCtx((c) => (c ? { ...c, hasCompletedAssignment: true } : c));
+      }
+    } catch {
+      setAssignments((prev) => prev.map((a) => (a.id === task.id ? { ...a, status: task.status } : a)));
+    }
   }
 
   const spaces: Array<{
@@ -497,9 +535,7 @@ export default function ClientWorkspace() {
       mod: 'dreams',
       kicker: 'Сны',
       title: 'Журнал снов',
-      hint: dreamTotal
-        ? `${dreamTotal} ваших записей`
-        : 'Записывайте образы и символы — тёмная «ночь» с отдельным настроением.',
+      hint: dreamTotal ? `${dreamTotal} ваших записей` : 'Записывайте образы и символы.',
       to: '/dreams',
     },
     {
@@ -508,7 +544,7 @@ export default function ClientWorkspace() {
       title: 'Личный дневник',
       hint:
         journalCount > 0
-          ? `${journalCount} записей · шифруются на устройстве, доступны только вам и вашему психологу.`
+          ? `${journalCount} записей · шифруются на устройстве.`
           : 'Записи шифруются на устройстве и доступны только вам.',
       to: '/client/journal',
       trust: true,
@@ -524,7 +560,7 @@ export default function ClientWorkspace() {
       mod: 'community',
       kicker: 'Форум',
       title: 'Сообщества',
-      hint: 'Лента, посты и обсуждения — можно создавать свои сообщества.',
+      hint: 'Лента, посты и обсуждения.',
       to: '/communities',
     },
     {
@@ -536,24 +572,48 @@ export default function ClientWorkspace() {
     },
   ];
 
-  const unreadTotal = unread?.total ?? 0;
+  const openLecture = lectureId ? LECTURE_STUBS.find((l) => l.id === lectureId) : null;
+
+  const calendarSessions = useMemo(
+    () =>
+      upcomingEvents.map((ev) => ({
+        date: dateKey(ev.startsAt),
+        title: ev.title,
+      })),
+    [upcomingEvents]
+  );
 
   return (
     <div className="client-desk">
       <ClientNavbar />
+      <DailyQuoteModal enabled={Boolean(token)} quote={dailyQuote} />
+      <BreathingPracticeModal open={breathOpen} onClose={() => setBreathOpen(false)} />
+      {openLecture && (
+        <div className="client-desk__lecture-modal" role="dialog" aria-modal="true">
+          <button type="button" className="client-desk__lecture-backdrop" aria-label="Закрыть" onClick={() => setLectureId(null)} />
+          <div className="client-desk__lecture-card">
+            <p className="client-desk__lecture-role">{openLecture.role}</p>
+            <h3>{openLecture.name}</h3>
+            <p>{openLecture.blurb}</p>
+            <button type="button" className="button" onClick={() => setLectureId(null)}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+      )}
+
       <main className="client-desk__main">
         {loading && token && <p className="client-desk__loading">Загрузка…</p>}
 
         <div className="client-desk__zones">
-          {/* —— Сегодня —— */}
           <section aria-labelledby="zone-today">
             <p id="zone-today" className="client-desk__zone-label">
               Сегодня
             </p>
 
             <div className="client-desk__hero">
-              <div className="client-desk__hero-grid">
-                <div>
+              <div className="client-desk__hero-grid client-desk__hero-grid--main">
+                <div className="client-desk__hero-greet">
                   <p className="client-desk__path-day">
                     День {pathDay} вашего пути · {moon}
                   </p>
@@ -561,98 +621,247 @@ export default function ClientWorkspace() {
                     {greet}
                     {displayName ? `, ${displayName}` : ''}
                   </h1>
-                  <p className="client-desk__lead">Сны, дневник и связь с психологом — без гонки за цифрами.</p>
+                  <p className="client-desk__lead">Все для успешной терапии в одой платформе</p>
                 </div>
-                <div className="client-desk__mood">
-                  <MoodCheckInControl
+
+                <div className="client-desk__hero-cal">
+                  <SessionMonthCalendar
                     compact
-                    mood={todayMood}
-                    energy={moodEnergy}
-                    anxiety={moodAnxiety}
-                    locked={moodLocked}
-                    saving={moodSaving}
-                    disabled={!token}
-                    onSave={(v) => void saveWorkspaceMood(v)}
+                    sessions={calendarSessions}
+                    nearestLabel={nearestEvent?.title}
+                    nearestWhen={
+                      nearestEvent
+                        ? new Date(nearestEvent.startsAt).toLocaleString('ru-RU', {
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : null
+                    }
+                    countdown={countdown}
+                    joinUrl={nearestEvent?.voiceRoom?.roomUrl || null}
+                    onWrite={() => openMessenger()}
                   />
+                </div>
+
+                <div className="client-desk__hero-tasks">
+                  <div className="client-desk__tasks-head">
+                    <h2>Задания</h2>
+                    {discussCount > 0 && (
+                      <p className="client-desk__psych-note" style={{ margin: 0 }}>
+                        К сессии: {discussCount} {discussWord(discussCount)} «обсудить»
+                      </p>
+                    )}
+                  </div>
+
+                  {assignments.map((a) => (
+                    <div key={a.id} className="client-desk__task client-desk__task--flat">
+                      <div className="client-desk__task-meta">
+                        Задание от психолога
+                        {a.dueAt ? ` · до ${new Date(a.dueAt).toLocaleDateString('ru-RU')}` : ''}
+                      </div>
+                      <ul>
+                        <li>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={a.status === 'done'}
+                              onChange={() => void toggleAssignment(a)}
+                            />
+                            <span
+                              style={{
+                                textDecoration: a.status === 'done' ? 'line-through' : 'none',
+                                opacity: a.status === 'done' ? 0.65 : 1,
+                              }}
+                            >
+                              {a.title}
+                            </span>
+                          </label>
+                        </li>
+                      </ul>
+                      <div className="client-desk__task-progress" aria-hidden>
+                        <span style={{ width: a.status === 'done' ? '100%' : '0%' }} />
+                      </div>
+                    </div>
+                  ))}
+
+                  {homework.map((h) => {
+                    const lines = parseHomeworkLines(h.homework || '');
+                    const done = loadHomeworkDone(h.id);
+                    const progressPct = lines.length ? Math.round((done.size / lines.length) * 100) : 0;
+                    return (
+                      <div key={`${h.id}-v${hwDoneVersion}`} className="client-desk__task client-desk__task--flat">
+                        <div className="client-desk__task-meta">
+                          Из сессии · {new Date(h.date).toLocaleDateString('ru-RU')}
+                        </div>
+                        {lines.length > 0 ? (
+                          <ul>
+                            {lines.map((line, idx) => (
+                              <li key={idx}>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={done.has(idx)}
+                                    onChange={() => toggleHomeworkLine(h.id, idx)}
+                                  />
+                                  <span
+                                    style={{
+                                      textDecoration: done.has(idx) ? 'line-through' : 'none',
+                                      opacity: done.has(idx) ? 0.65 : 1,
+                                    }}
+                                  >
+                                    {line}
+                                  </span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>{h.homework}</p>
+                        )}
+                        {lines.length > 0 && (
+                          <div className="client-desk__task-progress" aria-hidden>
+                            <span style={{ width: `${progressPct}%` }} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {!assignments.length && !homework.length && hasPsychologist !== false && (
+                    <p className="client-desk__empty-soft">Задания от психолога появятся здесь.</p>
+                  )}
                 </div>
               </div>
 
               {hasPsychologist === false && (
                 <div className="client-desk__connect">
-                  <p>Сессии, чат и совместная работа со снами удобнее, когда у вас есть специалист на платформе.</p>
+                  <p>Сессии и совместная работа удобнее, когда у вас есть специалист на платформе.</p>
                   <button type="button" className="button" onClick={() => navigate('/client/match')}>
                     Подобрать по анкете
                   </button>
                 </div>
               )}
 
-              {nearestEvent && (
-                <div className="client-desk__ticket">
-                  <div>
-                    <div className="client-desk__ticket-label">Ближайшая сессия</div>
-                    <h2 className="client-desk__ticket-title">{nearestEvent.title}</h2>
-                    <div className="client-desk__ticket-when">
-                      {new Date(nearestEvent.startsAt).toLocaleString('ru-RU', {
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </div>
-                    {countdown && <div className="client-desk__ticket-count">{countdown}</div>}
+              <div className="client-desk__care">
+                <div className="client-desk__care-head">
+                  <h2>Забота о себе</h2>
+                  <Link to="/client/care" className="client-desk__path-cta">
+                    Открыть полностью
+                  </Link>
+                </div>
+                <div className="client-desk__care-grid">
+                  <div className="client-desk__care-cell">
+                    <MoodCheckInControl
+                      compact
+                      mood={todayMood}
+                      energy={moodEnergy}
+                      anxiety={moodAnxiety}
+                      locked={moodLocked}
+                      saving={moodSaving}
+                      disabled={!token}
+                      onSave={(v) => void saveWorkspaceMood(v)}
+                    />
                   </div>
-                  <div className="client-desk__ticket-actions">
-                    {nearestEvent.voiceRoom?.roomUrl && (
-                      <a
-                        href={nearestEvent.voiceRoom.roomUrl}
+                  <div className="client-desk__care-cell client-desk__care-cell--chart">
+                    <div className="client-desk__care-cell-title">Динамика</div>
+                    <div className="client-desk__care-chart">
+                      <MoodMiniChart points={moodTrend} height={168} sessionMarkers={moodChartSessionMarkers} />
+                    </div>
+                  </div>
+                  <div className="client-desk__care-cell client-desk__care-cell--notes">
+                    <div className="client-desk__care-notes-head">
+                      <NotebookPen size={18} strokeWidth={1.6} aria-hidden />
+                      <div>
+                        <div className="client-desk__care-cell-title">Заметки</div>
+                        <p>
+                          {journalCount > 0 ? `${journalCount} в дневнике` : 'Быстрая запись в дневник'}
+                        </p>
+                      </div>
+                    </div>
+                    <textarea
+                      className="client-desk__care-notes-input"
+                      value={quickNote}
+                      onChange={(e) => setQuickNote(e.target.value)}
+                      placeholder="Короткая мысль…"
+                      rows={3}
+                      disabled={!token || quickNoteSaving}
+                      onKeyDown={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                          e.preventDefault();
+                          void saveQuickJournalNote();
+                        }
+                      }}
+                    />
+                    <div className="client-desk__care-notes-actions">
+                      <button
+                        type="button"
                         className="button"
-                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                        disabled={!token || !quickNote.trim() || quickNoteSaving}
+                        onClick={() => void saveQuickJournalNote()}
                       >
-                        <Video size={16} />
-                        Подключиться
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      className="button secondary"
-                      onClick={() => openMessenger()}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
-                    >
-                      <MessageSquare size={16} />
-                      Написать
+                        {quickNoteSaving ? '…' : 'Сохранить'}
+                      </button>
+                      <Link to="/client/journal" className="client-desk__path-cta">
+                        Дневник →
+                      </Link>
+                    </div>
+                    {quickNoteFlash && <p className="client-desk__care-notes-flash">Сохранено в дневник</p>}
+                  </div>
+                  <div className="client-desk__care-cell client-desk__care-cell--split">
+                    <Link to="/dreams" className="client-desk__care-mini">
+                      <CloudMoon size={20} strokeWidth={1.6} />
+                      <span>
+                        Сны
+                        {dreamTotal ? ` · ${dreamTotal}` : ''}
+                      </span>
+                    </Link>
+                    <button type="button" className="client-desk__care-mini" onClick={() => setBreathOpen(true)}>
+                      <PauseCircle size={20} strokeWidth={1.6} />
+                      <span>Пауза 1 мин</span>
                     </button>
                   </div>
                 </div>
-              )}
+              </div>
+
+              <div className="client-desk__spaces-inline" aria-labelledby="zone-spaces">
+                <p id="zone-spaces" className="client-desk__zone-label">
+                  Ваши пространства
+                </p>
+                <div className="client-desk__spaces">
+                  {spaces.map((s) => (
+                    <Link key={s.to} to={s.to} className={`client-desk__space client-desk__space--${s.mod}`}>
+                      <span className="client-desk__space-kicker">{s.kicker}</span>
+                      <h3 className="client-desk__space-title">{s.title}</h3>
+                      <p className={`client-desk__space-hint${s.trust ? ' client-desk__space-hint--trust' : ''}`}>{s.hint}</p>
+                    </Link>
+                  ))}
+                </div>
+              </div>
 
               <div className="client-desk__quote">
                 <div className="client-desk__quote-mark" aria-hidden>
                   “
                 </div>
-                <p className="client-desk__quote-text">{insight}</p>
+                <p className="client-desk__quote-author">{dailyQuote.author}</p>
+                <p className="client-desk__quote-text">{dailyQuote.text}</p>
                 <div className="client-desk__quote-actions">
                   <Link
                     to="/client/journal"
-                    state={{ prefill: insight }}
+                    state={{ prefill: dailyQuote.text }}
                     className="button secondary"
                     style={{ textDecoration: 'none', padding: '8px 16px', fontSize: 13 }}
                   >
                     В дневник
                   </Link>
-                  <button
-                    type="button"
-                    className="button secondary"
-                    style={{ padding: '8px 16px', fontSize: 13 }}
-                    onClick={() => openMessenger()}
-                  >
-                    Обсудить
-                  </button>
                 </div>
               </div>
 
               {reflectionEventId && (
                 <div className="client-desk__reflect">
-                  <p>Прошла сессия — уделите пару минут рефлексии: это попадёт в «Мой путь».</p>
+                  <p>Прошла сессия — уделите пару минут рефлексии.</p>
                   <div className="client-desk__reflect-mood">
                     {[1, 2, 3, 4, 5].map((n) => (
                       <button
@@ -682,121 +891,34 @@ export default function ClientWorkspace() {
                 </div>
               )}
 
-              {onboarding && !onboarding.complete && (
-                <div className="client-desk__trail">
-                  <div className="client-desk__trail-head">
-                    <h2 className="client-desk__trail-title">С чего начать</h2>
-                    <p className="client-desk__trail-sub">
-                      {onboarding.doneCount} из {onboarding.total}
-                    </p>
-                  </div>
-                  <ul className="client-desk__trail-list">
-                    {onboarding.steps.map((s) => (
-                      <li key={s.id}>
-                        <Link to={s.path} className={s.done ? 'is-done' : undefined}>
-                          {s.title}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* —— С психологом —— */}
-          <section aria-labelledby="zone-psych">
-            <p id="zone-psych" className="client-desk__zone-label">
-              С психологом
-            </p>
-
-            {discussCount > 0 && (
-              <p className="client-desk__psych-note">
-                К сессии скопилось{' '}
-                <strong>
-                  {discussCount} {discussWord(discussCount)}
-                </strong>{' '}
-                — сны и темы с флагом «Обсудить».
-              </p>
-            )}
-
-            {homework.map((h) => {
-              const lines = parseHomeworkLines(h.homework || '');
-              const done = loadHomeworkDone(h.id);
-              const progressPct = lines.length ? Math.round((done.size / lines.length) * 100) : 0;
-              return (
-                <div key={`${h.id}-v${hwDoneVersion}`} className="client-desk__task">
-                  <div className="client-desk__task-meta">
-                    Задание · сессия {new Date(h.date).toLocaleDateString('ru-RU')}
-                  </div>
-                  {lines.length > 0 ? (
-                    <ul>
-                      {lines.map((line, idx) => (
-                        <li key={idx}>
-                          <label>
-                            <input
-                              type="checkbox"
-                              checked={done.has(idx)}
-                              onChange={() => toggleHomeworkLine(h.id, idx, lines.length)}
-                            />
-                            <span style={{ textDecoration: done.has(idx) ? 'line-through' : 'none', opacity: done.has(idx) ? 0.65 : 1 }}>
-                              {line}
-                            </span>
-                          </label>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55 }}>{h.homework}</p>
-                  )}
-                  {lines.length > 0 && (
-                    <div className="client-desk__task-progress" aria-hidden>
-                      <span style={{ width: `${progressPct}%` }} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {!homework.length && hasPsychologist !== false && (
-              <p className="client-desk__empty-soft">
-                Задания от психолога появятся после сессий. Пока можно написать в чат или отметить настроение.
-              </p>
-            )}
-
-            <div className="client-desk__messages-row">
-              <div>
-                <h3>Сообщения</h3>
-                <p>{unreadTotal > 0 ? `${unreadTotal} непрочитанных` : 'Диалог с психологом'}</p>
-              </div>
-              <button type="button" className="button" onClick={() => openMessenger()}>
-                Открыть чат
-              </button>
-            </div>
-          </section>
-
-          {/* —— Мой путь —— */}
-          <section aria-labelledby="zone-path">
-            <p id="zone-path" className="client-desk__zone-label">
-              Мой путь
-            </p>
-            <div className="client-desk__path">
-              <article className="client-desk__path-panel client-desk__path-panel--mood">
-                <header className="client-desk__path-head">
-                  <div>
-                    <h3>Динамика настроения</h3>
-                    <p>Отметки за период · дни сессий отмечены на графике</p>
-                  </div>
-                  <Link to="/client/care" className="client-desk__path-cta">
-                    Открыть трекер
+              <div className="client-desk__pubs-inline" aria-labelledby="zone-pubs">
+                <div className="client-desk__section-head">
+                  <p id="zone-pubs" className="client-desk__zone-label" style={{ marginBottom: 0 }}>
+                    Публикации
+                  </p>
+                  <Link to="/communities" className="client-desk__path-cta">
+                    Все сообщества →
                   </Link>
-                </header>
-                <div className="client-desk__path-chart">
-                  <MoodMiniChart points={moodTrend} height={220} sessionMarkers={moodChartSessionMarkers} />
                 </div>
-              </article>
+                <div className="client-desk__pubs">
+                  {feedPosts.length === 0 ? (
+                    <p className="client-desk__empty-soft">Пока нет постов — загляните в каталог сообществ.</p>
+                  ) : (
+                    feedPosts.map((p) => (
+                      <Link key={p.id} to={`/publications/post/${p.id}`} className="client-desk__pub-card">
+                        <span className="client-desk__pub-meta">
+                          {p.community?.name || 'Сообщество'}
+                          {p.flair ? ` · ${p.flair}` : ''}
+                        </span>
+                        <h3>{p.title || 'Без названия'}</h3>
+                        <p>{excerptFromHtml(p.content || '', 140)}</p>
+                      </Link>
+                    ))
+                  )}
+                </div>
+              </div>
 
-              <article className="client-desk__path-panel client-desk__path-panel--milestones">
+              <div className="client-desk__path-panel client-desk__path-panel--milestones client-desk__milestones-inline">
                 <header className="client-desk__path-head">
                   <div>
                     <h3>Вехи</h3>
@@ -805,13 +927,19 @@ export default function ClientWorkspace() {
                     </p>
                   </div>
                 </header>
+                {(milestonesComplete || rewardClaimed) && (
+                  <div className="client-desk__reward">
+                    <span className="client-desk__reward-badge" aria-hidden>
+                      ★
+                    </span>
+                    <div>
+                      <strong>Созвездие собрано</strong>
+                      <p>Вы отметили все вехи пути. Можно продолжать в своём темпе — это уже ваша опора.</p>
+                    </div>
+                  </div>
+                )}
                 <div className="client-desk__path-sky" aria-hidden={!milestonesDone.some((m) => m.done)}>
-                  <svg
-                    className="client-desk__constellation"
-                    viewBox="0 0 320 140"
-                    role="img"
-                    aria-label="Созвездие вех пути"
-                  >
+                  <svg className="client-desk__constellation" viewBox="0 0 320 140" role="img" aria-label="Созвездие вех пути">
                     {milestonesDone.map((m, i) => {
                       if (i === 0) return null;
                       const a = MILESTONE_STAR_POS[i - 1];
@@ -869,55 +997,52 @@ export default function ClientWorkspace() {
                     </li>
                   ))}
                 </ol>
-              </article>
+              </div>
             </div>
           </section>
 
-          {/* —— Ваши пространства —— */}
-          <section aria-labelledby="zone-spaces">
-            <p id="zone-spaces" className="client-desk__zone-label">
-              Ваши пространства
+          <section aria-labelledby="zone-tests">
+            <p id="zone-tests" className="client-desk__zone-label">
+              Базовые тесты
             </p>
-            <div className="client-desk__spaces">
-              {spaces.map((s) => (
-                <Link key={s.to} to={s.to} className={`client-desk__space client-desk__space--${s.mod}`}>
-                  <span className="client-desk__space-kicker">{s.kicker}</span>
-                  <h3 className="client-desk__space-title">{s.title}</h3>
-                  <p className={`client-desk__space-hint${s.trust ? ' client-desk__space-hint--trust' : ''}`}>{s.hint}</p>
-                </Link>
-              ))}
+            <div className="client-desk__tests-stub">
+              <span className="client-desk__tests-stub-badge">Ведётся разработка</span>
+              <p>Каталог скринингов скоро появится здесь. Пока можно вести дневник и отмечать настроение.</p>
             </div>
+          </section>
 
-            {(weekSymbol || recentDreams.length > 0) && (
-              <div className="client-desk__dreams">
-                <div className="client-desk__dreams-head">
-                  <h3>Сны</h3>
-                  {weekSymbol && <span className="client-desk__symbol">Символ недели · {weekSymbol}</span>}
+          <section aria-labelledby="zone-acts">
+            <p id="zone-acts" className="client-desk__zone-label">
+              Активности
+            </p>
+            <div className="client-desk__acts">
+              <article className="client-desk__act-card">
+                <h3>Дыхательные практики</h3>
+                <p>Короткая пауза на успокоение — пошагово, без приложений.</p>
+                <button type="button" className="button secondary" onClick={() => setBreathOpen(true)}>
+                  Начать паузу
+                </button>
+              </article>
+              <article className="client-desk__act-card">
+                <h3>Медитация и звук</h3>
+                <span className="client-desk__tests-stub-badge">Ведётся разработка</span>
+                <p>Подборка мягкого звука и коротких медитаций появится здесь позже.</p>
+              </article>
+              <article className="client-desk__act-card">
+                <h3>Лекторий</h3>
+                <p>Короткие заметки о мыслителях и психологах.</p>
+                <div className="client-desk__act-chips">
+                  {LECTURE_STUBS.map((l) => (
+                    <button key={l.id} type="button" onClick={() => setLectureId(l.id)}>
+                      {l.name.split(' ').slice(-1)[0]}
+                    </button>
+                  ))}
                 </div>
-                {recentDreams.map((d) => (
-                  <div key={d.id} className="client-desk__dream-row">
-                    <Link to={`/dreams/${d.id}`}>
-                      <h4>{d.title || 'Без названия'}</h4>
-                      {d.content && <p>{d.content}</p>}
-                      <time dateTime={d.createdAt}>{new Date(d.createdAt).toLocaleDateString('ru-RU')}</time>
-                    </Link>
-                    {token && (
-                      <button
-                        type="button"
-                        className="client-desk__dream-del"
-                        title="Удалить сон"
-                        onClick={() => void deleteDream(d.id)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <Link to="/dreams" className="client-desk__path-link">
-                  Все сны →
-                </Link>
-              </div>
-            )}
+              </article>
+              <article className="client-desk__act-card">
+                <HabitTrackerMini userId={user?.id} compact />
+              </article>
+            </div>
           </section>
         </div>
       </main>

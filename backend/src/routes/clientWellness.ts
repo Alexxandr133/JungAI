@@ -372,6 +372,13 @@ router.get('/client/progress', requireAuth, requireRole(['client', 'admin']), as
       .filter((s) => s.homework && String(s.homework).trim())
       .map((s) => ({ id: s.id, date: s.date, homework: s.homework }));
 
+    const openAssignments = await prisma.task.findMany({
+      where: { clientId: client.id, status: { not: 'done' } },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
+      take: 20,
+      select: { id: true, title: true, dueAt: true, createdAt: true, status: true },
+    });
+
     const moodAvg =
       moodItems.length > 0
         ? Math.round((moodItems.reduce((a, b) => a + b.mood, 0) / moodItems.length) * 10) / 10
@@ -393,6 +400,7 @@ router.get('/client/progress', requireAuth, requireRole(['client', 'admin']), as
       recentEvents: events,
       flaggedDreams,
       openHomework,
+      openAssignments,
       reflections,
     });
   } catch (e: any) {
@@ -416,6 +424,67 @@ router.get('/client/homework', requireAuth, requireRole(['client', 'admin']), as
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load homework' });
+  }
+});
+
+/** Задания от психолога (CRM Task), которые клиент видит и отмечает */
+router.get('/client/assignments', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const client = await resolveClient(req.user!.email);
+    if (!client) return res.status(404).json({ error: 'Client not found', code: 'NO_CLIENT_PROFILE' });
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+    const where: any = { clientId: client.id };
+    if (status === 'open') where.status = { not: 'done' };
+    else if (status === 'done' || status === 'todo' || status === 'in_progress') where.status = status;
+
+    const items = await prisma.task.findMany({
+      where,
+      orderBy: [{ status: 'asc' }, { dueAt: 'asc' }, { createdAt: 'desc' }],
+      take: 50,
+    });
+    res.json({
+      items: items.map((t) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        status: t.status,
+        dueAt: t.dueAt,
+        createdAt: t.createdAt,
+        source: 'task' as const,
+      })),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load assignments' });
+  }
+});
+
+router.patch('/client/assignments/:id', requireAuth, requireRole(['client', 'admin']), async (req: AuthedRequest, res) => {
+  try {
+    const client = await resolveClient(req.user!.email);
+    if (!client) return res.status(404).json({ error: 'Client not found', code: 'NO_CLIENT_PROFILE' });
+    const task = await prisma.task.findUnique({ where: { id: String(req.params.id) } });
+    if (!task || task.clientId !== client.id) {
+      return res.status(404).json({ error: 'Assignment not found' });
+    }
+    const next = String(req.body?.status || '').trim();
+    if (!['todo', 'in_progress', 'done'].includes(next)) {
+      return res.status(400).json({ error: 'Некорректный статус' });
+    }
+    const updated = await prisma.task.update({
+      where: { id: task.id },
+      data: { status: next },
+    });
+    res.json({
+      id: updated.id,
+      title: updated.title,
+      description: updated.description,
+      status: updated.status,
+      dueAt: updated.dueAt,
+      createdAt: updated.createdAt,
+      source: 'task',
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update assignment' });
   }
 });
 

@@ -18,6 +18,8 @@ export function PageVisitTracker() {
   const visitIdRef = useRef(newVisitId());
   const startedAtRef = useRef(Date.now());
   const lastSentDurRef = useRef(0);
+  const inFlightRef = useRef(false);
+  const lastPostAtRef = useRef(0);
 
   useEffect(() => {
     pathRef.current = location.pathname;
@@ -30,10 +32,16 @@ export function PageVisitTracker() {
     if (!token || !user) return;
 
     const flush = (force = false) => {
-      const durationMs = Date.now() - startedAtRef.current;
+      if (inFlightRef.current) return;
+      const now = Date.now();
+      // Не долбим сокеты при HMR / Strict Mode remount
+      if (!force && now - lastPostAtRef.current < 4000) return;
+      const durationMs = now - startedAtRef.current;
       if (!force && durationMs - lastSentDurRef.current < 8000) return;
       if (durationMs < 1500 && !force) return;
       lastSentDurRef.current = durationMs;
+      lastPostAtRef.current = now;
+      inFlightRef.current = true;
       const payload = {
         path: pathRef.current,
         durationMs,
@@ -44,7 +52,11 @@ export function PageVisitTracker() {
         token,
         body: payload,
         suppressSessionExpired: true,
-      }).catch(() => undefined);
+      })
+        .catch(() => undefined)
+        .finally(() => {
+          inFlightRef.current = false;
+        });
     };
 
     const interval = window.setInterval(() => flush(false), 20000);
@@ -55,11 +67,10 @@ export function PageVisitTracker() {
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onUnload);
 
-    // первый тик через 3с — зафиксировать заход
     const first = window.setTimeout(() => flush(false), 3000);
 
     return () => {
-      flush(true);
+      // Не force-flush при каждом HMR cleanup — только при реальном уходе
       window.clearInterval(interval);
       window.clearTimeout(first);
       document.removeEventListener('visibilitychange', onHide);

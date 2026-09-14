@@ -14,7 +14,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Терапия завершена — клиент уходит в архив, история остаётся с вами.',
     ],
     microCta: { label: 'Попробовать CRM', to: '/register' },
-    mockSrc: '/landing/mocks/tour-crm.png',
+    mockKind: 'clients',
     mockAlt: 'Карточки клиентов в JungAI',
   },
   {
@@ -27,7 +27,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Клиент может попросить сессию сам — вам остаётся согласовать время.',
       'Никаких двойных броней и переписок «а давайте перенесём».',
     ],
-    mockSrc: '/landing/mocks/tour-calendar.png',
+    mockKind: 'calendar',
     mockAlt: 'Календарь и запись в JungAI',
   },
   {
@@ -40,7 +40,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Защищённая комната на платформе: сессия остаётся между вами и клиентом.',
       'После сессии — заметка и задачи в карточке клиента за пару минут.',
     ],
-    mockSrc: '/landing/mocks/tour-video.png',
+    mockKind: 'video',
     mockAlt: 'Видеокомната JungAI',
   },
   {
@@ -53,7 +53,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Помогает распутать смыслы, готовит выжимки, подсказывает гипотезы. Решение всегда за вами.',
       'Работает внутри платформы: данные клиентов не уходят в сторонние чаты.',
     ],
-    mockSrc: '/landing/mocks/tour-ai.png',
+    mockKind: 'ai',
     mockAlt: 'ИИ-ассистент JungAI',
   },
   {
@@ -66,7 +66,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Текст ложится в архив и связывается с карточкой клиента — легко вернуться к сессии.',
       'Аудио на сервере не хранится — только текст, который вы решили оставить.',
     ],
-    mockSrc: '/landing/mocks/tour-transcription.png',
+    mockKind: 'transcription',
     mockAlt: 'Транскрибация сессий в JungAI',
   },
   {
@@ -78,7 +78,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Куски из ИИ-чата вставляются в документ одним кликом.',
       'Всё в одном месте: кейсы, статьи, материалы супервизий и обучения.',
     ],
-    mockSrc: '/landing/mocks/tour-workspace.png',
+    mockKind: 'workspace',
     mockAlt: 'Рабочая область JungAI',
   },
   {
@@ -90,7 +90,7 @@ const TOUR_BLOCKS: TourBlockData[] = [
       'Публикации видны клиентам и гостям платформы.',
       'Экспертность работает там, где уже есть ваша аудитория.',
     ],
-    mockSrc: '/landing/mocks/tour-publications.png',
+    mockKind: 'publications',
     mockAlt: 'Публикации на платформе JungAI',
   },
 ];

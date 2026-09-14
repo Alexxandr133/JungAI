@@ -1,3 +1,15 @@
+.client-care__notes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 720px) {
+  .client-care__notes-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Забота о себе — mist §27.3 */
 .client-care {
   --paper: #f5f3fb;

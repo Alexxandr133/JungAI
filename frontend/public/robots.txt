@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Allow: /communities
+Allow: /publications/
+Disallow: /admin
+Disallow: /api/
+Disallow: /login
+Disallow: /register
+
+Sitemap: https://jung-ai.ru/sitemap.xml

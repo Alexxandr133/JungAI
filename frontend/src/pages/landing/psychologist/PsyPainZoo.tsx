@@ -38,11 +38,34 @@ export function PsyPainZoo() {
               Пять сервисов, четыре подписки, ничего не связано. База клиентов — в одном месте, запись —
               в другом, заметки — в третьем.
             </p>
+            <ul className="psy-zoo__prices" aria-label="Стоимость стандартных подписок в месяц">
+              <li>
+                <span>Notion Plus</span>
+                <strong>≈ 1&nbsp;010&nbsp;₽/мес</strong>
+              </li>
+              <li>
+                <span>Zoom Pro</span>
+                <strong>≈ 1&nbsp;430&nbsp;₽/мес</strong>
+              </li>
+              <li>
+                <span>Calendly Standard</span>
+                <strong>≈ 1&nbsp;010&nbsp;₽/мес</strong>
+              </li>
+              <li>
+                <span>ChatGPT Plus</span>
+                <strong>≈ 1&nbsp;500&nbsp;₽/мес</strong>
+              </li>
+              <li className="psy-zoo__prices-total">
+                <span>Итого</span>
+                <strong>≈ 4&nbsp;950&nbsp;₽/мес</strong>
+              </li>
+            </ul>
+            <p className="psy-zoo__prices-note">Данные за 2026 год</p>
           </div>
 
           <div className="landing-card psy-zoo__jung">
             <h3 className="landing-h3 psy-zoo__sub">С JungAI</h3>
-            <p className="landing-body" style={{ marginBottom: 20 }}>
+            <p className="landing-body psy-zoo__jung-body">
               Клиенты, календарь, видео, заметки, ИИ и транскрибация — в одном окне. Клиент
               записывается сам, заметки лежат в карточке, ИИ помнит контекст вашей школы.
             </p>

@@ -122,18 +122,12 @@ export function ChatSocketProvider({ children }: { children: React.ReactNode }) 
 
     const onConnect = () => {
       setConnected(true);
-      // eslint-disable-next-line no-console
-      console.log('[ChatSocket] connected', socket.id);
       resubscribeAll(socket);
     };
-    const onDisconnect = (reason: string) => {
+    const onDisconnect = (_reason: string) => {
       setConnected(false);
-      // eslint-disable-next-line no-console
-      console.log('[ChatSocket] disconnected', reason);
     };
-    const onReconnect = (attempt: number) => {
-      // eslint-disable-next-line no-console
-      console.log('[ChatSocket] reconnected after attempt', attempt);
+    const onReconnect = (_attempt: number) => {
       resubscribeAll(socket);
     };
     const onUnread = (payload: UnreadState) => {

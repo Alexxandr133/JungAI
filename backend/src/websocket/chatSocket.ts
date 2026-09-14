@@ -52,10 +52,6 @@ export function setupChatSocket(io: SocketIOServer) {
 
     void socket.join(`user:${user.id}`);
     const becameOnline = markUserOnline(user.id, socket.id);
-    // eslint-disable-next-line no-console
-    console.log(
-      `[ChatSocket] connected user=${user.id} socket=${socket.id} onlineSockets+=1 becameOnline=${becameOnline}`
-    );
     if (becameOnline) {
       emitPresence({ userId: user.id, online: true });
     }

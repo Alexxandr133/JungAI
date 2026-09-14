@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { requireAuth, AuthedRequest } from '../middleware/auth';
+import { requireAuth, optionalAuth, AuthedRequest } from '../middleware/auth';
 import { prisma } from '../db/prisma';
 import { getUploadsRoot } from '../utils/uploadsRoot';
 
@@ -129,9 +129,38 @@ async function getUsersMap(userIds: string[]): Promise<Map<string, ForumUserBrie
 
 let ensuredPublicationCommentReactionsTable = false;
 let ensuredPublicationPostForumColumns = false;
+let ensuredCommunityPrivacyColumn = false;
+
+async function ensureCommunityPrivacyColumn() {
+  if (ensuredCommunityPrivacyColumn) return;
+  try {
+    const rows = (await (prisma as any).$queryRawUnsafe(`PRAGMA table_info("Community")`)) as any[];
+    const names = new Set(
+      (rows || []).map((r: any) => String(r?.name ?? r?.Name ?? Object.values(r || {})[1] ?? '').trim())
+    );
+    if (![...names].some((n) => n.toLowerCase() === 'isprivate')) {
+      try {
+        await (prisma as any).$executeRawUnsafe(
+          `ALTER TABLE "Community" ADD COLUMN "isPrivate" BOOLEAN NOT NULL DEFAULT 0`
+        );
+      } catch (addErr: any) {
+        const msg = String(addErr?.message || addErr || '');
+        // Column already exists (schema push / race) — safe to ignore
+        if (!/duplicate column/i.test(msg)) throw addErr;
+      }
+    }
+  } catch (e: any) {
+    const msg = String(e?.message || e || '');
+    if (!/duplicate column/i.test(msg)) {
+      console.warn('[community] ensure isPrivate:', msg);
+    }
+  }
+  ensuredCommunityPrivacyColumn = true;
+}
 
 async function ensurePublicationPostForumColumns() {
   if (ensuredPublicationPostForumColumns) return;
+  await ensureCommunityPrivacyColumn();
   try {
     const rows = (await (prisma as any).$queryRawUnsafe(`PRAGMA table_info("PublicationPost")`)) as any[];
     const names = new Set((rows || []).map((r: any) => String(r.name)));
@@ -251,7 +280,7 @@ async function communityStatsMap(communityIds: string[]) {
   const [memberGroups, postGroups] = await Promise.all([
     (prisma as any).communityMember.groupBy({
       by: ['communityId'],
-      where: { communityId: { in: ids } },
+      where: { communityId: { in: ids }, role: { not: 'pending' } },
       _count: { _all: true }
     }),
     (prisma as any).publicationPost.groupBy({
@@ -266,10 +295,15 @@ async function communityStatsMap(communityIds: string[]) {
   };
 }
 
+function isActiveMemberRole(role?: string | null) {
+  return role === 'owner' || role === 'moderator' || role === 'member';
+}
+
 async function serializeCommunities(
   rows: any[],
   viewerUserId?: string
 ): Promise<any[]> {
+  await ensureCommunityPrivacyColumn();
   const ids = rows.map((c) => c.id);
   const stats = await communityStatsMap(ids);
   const memberships = viewerUserId && ids.length
@@ -278,14 +312,37 @@ async function serializeCommunities(
         select: { communityId: true, role: true }
       })
     : [];
-  const memberMap = new Map((memberships || []).map((m: any) => [m.communityId, m.role]));
-  return rows.map((c) => ({
-    ...c,
-    membersCount: stats.members.get(c.id) || 0,
-    postsCount: stats.posts.get(c.id) || 0,
-    isSubscribed: memberMap.has(c.id),
-    currentRole: memberMap.get(c.id) || null
-  }));
+  const memberMap = new Map<string, string>((memberships || []).map((m: any) => [String(m.communityId), String(m.role)]));
+
+  const privateMap = new Map<string, boolean>();
+  if (ids.length) {
+    try {
+      const placeholders = ids.map(() => '?').join(',');
+      const privRows = (await (prisma as any).$queryRawUnsafe(
+        `SELECT id, isPrivate FROM "Community" WHERE id IN (${placeholders})`,
+        ...ids
+      )) as any[];
+      for (const r of privRows || []) {
+        const v = r.isPrivate;
+        privateMap.set(String(r.id), v === 1 || v === true || v === '1');
+      }
+    } catch {
+      /* column missing — treat as public */
+    }
+  }
+
+  return rows.map((c) => {
+    const role = memberMap.get(c.id) || null;
+    return {
+      ...c,
+      isPrivate: privateMap.get(String(c.id)) ?? Boolean((c as any).isPrivate),
+      membersCount: stats.members.get(c.id) || 0,
+      postsCount: stats.posts.get(c.id) || 0,
+      isSubscribed: isActiveMemberRole(role),
+      joinPending: role === 'pending',
+      currentRole: role
+    };
+  });
 }
 
 async function canPostAsCommunity(userId: string, role: string, communityId: string) {
@@ -313,7 +370,103 @@ async function canModerateCommunity(userId: string, role: string, communityId: s
 
 async function isCommunityMember(userId: string, communityId: string) {
   const membership = await getMembershipRole(userId, communityId);
-  return Boolean(membership);
+  return isActiveMemberRole(membership);
+}
+
+async function canViewCommunityContent(
+  community: { id: string; isPrivate?: boolean | number | null },
+  viewerUserId?: string,
+  viewerRole?: string
+) {
+  if (!community?.isPrivate) return true;
+  if (viewerRole === 'admin') return true;
+  if (!viewerUserId) return false;
+  return isCommunityMember(viewerUserId, community.id);
+}
+
+async function readCommunityIsPrivate(communityId: string): Promise<boolean> {
+  await ensureCommunityPrivacyColumn();
+  try {
+    const rows = (await (prisma as any).$queryRawUnsafe(
+      `SELECT isPrivate FROM "Community" WHERE id = ? LIMIT 1`,
+      communityId
+    )) as any[];
+    const v = rows?.[0]?.isPrivate;
+    return v === 1 || v === true || v === '1';
+  } catch {
+    return false;
+  }
+}
+
+async function setCommunityIsPrivate(communityId: string, isPrivate: boolean): Promise<void> {
+  await ensureCommunityPrivacyColumn();
+  await (prisma as any).$executeRawUnsafe(
+    `UPDATE "Community" SET isPrivate = ? WHERE id = ?`,
+    isPrivate ? 1 : 0,
+    communityId
+  );
+}
+
+/** Exclude private-community posts from public feeds unless viewer is an active member. */
+async function filterPrivateCommunityPosts(posts: any[], viewerUserId?: string) {
+  const communityIds = Array.from(new Set(posts.map((p) => p.communityId).filter(Boolean)));
+  if (!communityIds.length) return posts;
+  await ensureCommunityPrivacyColumn();
+  let privateIds = new Set<string>();
+  try {
+    // Prefer Prisma when client knows isPrivate; fall back to raw SQL otherwise.
+    try {
+      const communities = await (prisma as any).community.findMany({
+        where: { id: { in: communityIds } },
+        select: { id: true, isPrivate: true }
+      });
+      privateIds = new Set(
+        (communities || []).filter((c: any) => c.isPrivate).map((c: any) => String(c.id))
+      );
+    } catch {
+      const placeholders = communityIds.map(() => '?').join(',');
+      const rows = (await (prisma as any).$queryRawUnsafe(
+        `SELECT id, isPrivate FROM "Community" WHERE id IN (${placeholders})`,
+        ...communityIds
+      )) as any[];
+      privateIds = new Set(
+        (rows || [])
+          .filter((c: any) => c.isPrivate === 1 || c.isPrivate === true || c.isPrivate === '1')
+          .map((c: any) => String(c.id))
+      );
+    }
+  } catch {
+    return posts;
+  }
+  if (!privateIds.size) return posts;
+  let allowed = new Set<string>();
+  if (viewerUserId) {
+    const memberships = await (prisma as any).communityMember.findMany({
+      where: {
+        userId: viewerUserId,
+        communityId: { in: Array.from(privateIds) },
+        role: { in: ['owner', 'moderator', 'member'] }
+      },
+      select: { communityId: true }
+    });
+    allowed = new Set((memberships || []).map((m: any) => m.communityId));
+    const viewer = await prisma.user.findUnique({ where: { id: viewerUserId }, select: { role: true } });
+    if (viewer?.role === 'admin') return posts;
+  }
+  return posts.filter((p) => !p.communityId || !privateIds.has(p.communityId) || allowed.has(p.communityId));
+}
+
+function excerptFromHtml(html: string, max = 280): string {
+  const text = String(html || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max).trimEnd()}…`;
 }
 
 async function buildFeed(params: {
@@ -325,6 +478,8 @@ async function buildFeed(params: {
   scope?: 'all' | 'subs' | 'mine';
   pinnedFirst?: boolean;
   take?: number;
+  /** Feed cards only need excerpt — skip shipping full HTML. */
+  listMode?: boolean;
 }) {
   await ensurePublicationPostForumColumns();
   const sort = params.sort === 'active' || params.sort === 'top' ? params.sort : 'new';
@@ -344,10 +499,29 @@ async function buildFeed(params: {
     where.communityId = { in: ids.length ? ids : ['__none__'] };
   }
 
+  const take = Math.min(Math.max(params.take ?? 40, 1), 60);
+  // For top/active we over-fetch a bit, then re-sort in memory.
+  const fetchTake = sort === 'new' && !params.pinnedFirst ? take : Math.min(take * 2, 80);
+
   let posts = await (prisma as any).publicationPost.findMany({
     where,
-    orderBy: { createdAt: 'desc' },
-    take: 80
+    orderBy: params.pinnedFirst
+      ? [{ isPinned: 'desc' }, { createdAt: 'desc' }]
+      : { createdAt: 'desc' },
+    take: fetchTake,
+    select: {
+      id: true,
+      title: true,
+      content: true,
+      imageUrl: true,
+      flair: true,
+      isPinned: true,
+      authorId: true,
+      communityId: true,
+      authorMode: true,
+      createdAt: true,
+      status: true
+    }
   });
   const usersMap = await getUsersMap(posts.map((p: any) => p.authorId));
   const communityIds = Array.from(new Set(posts.map((p: any) => p.communityId).filter(Boolean)));
@@ -412,28 +586,32 @@ async function buildFeed(params: {
     }
   }
 
-  let items = posts.map((p: any) => ({
-    ...p,
-    flair: p.flair && String(p.flair).trim() ? p.flair : 'Пост',
-    isPinned: Boolean(p.isPinned),
-    author: usersMap.get(p.authorId) || null,
-    community: p.communityId ? communityMap.get(p.communityId) || null : null,
-    commentsCount: commentsCountMap.get(p.id) || 0,
-    reactionsCount: reactionsCountMap.get(p.id) || 0,
-    likedByMe: myReactionsSet.has(p.id),
-    canPin: Boolean(
-      params.viewerUserId &&
-        p.communityId &&
-        (viewerRole === 'admin' || staffCommunityIds.has(p.communityId))
-    ),
-    canDelete: Boolean(
-      params.viewerUserId &&
-        (viewerRole === 'admin' ||
-          p.authorId === params.viewerUserId ||
-          (p.communityId && staffCommunityIds.has(p.communityId)))
-    ),
-    lastActiveAt: lastActiveMap.get(p.id) || new Date(p.createdAt).getTime()
-  }));
+  let items = posts.map((p: any) => {
+    const content = params.listMode ? excerptFromHtml(p.content, 320) : p.content;
+    return {
+      ...p,
+      content,
+      flair: p.flair && String(p.flair).trim() ? p.flair : 'Пост',
+      isPinned: Boolean(p.isPinned),
+      author: usersMap.get(p.authorId) || null,
+      community: p.communityId ? communityMap.get(p.communityId) || null : null,
+      commentsCount: commentsCountMap.get(p.id) || 0,
+      reactionsCount: reactionsCountMap.get(p.id) || 0,
+      likedByMe: myReactionsSet.has(p.id),
+      canPin: Boolean(
+        params.viewerUserId &&
+          p.communityId &&
+          (viewerRole === 'admin' || staffCommunityIds.has(p.communityId))
+      ),
+      canDelete: Boolean(
+        params.viewerUserId &&
+          (viewerRole === 'admin' ||
+            p.authorId === params.viewerUserId ||
+            (p.communityId && staffCommunityIds.has(p.communityId)))
+      ),
+      lastActiveAt: lastActiveMap.get(p.id) || new Date(p.createdAt).getTime()
+    };
+  });
 
   if (sort === 'top') {
     items.sort(
@@ -450,12 +628,32 @@ async function buildFeed(params: {
     );
   }
 
-  if (params.pinnedFirst) {
+  if (params.pinnedFirst && sort !== 'new') {
     items.sort((a: any, b: any) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)));
   }
 
-  const take = params.take ?? 50;
-  return items.slice(0, take).map(({ lastActiveAt: _last, ...rest }: any) => rest);
+  const sliced = items.slice(0, take).map(({ lastActiveAt: _last, ...rest }: any) => rest);
+  // Community-scoped feeds already gate access at the route; global feeds hide private posts.
+  if (!params.communityId) {
+    return filterPrivateCommunityPosts(sliced, params.viewerUserId);
+  }
+  return sliced;
+}
+
+async function getCommunityModerators(communityId: string) {
+  const members = await (prisma as any).communityMember.findMany({
+    where: { communityId, role: { in: ['owner', 'moderator'] } },
+    orderBy: { joinedAt: 'asc' },
+    take: 24
+  });
+  const usersMap = await getUsersMap((members || []).map((m: any) => m.userId));
+  return (members || []).map((m: any) => ({
+    id: m.id,
+    userId: m.userId,
+    role: m.role,
+    joinedAt: m.joinedAt,
+    user: usersMap.get(m.userId) || null
+  }));
 }
 
 async function getCommunityMembers(communityId: string) {
@@ -544,6 +742,13 @@ async function getPublicPostDetails(postId: string, viewerUserId?: string, allow
         select: { id: true, slug: true, name: true, avatarUrl: true, coverUrl: true }
       })
     : null;
+  if (community) {
+    const privateFlag = await readCommunityIsPrivate(community.id);
+    if (privateFlag) {
+      const ok = await canViewCommunityContent({ id: community.id, isPrivate: true }, viewerUserId);
+      if (!ok) return null;
+    }
+  }
   const likedByMe = Boolean(
     viewerUserId &&
       (await (prisma as any).publicationReaction.findFirst({
@@ -584,9 +789,10 @@ router.get('/public/publications/discovery', async (_req, res) => {
   try {
     await cleanupLegacySeedCommunitiesOnce();
     await ensurePublicationPostForumColumns();
-    const items = await buildFeed({});
+    const items = await buildFeed({ listMode: true, take: 40 });
     const rows = await (prisma as any).community.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: 80
     });
     const communities = await serializeCommunities(rows || []);
     res.json({
@@ -595,6 +801,90 @@ router.get('/public/publications/discovery', async (_req, res) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load discovery' });
+  }
+});
+
+router.get('/public/publications/feed', async (req, res) => {
+  try {
+    await ensurePublicationPostForumColumns();
+    const sortRaw = String(req.query.sort || 'new');
+    const sort = sortRaw === 'active' || sortRaw === 'top' ? sortRaw : 'new';
+    const flair = req.query.flair ? String(req.query.flair) : undefined;
+    const items = await buildFeed({ sort, flair, listMode: true, take: 40 });
+    res.json({ items });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load feed' });
+  }
+});
+
+router.get('/public/communities/:slug', optionalAuth, async (req: AuthedRequest, res) => {
+  try {
+    await ensurePublicationPostForumColumns();
+    const slug = String(req.params.slug || '');
+    const sortRaw = String(req.query.sort || 'new');
+    const sort = sortRaw === 'active' || sortRaw === 'top' ? sortRaw : 'new';
+    const flair = req.query.flair ? String(req.query.flair) : undefined;
+    const community = await (prisma as any).community.findFirst({ where: { slug } });
+    if (!community) return res.status(404).json({ error: 'Community not found' });
+    const viewerId = req.user?.id;
+    const viewerRole = req.user?.role;
+    const isPrivate = await readCommunityIsPrivate(community.id);
+    const canView = await canViewCommunityContent(
+      { id: community.id, isPrivate },
+      viewerId,
+      viewerRole
+    );
+    const membership = viewerId
+      ? await (prisma as any).communityMember.findFirst({
+          where: { communityId: community.id, userId: viewerId },
+          select: { role: true }
+        })
+      : null;
+    const [postsCount, membersCount, moderators, flairGroups] = await Promise.all([
+      (prisma as any).publicationPost.count({
+        where: { communityId: community.id, status: 'published' }
+      }),
+      (prisma as any).communityMember.count({
+        where: { communityId: community.id, role: { not: 'pending' } }
+      }),
+      getCommunityModerators(community.id),
+      (prisma as any).publicationPost.groupBy({
+        by: ['flair'],
+        where: { communityId: community.id, status: 'published', NOT: { flair: null } }
+      })
+    ]);
+    const posts = canView
+      ? await buildFeed({
+          communityId: community.id,
+          viewerUserId: viewerId,
+          sort,
+          flair,
+          pinnedFirst: true,
+          take: 40,
+          listMode: true
+        })
+      : [];
+    const flairs = Array.from(
+      new Set((flairGroups || []).map((r: any) => r.flair).filter(Boolean))
+    );
+    res.json({
+      community: {
+        ...community,
+        isPrivate,
+        postsCount: canView ? postsCount : 0,
+        membersCount,
+        isSubscribed: isActiveMemberRole(membership?.role),
+        joinPending: membership?.role === 'pending',
+        currentRole: membership?.role || null
+      },
+      members: [],
+      moderators: canView ? moderators : [],
+      flairs: canView ? flairs : [],
+      posts,
+      locked: !canView
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load community' });
   }
 });
 
@@ -609,7 +899,7 @@ router.get('/public/publications/posts/:id', async (req, res) => {
   }
 });
 
-router.get('/communities', requireAuth, async (req: AuthedRequest, res) => {
+router.get('/communities', optionalAuth, async (req: AuthedRequest, res) => {
   try {
     await cleanupLegacySeedCommunitiesOnce();
     await ensurePublicationPostForumColumns();
@@ -650,7 +940,7 @@ router.post('/communities', requireAuth, async (req: AuthedRequest, res) => {
   }
 });
 
-router.get('/communities/:slug', requireAuth, async (req: AuthedRequest, res) => {
+router.get('/communities/:slug', optionalAuth, async (req: AuthedRequest, res) => {
   try {
     await ensurePublicationPostForumColumns();
     const slug = String(req.params.slug || '');
@@ -659,40 +949,63 @@ router.get('/communities/:slug', requireAuth, async (req: AuthedRequest, res) =>
     const flair = req.query.flair ? String(req.query.flair) : undefined;
     const community = await (prisma as any).community.findFirst({ where: { slug } });
     if (!community) return res.status(404).json({ error: 'Community not found' });
-    const postsCount = await (prisma as any).publicationPost.count({
-      where: { communityId: community.id, status: 'published' }
-    });
-    const membersCount = await (prisma as any).communityMember.count({ where: { communityId: community.id } });
-    const members = await getCommunityMembers(community.id);
-    const currentMembership = members.find((m: any) => m.userId === req.user!.id) || null;
-    const posts = await buildFeed({
-      communityId: community.id,
-      viewerUserId: req.user!.id,
-      sort,
-      flair,
-      pinnedFirst: true,
-      take: 50
-    });
-    const flairRows = await (prisma as any).publicationPost.findMany({
-      where: { communityId: community.id, status: 'published', NOT: { flair: null } },
-      select: { flair: true }
-    });
-    const flairs = Array.from(
-      new Set((flairRows || []).map((r: any) => r.flair).filter(Boolean))
+
+    const viewerId = req.user?.id;
+    const isPrivate = await readCommunityIsPrivate(community.id);
+    const canView = await canViewCommunityContent(
+      { id: community.id, isPrivate },
+      viewerId,
+      req.user?.role
     );
-    const moderators = members.filter((m: any) => m.role === 'owner' || m.role === 'moderator');
+    const [postsCount, membersCount, moderators, membership, flairGroups] = await Promise.all([
+      (prisma as any).publicationPost.count({
+        where: { communityId: community.id, status: 'published' }
+      }),
+      (prisma as any).communityMember.count({
+        where: { communityId: community.id, role: { not: 'pending' } }
+      }),
+      getCommunityModerators(community.id),
+      viewerId
+        ? (prisma as any).communityMember.findFirst({
+            where: { communityId: community.id, userId: viewerId },
+            select: { role: true }
+          })
+        : Promise.resolve(null),
+      (prisma as any).publicationPost.groupBy({
+        by: ['flair'],
+        where: { communityId: community.id, status: 'published', NOT: { flair: null } }
+      })
+    ]);
+
+    const posts = canView
+      ? await buildFeed({
+          communityId: community.id,
+          viewerUserId: viewerId,
+          sort,
+          flair,
+          pinnedFirst: true,
+          take: 40,
+          listMode: true
+        })
+      : [];
+
+    const flairs = Array.from(new Set((flairGroups || []).map((r: any) => r.flair).filter(Boolean)));
+    const currentMembership = membership || null;
     res.json({
       community: {
         ...community,
-        postsCount,
+        isPrivate,
+        postsCount: canView ? postsCount : 0,
         membersCount,
-        isSubscribed: !!currentMembership,
+        isSubscribed: isActiveMemberRole(currentMembership?.role),
+        joinPending: currentMembership?.role === 'pending',
         currentRole: currentMembership?.role || null
       },
-      members,
-      moderators,
-      flairs,
-      posts
+      members: [],
+      moderators: canView ? moderators : [],
+      flairs: canView ? flairs : [],
+      posts,
+      locked: !canView
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load community' });
@@ -701,6 +1014,7 @@ router.get('/communities/:slug', requireAuth, async (req: AuthedRequest, res) =>
 
 router.post('/communities/:id/subscription', requireAuth, async (req: AuthedRequest, res) => {
   try {
+    await ensureCommunityPrivacyColumn();
     const communityId = String(req.params.id || '');
     const community = await (prisma as any).community.findUnique({ where: { id: communityId } });
     if (!community) return res.status(404).json({ error: 'Community not found' });
@@ -711,14 +1025,63 @@ router.post('/communities/:id/subscription', requireAuth, async (req: AuthedRequ
     if (existing) {
       if (existing.role === 'owner') return res.status(400).json({ error: 'Владелец не может отписаться' });
       await (prisma as any).communityMember.delete({ where: { id: existing.id } });
-      return res.json({ subscribed: false });
+      return res.json({ subscribed: false, pending: false });
+    }
+    if (community.isPrivate || (await readCommunityIsPrivate(communityId))) {
+      await (prisma as any).communityMember.create({
+        data: { communityId, userId: req.user!.id, role: 'pending' }
+      });
+      return res.json({ subscribed: false, pending: true });
     }
     await (prisma as any).communityMember.create({
       data: { communityId, userId: req.user!.id, role: 'member' }
     });
-    return res.json({ subscribed: true });
+    return res.json({ subscribed: true, pending: false });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update subscription' });
+  }
+});
+
+router.post('/communities/:id/join-requests/:userId/accept', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const communityId = String(req.params.id || '');
+    const targetUserId = String(req.params.userId || '');
+    const actorRole =
+      req.user!.role === 'admin' ? 'owner' : await getMembershipRole(req.user!.id, communityId);
+    if (actorRole !== 'owner' && actorRole !== 'moderator' && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Недостаточно прав' });
+    }
+    const target = await (prisma as any).communityMember.findFirst({
+      where: { communityId, userId: targetUserId, role: 'pending' }
+    });
+    if (!target) return res.status(404).json({ error: 'Заявка не найдена' });
+    const updated = await (prisma as any).communityMember.update({
+      where: { id: target.id },
+      data: { role: 'member' }
+    });
+    res.json({ item: updated });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to accept request' });
+  }
+});
+
+router.post('/communities/:id/join-requests/:userId/reject', requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const communityId = String(req.params.id || '');
+    const targetUserId = String(req.params.userId || '');
+    const actorRole =
+      req.user!.role === 'admin' ? 'owner' : await getMembershipRole(req.user!.id, communityId);
+    if (actorRole !== 'owner' && actorRole !== 'moderator' && req.user!.role !== 'admin') {
+      return res.status(403).json({ error: 'Недостаточно прав' });
+    }
+    const target = await (prisma as any).communityMember.findFirst({
+      where: { communityId, userId: targetUserId, role: 'pending' }
+    });
+    if (!target) return res.status(404).json({ error: 'Заявка не найдена' });
+    await (prisma as any).communityMember.delete({ where: { id: target.id } });
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to reject request' });
   }
 });
 
@@ -737,6 +1100,9 @@ router.patch('/communities/:id', requireAuth, async (req: AuthedRequest, res) =>
     if (req.body?.description !== undefined) patch.description = String(req.body.description).trim();
     if (req.body?.avatarUrl !== undefined) patch.avatarUrl = sanitizeStoredImageUrl(req.body.avatarUrl);
     if (req.body?.coverUrl !== undefined) patch.coverUrl = sanitizeStoredImageUrl(req.body.coverUrl);
+    if (req.body?.isPrivate !== undefined) {
+      await setCommunityIsPrivate(id, Boolean(req.body.isPrivate));
+    }
     if (req.body?.slug !== undefined) {
       const nextSlug = slugify(req.body.slug);
       if (!nextSlug) return res.status(400).json({ error: 'Некорректный slug' });
@@ -744,8 +1110,11 @@ router.patch('/communities/:id', requireAuth, async (req: AuthedRequest, res) =>
       if (duplicate) return res.status(400).json({ error: 'Slug уже занят' });
       patch.slug = nextSlug;
     }
-    const updated = await (prisma as any).community.update({ where: { id }, data: patch });
-    res.json({ item: updated });
+    const updated = Object.keys(patch).length
+      ? await (prisma as any).community.update({ where: { id }, data: patch })
+      : await (prisma as any).community.findUnique({ where: { id } });
+    const isPrivate = await readCommunityIsPrivate(id);
+    res.json({ item: { ...updated, isPrivate } });
   } catch (e: any) {
     res.status(e?.status || 500).json({ error: e.message || 'Failed to update community' });
   }
@@ -870,7 +1239,9 @@ router.get('/publications/feed', requireAuth, async (req, res) => {
       sort,
       flair,
       scope,
-      pinnedFirst: Boolean(communityId)
+      pinnedFirst: Boolean(communityId),
+      listMode: true,
+      take: 40
     });
     res.json({ items });
   } catch (e: any) {
@@ -979,7 +1350,7 @@ router.post('/publications/posts', requireAuth, async (req: AuthedRequest, res) 
     const content = String(req.body?.content || '').trim();
     const imageUrl = sanitizeStoredImageUrl(req.body?.imageUrl);
     const communityId = req.body?.communityId ? String(req.body.communityId) : null;
-    const authorMode = req.body?.authorMode === 'community' ? 'community' : 'account';
+    const authorMode: 'account' | 'community' = communityId ? 'community' : 'account';
     const status = req.body?.status === 'published' ? 'published' : 'draft';
     const flair = req.body?.flair ? String(req.body.flair).trim().slice(0, 40) : null;
     if (!title || !content) return res.status(400).json({ error: 'Заполните заголовок и текст' });
@@ -992,14 +1363,6 @@ router.post('/publications/posts', requireAuth, async (req: AuthedRequest, res) 
       if (!memberOk) {
         return res.status(403).json({ error: 'Публиковать можно только в сообществах, где вы участник' });
       }
-      if (authorMode === 'community') {
-        const allowed = await canPostAsCommunity(req.user!.id, req.user!.role, communityId);
-        if (!allowed) {
-          return res.status(403).json({ error: 'От лица сообщества могут писать владелец и модераторы' });
-        }
-      }
-    } else if (authorMode === 'community') {
-      return res.status(400).json({ error: 'Для публикации от лица сообщества выберите сообщество' });
     }
     let post: any;
     const createData: any = { title, content, imageUrl, communityId, authorId: req.user!.id, authorMode, status, flair };

@@ -1,0 +1,219 @@
+.dreams-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .dreams-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dreams-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+}
+
+.dream-card {
+  --dream-accent: #7aa2ff;
+  --dream-accent-soft: rgba(122, 162, 255, 0.22);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgba(190, 210, 255, 0.16);
+  background:
+    linear-gradient(165deg, rgba(38, 48, 78, 0.72) 0%, rgba(18, 24, 42, 0.88) 48%, rgba(12, 16, 30, 0.94) 100%);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition:
+    transform 0.28s ease,
+    border-color 0.28s ease,
+    box-shadow 0.28s ease;
+}
+
+.dream-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--dream-accent) 35%, #c9b6ff 70%, transparent 100%);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.dream-card::after {
+  content: '';
+  position: absolute;
+  right: -18%;
+  top: -30%;
+  width: 55%;
+  height: 55%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--dream-accent-soft) 0%, transparent 68%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.dream-card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(180, 205, 255, 0.34);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(140, 175, 255, 0.12),
+    0 0 36px rgba(90, 130, 240, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.dream-card:hover::before {
+  opacity: 1;
+}
+
+.dream-card__body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  padding: 18px 18px 14px;
+}
+
+.dream-card__top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dream-card__icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #d7e4ff;
+  background:
+    linear-gradient(145deg, rgba(122, 162, 255, 0.28), rgba(90, 70, 160, 0.18));
+  border: 1px solid rgba(190, 210, 255, 0.22);
+  box-shadow: 0 6px 16px rgba(40, 70, 160, 0.22);
+}
+
+.dream-card__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dream-card__title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dream-card__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.dream-card__date {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: rgba(210, 222, 255, 0.72);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.dream-card__excerpt {
+  margin: 0;
+  color: rgba(230, 236, 255, 0.78);
+  line-height: 1.55;
+  font-size: 13.5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dream-card__symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.dream-card__symbol {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: rgba(210, 225, 255, 0.92);
+  background: rgba(100, 130, 220, 0.16);
+  border: 1px solid rgba(150, 180, 255, 0.18);
+}
+
+.dream-card__actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.12));
+}
+
+.dream-card__action {
+  padding: 6px 10px !important;
+  font-size: 11px !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+.dream-card__action--danger {
+  color: #ff8f8f !important;
+  border-color: rgba(255, 123, 123, 0.28) !important;
+}
+
+.dream-card__action--danger:hover {
+  background: rgba(255, 100, 100, 0.12) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dream-card {
+    transition: none;
+  }
+  .dream-card:hover {
+    transform: none;
+  }
+}

@@ -27,6 +27,7 @@ export default function CommunityManage() {
   const [description, setDescription] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -42,9 +43,13 @@ export default function CommunityManage() {
       slug !== (community.slug || '') ||
       description !== (community.description || '') ||
       avatarUrl !== (community.avatarUrl || '') ||
-      coverUrl !== (community.coverUrl || '')
+      coverUrl !== (community.coverUrl || '') ||
+      isPrivate !== Boolean(community.isPrivate)
     );
-  }, [community, name, slug, description, avatarUrl, coverUrl]);
+  }, [community, name, slug, description, avatarUrl, coverUrl, isPrivate]);
+
+  const pendingMembers = useMemo(() => members.filter((m) => m.role === 'pending'), [members]);
+  const activeMembers = useMemo(() => members.filter((m) => m.role !== 'pending'), [members]);
 
   async function load() {
     if (!token || !id) return;
@@ -62,6 +67,7 @@ export default function CommunityManage() {
       setDescription(res.community.description || '');
       setAvatarUrl(toPersistedImageUrl(res.community.avatarUrl) || '');
       setCoverUrl(toPersistedImageUrl(res.community.coverUrl) || '');
+      setIsPrivate(Boolean(res.community.isPrivate));
       if (
         (res.community.avatarUrl && String(res.community.avatarUrl).startsWith('data:')) ||
         (res.community.coverUrl && String(res.community.coverUrl).startsWith('data:'))
@@ -93,15 +99,48 @@ export default function CommunityManage() {
           slug,
           description,
           avatarUrl: toPersistedImageUrl(avatarUrl),
-          coverUrl: toPersistedImageUrl(coverUrl)
+          coverUrl: toPersistedImageUrl(coverUrl),
+          isPrivate
         }
       });
-      setCommunity((c) => (c ? { ...c, ...res.item, currentRole: c.currentRole } : c));
+      setCommunity((c) => (c ? { ...c, ...res.item, currentRole: c.currentRole, isPrivate: Boolean(res.item.isPrivate ?? isPrivate) } : c));
       navigate(`/publications/community/${res.item.slug || slug}`);
     } catch (e: any) {
       setError(e?.message || 'Не удалось сохранить изменения');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function acceptJoin(userId: string) {
+    if (!token || !community) return;
+    setMemberBusy(userId);
+    try {
+      await api(`/api/communities/${community.id}/join-requests/${userId}/accept`, {
+        method: 'POST',
+        token
+      });
+      setMembers((list) => list.map((m) => (m.userId === userId ? { ...m, role: 'member' } : m)));
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось принять заявку');
+    } finally {
+      setMemberBusy('');
+    }
+  }
+
+  async function rejectJoin(userId: string) {
+    if (!token || !community) return;
+    setMemberBusy(userId);
+    try {
+      await api(`/api/communities/${community.id}/join-requests/${userId}/reject`, {
+        method: 'POST',
+        token
+      });
+      setMembers((list) => list.filter((m) => m.userId !== userId));
+    } catch (e: any) {
+      setError(e?.message || 'Не удалось отклонить заявку');
+    } finally {
+      setMemberBusy('');
     }
   }
 
@@ -220,6 +259,23 @@ export default function CommunityManage() {
                     </div>
 
                     <div className="forum__manage-section">
+                      <h3 className="forum__manage-section-title">Доступ</h3>
+                      <label className="forum__manage-check">
+                        <input
+                          type="checkbox"
+                          checked={isPrivate}
+                          onChange={(e) => setIsPrivate(e.target.checked)}
+                        />
+                        <span>
+                          <strong>Приватное сообщество</strong>
+                          <span className="forum__muted" style={{ display: 'block', marginTop: 4 }}>
+                            Посты видят только участники. Новые подписчики отправляют заявку — её нужно принять или отклонить.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="forum__manage-section">
                       <h3 className="forum__manage-section-title">Оформление</h3>
                       <ImageDropzone label="Логотип / аватар" value={avatarUrl} onChange={setAvatarUrl} kind="avatar" />
                       <ImageDropzone label="Обложка" value={coverUrl} onChange={setCoverUrl} kind="cover" />
@@ -229,9 +285,57 @@ export default function CommunityManage() {
                   <section className="forum__manage-zone forum__manage-zone--account">
                     <p className="forum__manage-eyebrow">Безопасность</p>
                     <h2 className="forum__manage-title">Участники</h2>
-                    <p className="forum__manage-sub">Роли и удаление из сообщества</p>
+                    <p className="forum__manage-sub">Роли, заявки и удаление из сообщества</p>
+
+                    {pendingMembers.length > 0 && (
+                      <div className="forum__manage-section">
+                        <h3 className="forum__manage-section-title">Заявки ({pendingMembers.length})</h3>
+                        <div className="forum__manage-members">
+                          {pendingMembers.map((m) => {
+                            const label = m.user?.name || m.user?.email || m.userId;
+                            const busy = memberBusy === m.userId;
+                            return (
+                              <div key={m.id} className="forum__manage-member">
+                                <div className="forum__manage-member-main">
+                                  <span className="forum__avatar">
+                                    {resolvePublicFileUrl(m.user?.avatarUrl) ? (
+                                      <img src={resolvePublicFileUrl(m.user?.avatarUrl) || ''} alt="" />
+                                    ) : (
+                                      label.slice(0, 1).toUpperCase()
+                                    )}
+                                  </span>
+                                  <div>
+                                    <div className="forum__manage-member-name">{label}</div>
+                                    <div className="forum__muted">Ожидает решения</div>
+                                  </div>
+                                </div>
+                                <div className="forum__manage-member-actions">
+                                  <button
+                                    type="button"
+                                    className="forum__new-post"
+                                    disabled={busy}
+                                    onClick={() => void acceptJoin(m.userId)}
+                                  >
+                                    Принять
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="forum__text-btn"
+                                    disabled={busy}
+                                    onClick={() => void rejectJoin(m.userId)}
+                                  >
+                                    Отклонить
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="forum__manage-members">
-                      {members.map((m) => {
+                      {activeMembers.map((m) => {
                         const label = m.user?.name || m.user?.email || m.userId;
                         const busy = memberBusy === m.userId;
                         return (
@@ -290,7 +394,6 @@ export default function CommunityManage() {
                           </div>
                         );
                       })}
-                      {members.length === 0 && <div className="forum__muted">Нет участников</div>}
                     </div>
                   </section>
 
@@ -332,6 +435,7 @@ export default function CommunityManage() {
                       <h3>{name || 'Без названия'}</h3>
                       <p>{description || 'Описание появится здесь'}</p>
                       <div className="forum__muted">/{slug || 'slug'}</div>
+                      {isPrivate ? <div className="forum__muted">Приватное</div> : null}
                     </div>
                   </div>
                 </aside>

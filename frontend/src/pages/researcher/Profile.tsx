@@ -45,7 +45,6 @@ export default function ResearcherProfile() {
       setExperience(res.experience || '');
       setAvatarUrl(res.avatarUrl || null);
       setIsVerified(res.isVerified || false);
-      console.log('Profile loaded, avatarUrl:', res.avatarUrl);
     } catch (e) {
       console.error('Failed to load profile:', e);
     }

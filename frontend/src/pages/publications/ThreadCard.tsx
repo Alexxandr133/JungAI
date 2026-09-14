@@ -137,18 +137,25 @@ export function ThreadCard({ post, showCommunity = true, onLike, onPin, onDelete
             <PlatformIcon name="message" size={14} strokeWidth={2} />
             {post.commentsCount || 0}
           </span>
-          <button
-            type="button"
-            className="forum__stat"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onLike?.(post);
-            }}
-          >
-            <PlatformIcon name="thumbsUp" size={14} strokeWidth={2} />
-            {post.reactionsCount || 0}
-          </button>
+          {onLike ? (
+            <button
+              type="button"
+              className="forum__stat"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onLike(post);
+              }}
+            >
+              <PlatformIcon name="thumbsUp" size={14} strokeWidth={2} />
+              {post.reactionsCount || 0}
+            </button>
+          ) : (
+            <span className="forum__stat" style={{ cursor: 'default' }} title="Оценки">
+              <PlatformIcon name="thumbsUp" size={14} strokeWidth={2} />
+              {post.reactionsCount || 0}
+            </span>
+          )}
         </div>
       </div>
     </article>

@@ -167,6 +167,59 @@ function formatDreamSymbolsForPrompt(symbols: unknown): string {
   return '';
 }
 
+function testTypeLabelForPrompt(testType: string): string {
+  if (testType === 'association-session') return 'Ассоциативный тест';
+  if (testType === 'pyramid-session') return 'Пирамида ассоциаций';
+  return testType;
+}
+
+/** Сжатое представление результата теста для LLM (вкладка «Тесты» — не ClientDocument). */
+function formatTestResultForPrompt(testType: string, result: unknown): string {
+  const r = result && typeof result === 'object' ? (result as Record<string, any>) : {};
+  if (testType === 'association-session') {
+    const report = r.report || {};
+    const responses = Array.isArray(r.responses) ? r.responses : [];
+    const lines: string[] = [];
+    const run1 = Number(report.run1 || responses.filter((x: any) => (x.run_number || 1) === 1).length || 0);
+    const avg = Number(report.avg || 0);
+    const outliers = Number(report.outliers || 0);
+    lines.push(
+      `ответов: ${run1 || responses.length}; среднее время: ${avg ? (avg / 1000).toFixed(2) : '—'} с; задержек: ${outliers}`
+    );
+    const sample = responses
+      .filter((x: any) => (x.run_number || 1) === 1)
+      .slice(0, 40)
+      .map((x: any) => {
+        const word = String(x.word || '').trim();
+        const ans = String(x.response_text || '').trim();
+        const ms = Number(x.reaction_time_ms || 0);
+        const flag = x.therapist_flag ? ` [${x.therapist_flag}]` : '';
+        return `${word} → ${ans} (${(ms / 1000).toFixed(2)}с)${flag}`;
+      })
+      .filter(Boolean);
+    if (sample.length) lines.push(`пары (фрагмент): ${sample.join('; ')}`);
+    return lines.join('. ');
+  }
+  if (testType === 'pyramid-session') {
+    const query = typeof r.query === 'string' ? r.query.trim() : '';
+    const levels = r.levels || {};
+    const key = levels?.[5]?.[0] || levels?.['5']?.[0] || '';
+    const flat: string[] = [];
+    for (const lvl of [1, 2, 3, 4, 5]) {
+      const arr = levels?.[lvl] || levels?.[String(lvl)];
+      if (Array.isArray(arr) && arr.length) flat.push(`L${lvl}: ${arr.join(', ')}`);
+    }
+    return [`запрос: ${query || '—'}`, key ? `ключевое: ${key}` : '', flat.join(' | ')].filter(Boolean).join('. ');
+  }
+  try {
+    const raw = JSON.stringify(r);
+    return raw.length > 800 ? `${raw.slice(0, 800)}…` : raw;
+  } catch {
+    return 'результат сохранён';
+  }
+}
+
+
 const router = Router();
 
 /** Режим одного клиента: явно true, либо есть clientId. Явный false — обобщённый режим. */
@@ -1064,6 +1117,17 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
         })
       : [];
 
+    // Результаты тестов (вкладка «Тесты» в рабочей области — не текстовый документ)
+    const allTestResults: Array<{ id: string; clientId: string; testType: string; result: any; createdAt: Date }> =
+      clientIds.length > 0
+        ? await (prisma as any).testResult.findMany({
+            where: { clientId: { in: clientIds } },
+            orderBy: { createdAt: 'desc' },
+            take: 40,
+            select: { id: true, clientId: true, testType: true, result: true, createdAt: true },
+          })
+        : [];
+
     // Получаем все документы рабочей области (Ведение клиента, запрос, анамнез, ценности/кредо и т.д.)
     const allDocuments: Array<{
       id: string;
@@ -1252,8 +1316,11 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
             const normalizedTab = String(tabName || '').trim().toLowerCase();
             const isDreamTab = normalizedTab === 'сны';
             const isSynchTab = normalizedTab === 'синхронии';
+            const isTestsTab = normalizedTab === 'тесты';
             if (isDreamTab && !passDreamData) return;
             if (isSynchTab && !modalityPolicy.allowSynchronicities) return;
+            // «Тесты» — карточки TestResult, не HTML-документ; см. testsContext ниже
+            if (isTestsTab) return;
 
             const doc = clientDocs.find(d => d.tabName === tabName);
             
@@ -1282,6 +1349,24 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
       documentsContext = '\n\nВ рабочей области пока нет сохраненных документов о пациентах.';
     }
 
+    // Контекст пройденных тестов (вкладка «Тесты»)
+    let testsContext = '';
+    if (allTestResults.length > 0) {
+      testsContext = `\n\nПройденные тесты клиентов (вкладка «Тесты» рабочей области):\n`;
+      clients.forEach((client) => {
+        const rows = allTestResults.filter((t) => t.clientId === client.id);
+        if (!rows.length) return;
+        testsContext += `\nКлиент: ${client.name} — тестов: ${rows.length}\n`;
+        rows.slice(0, 8).forEach((row, idx) => {
+          testsContext += `  ${idx + 1}. ${testTypeLabelForPrompt(row.testType)} (${new Date(row.createdAt).toLocaleString('ru-RU')}):\n`;
+          testsContext += `     ${formatTestResultForPrompt(row.testType, row.result)}\n`;
+        });
+      });
+      testsContext += '\n';
+    } else if (clientIds.length > 0) {
+      testsContext = '\n\nПройденных тестов по выбранному клиенту в базе нет (вкладка «Тесты» пуста).\n';
+    }
+
     // Формируем system prompt (модальность влияет на акценты; сны — по passDreamData)
     let systemPrompt = appendResponseStyle(
       buildClientModalityPrompt(modality, { includeDreamsInContext: passDreamData }),
@@ -1301,11 +1386,13 @@ router.post('/ai/psychologist/chat', requireAuth, requireRole(['psychologist', '
     }
 
     const dataContextBlock = attachDataContext
-      ? `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}`
+      ? `${dreamsContext}${clientsContext}${workAreaContext}${documentsContext}${testsContext}`
       : '';
 
     const dreamCountForAnalysis = attachDataContext ? allDreams.length : 0;
-    const userPrompt = `${dataContextBlock}${previousAnalysisMemory ? `\n\nСохраненный анализ по этому чату (используй как рабочую память):\n${previousAnalysisMemory}\n` : ''}${isDreamAnalysisRequest && dreamCountForAnalysis > 0 ? `\n\nВажно: в контексте передано ${dreamCountForAnalysis} снов(а). Дай структурированный разбор ПО КАЖДОМУ сну без пропусков в формате "Сон 1 ... Сон ${dreamCountForAnalysis}". Нельзя объединять сны. После разборов добавь общий итог по паттернам.\n` : ''}
+    const asksTests =
+      /тест|ассоциатив|пирамид|association|pyramid/i.test(messageText) && allTestResults.length > 0;
+    const userPrompt = `${dataContextBlock}${previousAnalysisMemory ? `\n\nСохраненный анализ по этому чату (используй как рабочую память):\n${previousAnalysisMemory}\n` : ''}${isDreamAnalysisRequest && dreamCountForAnalysis > 0 ? `\n\nВажно: в контексте передано ${dreamCountForAnalysis} снов(а). Дай структурированный разбор ПО КАЖДОМУ сну без пропусков в формате "Сон 1 ... Сон ${dreamCountForAnalysis}". Нельзя объединять сны. После разборов добавь общий итог по паттернам.\n` : ''}${asksTests ? `\n\nВажно: психолог просит про тесты — опирайся на блок «Пройденные тесты» выше; не говори, что тестов нет, если блок не пустой.\n` : ''}
 
 Вопрос психолога: ${messageText}`;
 

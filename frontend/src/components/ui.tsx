@@ -108,13 +108,6 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
         : `${baseOrigin}${profile.avatarUrl}`)
     : null;
   
-  // Отладочная информация
-  if (profile?.avatarUrl) {
-    console.log('Avatar URL in profile:', profile.avatarUrl);
-    console.log('Base origin:', baseOrigin);
-    console.log('Final avatar src:', avatarSrc);
-  }
-  
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
@@ -133,12 +126,10 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
       <button onClick={() => setOpen(s => !s)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer' }}>
         {avatarSrc ? (
           <img 
-            key={avatarSrc} // Принудительное обновление при изменении URL
+            key={avatarSrc}
             src={avatarSrc} 
             alt={displayName}
             onError={(e) => {
-              console.error('Failed to load avatar image:', avatarSrc);
-              // Если изображение не загрузилось, заменяем на инициал
               const img = e.target as HTMLImageElement;
               img.style.display = 'none';
               const parent = img.parentElement;
@@ -149,9 +140,6 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
                 fallback.textContent = initial;
                 parent.insertBefore(fallback, img);
               }
-            }}
-            onLoad={() => {
-              console.log('Avatar image loaded successfully:', avatarSrc);
             }}
             style={{ width: 36, height: 36, borderRadius: 999, objectFit: 'cover' }}
           />
@@ -165,11 +153,10 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 10, alignItems: 'center', padding: 8 }}>
             {avatarSrc ? (
               <img 
-                key={avatarSrc} // Принудительное обновление при изменении URL
+                key={avatarSrc}
                 src={avatarSrc} 
                 alt={displayName}
                 onError={(e) => {
-                  console.error('Failed to load avatar image in menu:', avatarSrc);
                   const img = e.target as HTMLImageElement;
                   img.style.display = 'none';
                   const parent = img.parentElement;
@@ -180,9 +167,6 @@ export const UserMenu: React.FC<{ user?: { email?: string; role?: string } | nul
                     fallback.textContent = initial;
                     parent.insertBefore(fallback, img);
                   }
-                }}
-                onLoad={() => {
-                  console.log('Avatar image loaded successfully in menu:', avatarSrc);
                 }}
                 style={{ width: 40, height: 40, borderRadius: 999, objectFit: 'cover' }}
               />

@@ -9,6 +9,8 @@ const AUDIENCE_LINKS = [
   { label: 'Для исследователей', to: '/for-researchers' },
 ] as const;
 
+const COMMUNITY_LINK = { label: 'Сообщество', to: '/communities' } as const;
+
 type LandingNavbarProps = {
   variant?: 'default' | 'psychologist' | 'client' | 'catalog' | 'researcher';
 };
@@ -147,10 +149,12 @@ export function LandingNavbar({ variant = 'default' }: LandingNavbarProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
+              gap: 6,
               flex: 1,
-              justifyContent: 'center',
+              justifyContent: 'flex-start',
               minWidth: 0,
+              marginLeft: 12,
+              paddingRight: 8,
             }}
           >
             {AUDIENCE_LINKS.map((item) => {
@@ -161,7 +165,7 @@ export function LandingNavbar({ variant = 'default' }: LandingNavbarProps) {
                   to={item.to}
                   className={`landing-btn${active ? ' landing-btn--secondary' : ' landing-btn--ghost'}`}
                   style={{
-                    padding: '8px 14px',
+                    padding: '8px 12px',
                     fontSize: 14,
                     fontWeight: active ? 600 : 500,
                     whiteSpace: 'nowrap',
@@ -172,6 +176,30 @@ export function LandingNavbar({ variant = 'default' }: LandingNavbarProps) {
                 </Link>
               );
             })}
+            <Link
+              to={COMMUNITY_LINK.to}
+              className={`landing-btn${
+                location.pathname.startsWith('/communities') || location.pathname.startsWith('/publications')
+                  ? ' landing-btn--secondary'
+                  : ' landing-btn--ghost'
+              }`}
+              style={{
+                padding: '8px 12px',
+                fontSize: 14,
+                fontWeight:
+                  location.pathname.startsWith('/communities') || location.pathname.startsWith('/publications')
+                    ? 600
+                    : 500,
+                whiteSpace: 'nowrap',
+              }}
+              aria-current={
+                location.pathname.startsWith('/communities') || location.pathname.startsWith('/publications')
+                  ? 'page'
+                  : undefined
+              }
+            >
+              {COMMUNITY_LINK.label}
+            </Link>
           </nav>
         )}
 
@@ -293,6 +321,20 @@ export function LandingNavbar({ variant = 'default' }: LandingNavbarProps) {
                 </Link>
               );
             })
+          )}
+          {!isCatalog && (
+            <Link
+              to={COMMUNITY_LINK.to}
+              className={`landing-btn${
+                location.pathname.startsWith('/communities') || location.pathname.startsWith('/publications')
+                  ? ' landing-btn--secondary'
+                  : ' landing-btn--ghost'
+              }`}
+              style={{ width: '100%', justifyContent: 'flex-start' }}
+              onClick={() => setMobileOpen(false)}
+            >
+              {COMMUNITY_LINK.label}
+            </Link>
           )}
           {user ? (
             <Link

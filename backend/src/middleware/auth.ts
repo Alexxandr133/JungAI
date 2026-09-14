@@ -35,6 +35,19 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
   }
 }
 
+/** Attach user if Bearer token present; never fail — for public-read + optional personalization. */
+export function optionalAuth(req: AuthedRequest, _res: Response, next: NextFunction) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token) return next();
+  try {
+    req.user = jwt.verify(token, config.jwtSecret) as JwtUser;
+  } catch {
+    /* ignore invalid token for public routes */
+  }
+  next();
+}
+
 export function requireRole(roles: UserRole[]) {
   return (req: AuthedRequest, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
