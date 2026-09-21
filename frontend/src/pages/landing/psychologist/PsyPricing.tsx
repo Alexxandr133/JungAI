@@ -24,8 +24,8 @@ const PLANS: Plan[] = [
   {
     id: 'start',
     name: 'Старт',
-    price: '0 ₽',
-    period: 'навсегда на старте',
+    price: '200 ₽',
+    period: 'в месяц',
     blurb: 'Знакомство с платформой и небольшая практика.',
     cta: 'Начать бесплатно',
     features: [
@@ -39,7 +39,7 @@ const PLANS: Plan[] = [
       { label: 'Рабочая область', value: '5 вкладок' },
       { label: 'Тесты внутри сессий', value: '—', muted: true },
       { label: 'Выбор модели ИИ', value: '—', muted: true },
-      { label: 'Публикации и сообщества', value: '2 поста / мес' },
+      { label: 'Публикации и сообщества', value: 'без лимита' },
       { label: 'Исследовательский контур', value: '—', muted: true },
       { label: 'Поддержка', value: '48 ч' },
     ],

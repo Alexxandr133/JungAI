@@ -1,10 +1,17 @@
 User-agent: *
 Allow: /
+Allow: /for-clients
+Allow: /for-researchers
 Allow: /communities
+Allow: /psychologists
 Allow: /publications/
+Allow: /guest/publications
 Disallow: /admin
 Disallow: /api/
 Disallow: /login
 Disallow: /register
+Disallow: /client/
+Disallow: /psychologist/
+Disallow: /researcher/
 
 Sitemap: https://jung-ai.ru/sitemap.xml

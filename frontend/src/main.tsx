@@ -13,6 +13,7 @@ import { MessengerHost } from './messenger/MessengerHost'
 import { SessionExpiredModal } from './components/SessionExpiredModal'
 import { I18nProvider } from './context/I18nContext'
 import { PageVisitTracker } from './components/PageVisitTracker'
+import { YandexMetrika } from './components/YandexMetrika'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import DreamsList from './pages/dreams/List'
@@ -105,6 +106,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <ChatSocketProvider>
             <MessengerUiProvider>
             <PageVisitTracker />
+            <YandexMetrika />
             <MessengerHost />
             <SessionExpiredModal />
             <ForcedEmailMigrationModal />

@@ -9,6 +9,7 @@ import { usePsychologistPlatformTour } from '../../hooks/usePsychologistPlatform
 import { PSYCHOLOGIST_FEED_TOUR_STEPS } from '../../lib/psychologistPlatformTourSteps';
 import { PsychologistTourHelpButton } from '../../components/PsychologistTourHelpButton';
 import { usePageMeta } from '../../hooks/usePageMeta';
+import { SEO_PAGES } from '../../content/seoPages';
 import { ImageDropzone } from './ImageDropzone';
 import { ThreadCard } from './ThreadCard';
 import { DEFAULT_FLAIRS, canCreateForum, type ForumCommunity, type ForumPost } from './forumUtils';
@@ -51,8 +52,8 @@ export default function CommunitiesCatalog() {
   const [authPrompt, setAuthPrompt] = useState(false);
 
   usePageMeta({
-    title: 'Сообщества',
-    description: 'Лента и сообщества JungAI: читайте посты психологов, клиентов и исследователей без регистрации.',
+    title: SEO_PAGES['/communities'].title,
+    description: SEO_PAGES['/communities'].description,
     path: '/communities',
   });
 

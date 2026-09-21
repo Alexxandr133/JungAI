@@ -172,7 +172,7 @@ export default function PostView() {
           .replace(/<[^>]+>/g, ' ')
           .replace(/\s+/g, ' ')
           .trim()
-          .slice(0, 220)
+          .slice(0, 200)
       : 'Публикация в сообществе JungAI',
     path: id ? `/publications/post/${id}` : undefined,
     image: post?.imageUrl,

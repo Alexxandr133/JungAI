@@ -3,6 +3,7 @@ import { LandingNavbar } from '../../../components/landing/LandingNavbar';
 import { LandingFooter } from '../../../components/landing/LandingFooter';
 import { CtaBand } from '../../../components/landing/CtaBand';
 import { usePageMeta } from '../../../hooks/usePageMeta';
+import { SEO_PAGES } from '../../../content/seoPages';
 import { api } from '../../../lib/api';
 import '../../../styles/landing-tokens.css';
 import { ResHero } from './ResHero';
@@ -33,10 +34,12 @@ function withDisplayOffset(raw: PublicStats): PublicStats {
 }
 
 export default function ForResearchersPage() {
-  usePageMeta(
-    'JungAI для исследователей — сны, символы, индивидуация',
-    'Дневник снов с ИИ-извлечением символов, частота символов, модель индивидуации и исследовательские проекты. Платформа юнгианской традиции для исследователей и психологов.'
-  );
+  const seo = SEO_PAGES['/for-researchers'];
+  usePageMeta({
+    title: seo.title,
+    description: seo.description,
+    path: seo.path,
+  });
 
   const [stats, setStats] = useState<PublicStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);

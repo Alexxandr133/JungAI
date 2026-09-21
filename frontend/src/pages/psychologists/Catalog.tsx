@@ -7,6 +7,7 @@ import { LandingNavbar } from '../../components/landing/LandingNavbar';
 import { LandingFooter } from '../../components/landing/LandingFooter';
 import { PsychologistMiniCard } from '../../components/PsychologistMiniCard';
 import { usePageMeta } from '../../hooks/usePageMeta';
+import { SEO_PAGES } from '../../content/seoPages';
 import '../../styles/landing-tokens.css';
 import './Catalog.css';
 
@@ -54,7 +55,11 @@ export default function PsychologistsCatalog() {
   const [price, setPrice] = useState('');
   const [tagSearch, setTagSearch] = useState('');
 
-  usePageMeta('Психологи — JungAI', 'Верифицированные психологи JungAI: подбор по темам, формату и бюджету.');
+  usePageMeta({
+    title: SEO_PAGES['/psychologists'].title,
+    description: SEO_PAGES['/psychologists'].description,
+    path: '/psychologists',
+  });
 
   useEffect(() => {
     void (async () => {

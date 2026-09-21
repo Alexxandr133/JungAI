@@ -39,6 +39,7 @@ export default function CommunityView() {
     path: slug ? `/publications/community/${slug}` : '/communities',
     image: community?.coverUrl || community?.avatarUrl,
     type: 'website',
+    noIndex: locked || Boolean(community?.isPrivate),
   });
 
   async function load() {

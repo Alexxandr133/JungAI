@@ -3,6 +3,7 @@ import { LandingNavbar } from '../../../components/landing/LandingNavbar';
 import { LandingFooter } from '../../../components/landing/LandingFooter';
 import { CtaBand } from '../../../components/landing/CtaBand';
 import { usePageMeta } from '../../../hooks/usePageMeta';
+import { SEO_HOME } from '../../../content/seoPages';
 import { api } from '../../../lib/api';
 import '../../../styles/landing-tokens.css';
 import { PsyHero } from './PsyHero';
@@ -38,10 +39,11 @@ function withDisplayOffset(raw: PublicStats): PublicStats {
 }
 
 export default function ForPsychologistsPage() {
-  usePageMeta(
-    'JungAI — платформа для психологов: CRM, календарь, видео, ИИ и транскрибация',
-    'Один контур для частной практики: карточки клиентов, самозапись, видеосессии, транскрибация сессий и ИИ, который учитывает вашу модальность. Ранний доступ — бесплатно.'
-  );
+  usePageMeta({
+    title: SEO_HOME.title,
+    description: SEO_HOME.description,
+    path: SEO_HOME.path,
+  });
 
   const [stats, setStats] = useState<PublicStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);

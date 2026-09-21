@@ -3,6 +3,7 @@ import { LandingNavbar } from '../../../components/landing/LandingNavbar';
 import { LandingFooter } from '../../../components/landing/LandingFooter';
 import { CtaBand } from '../../../components/landing/CtaBand';
 import { usePageMeta } from '../../../hooks/usePageMeta';
+import { SEO_PAGES } from '../../../content/seoPages';
 import '../../../styles/landing-tokens.css';
 import { CliHero } from './CliHero';
 import { CliRequests } from './CliRequests';
@@ -13,10 +14,12 @@ import { CliTrust } from './CliTrust';
 import { CliFaq } from './CliFaq';
 
 export default function ForClientsPage() {
-  usePageMeta(
-    'JungAI — психолог онлайн: сессии, дневник снов, тесты',
-    'Верифицированные психологи аналитической традиции. Видео-сессии на платформе, дневник снов с символами, тесты и поддержка между сессиями. Стоимость видна до записи.'
-  );
+  const seo = SEO_PAGES['/for-clients'];
+  usePageMeta({
+    title: seo.title,
+    description: seo.description,
+    path: seo.path,
+  });
 
   const [requestFilter, setRequestFilter] = useState<string | null>(null);
 
