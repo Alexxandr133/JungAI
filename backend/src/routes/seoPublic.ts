@@ -216,8 +216,9 @@ router.get('/sitemap.xml', async (_req, res) => {
         )
       );
 
+    // Yandex Webmaster prefers text/xml without charset in Content-Type
     res
-      .type('application/xml; charset=utf-8')
+      .set('Content-Type', 'text/xml')
       .send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://schemas.sitemaps.org/schemas/sitemap/0.9">
 ${urls.join('\n')}
