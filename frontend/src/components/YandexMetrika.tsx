@@ -56,7 +56,7 @@ export function YandexMetrika() {
       accurateTrackBounce: true,
       trackLinks: true,
       referrer: document.referrer,
-      url: location.href,
+      url: window.location.href,
     });
 
     const noscriptId = 'yandex-metrika-noscript';
