@@ -223,10 +223,19 @@ router.get('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
 
     let educations: any[] = [];
     try {
-      educations = await prisma.$queryRawUnsafe(
-        `SELECT "id","kind","institution","title","yearFrom","yearTo" FROM "PsychologistEducation" WHERE "userId" = ? ORDER BY "yearFrom" DESC, "createdAt" DESC`,
-        req.user!.id
-      );
+      const eduModel = (prisma as any).psychologistEducation;
+      if (eduModel?.findMany) {
+        educations = await eduModel.findMany({
+          where: { userId: req.user!.id },
+          orderBy: [{ yearFrom: 'desc' }, { createdAt: 'desc' }],
+          select: { id: true, kind: true, institution: true, title: true, yearFrom: true, yearTo: true },
+        });
+      } else {
+        educations = await prisma.$queryRawUnsafe(
+          `SELECT "id","kind","institution","title","yearFrom","yearTo" FROM "PsychologistEducation" WHERE "userId" = ? ORDER BY "yearFrom" DESC, "createdAt" DESC`,
+          req.user!.id
+        );
+      }
     } catch {
       educations = [];
     }
@@ -518,6 +527,22 @@ router.put('/profile/educations', requireAuth, requireRole(['psychologist', 'adm
       update: {},
       create: { userId: req.user!.id, name: '', interests: [] },
     });
+
+    try {
+      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "PsychologistEducation" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "userId" TEXT NOT NULL,
+        "kind" TEXT NOT NULL,
+        "institution" TEXT NOT NULL,
+        "title" TEXT NOT NULL,
+        "yearFrom" INTEGER NOT NULL,
+        "yearTo" INTEGER,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL
+      )`);
+    } catch {
+      /* table may already exist with FK from migration */
+    }
 
     // Prisma-модель надёжнее сырого SQL (null yearTo, id, timestamps)
     const edu = (prisma as any).psychologistEducation;
