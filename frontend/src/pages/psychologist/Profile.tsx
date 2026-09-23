@@ -323,6 +323,50 @@ export default function PsychologistProfile() {
       setError(`Укажите номер полностью: ${phoneCountryMeta.nationalLength} цифр после кода страны — или очистите поле`);
       return;
     }
+
+    const eduPayload: Array<{
+      kind: string;
+      institution: string;
+      title: string;
+      yearFrom: number;
+      yearTo: number | null;
+    }> = [];
+    for (let i = 0; i < educations.length; i++) {
+      const ed = educations[i];
+      const institution = ed.institution.trim();
+      const title = ed.title.trim();
+      const yearFromRaw = ed.yearFrom.trim();
+      const yearToRaw = ed.yearTo.trim();
+      // «+» подставляет год — пустая карточка без названия/вуза не считается заполненной
+      if (!institution && !title) continue;
+      if (!institution || !title) {
+        setError(`Образование №${i + 1}: заполните название программы и учебное заведение`);
+        return;
+      }
+      if (!/^\d{4}$/.test(yearFromRaw)) {
+        setError(`Образование №${i + 1}: укажите год начала четырьмя цифрами`);
+        return;
+      }
+      const yearFrom = Number(yearFromRaw);
+      if (yearFrom < 1950 || yearFrom > 2100) {
+        setError(`Образование №${i + 1}: год начала вне допустимого диапазона`);
+        return;
+      }
+      let yearTo: number | null = null;
+      if (yearToRaw) {
+        if (!/^\d{4}$/.test(yearToRaw)) {
+          setError(`Образование №${i + 1}: год окончания — 4 цифры или пусто`);
+          return;
+        }
+        yearTo = Number(yearToRaw);
+        if (yearTo < yearFrom || yearTo > 2100) {
+          setError(`Образование №${i + 1}: год окончания не может быть раньше года начала`);
+          return;
+        }
+      }
+      eduPayload.push({ kind: ed.kind, institution, title, yearFrom, yearTo });
+    }
+
     setSaving(true);
     setError(null);
     setStatus(null);
@@ -346,31 +390,43 @@ export default function PsychologistProfile() {
           acceptingClients,
         },
       });
-      await api('/api/psychologist/profile/educations', {
+      const eduRes = await api<{
+        educations?: Array<{
+          id: string;
+          kind: string;
+          institution: string;
+          title: string;
+          yearFrom: number;
+          yearTo: number | null;
+        }>;
+      }>('/api/psychologist/profile/educations', {
         method: 'PUT',
         token,
-        body: {
-          educations: educations.map((ed) => ({
-            kind: ed.kind,
-            institution: ed.institution,
-            title: ed.title,
-            yearFrom: Number(ed.yearFrom),
-            yearTo: ed.yearTo === '' ? null : Number(ed.yearTo),
-          })),
-        },
+        body: { educations: eduPayload },
       });
+      const savedEducations: EduDraft[] = (eduRes.educations || []).map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        institution: e.institution,
+        title: e.title,
+        yearFrom: String(e.yearFrom),
+        yearTo: e.yearTo != null ? String(e.yearTo) : '',
+      }));
+      setEducations(savedEducations);
       setAccentColor(accentToSave);
-      // Фиксируем снимок до перезагрузки, чтобы UI не «мигал» старыми значениями
-      setSavedSnapshot({
+      const nextSnap: Snapshot = {
         ...currentSnapshot,
         accentColor: accentToSave,
+        educations: savedEducations,
         worksWith: [...worksWithSelected].sort(),
         audienceFormats: [...audienceFormats].sort(),
         coverUrl: coverUrl?.startsWith('blob:') ? savedSnapshot?.coverUrl ?? null : coverUrl,
-      });
+      };
+      setSavedSnapshot(nextSnap);
       setStatus('Профиль сохранён');
       await refreshProfile();
-      await loadProfile();
+      // Не вызываем loadProfile() сразу: при ошибке/пустом GET он затирал только что сохранённые образования.
+      // Ответ PUT /educations — источник правды для списка.
       setTimeout(() => setStatus(null), 3000);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить профиль');

@@ -275,8 +275,8 @@ router.get('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
         kind: e.kind,
         institution: e.institution,
         title: e.title,
-        yearFrom: e.yearFrom,
-        yearTo: e.yearTo,
+        yearFrom: Number(e.yearFrom),
+        yearTo: e.yearTo == null ? null : Number(e.yearTo),
       })),
       isVerified,
       acceptingClients: acceptingClientsFlag
@@ -462,19 +462,56 @@ router.put('/profile', requireAuth, requireRole(['psychologist', 'admin']), asyn
 router.put('/profile/educations', requireAuth, requireRole(['psychologist', 'admin']), async (req: AuthedRequest, res) => {
   try {
     const items = Array.isArray(req.body?.educations) ? req.body.educations : [];
-    const normalized = items
-      .map((raw: any) => {
-        const kind = ['higher', 'course', 'supervision', 'other'].includes(raw?.kind) ? raw.kind : 'other';
-        const institution = String(raw?.institution || '').trim().slice(0, 200);
-        const title = String(raw?.title || '').trim().slice(0, 200);
-        const yearFrom = Number(raw?.yearFrom);
-        const yearTo = raw?.yearTo === null || raw?.yearTo === '' ? null : Number(raw?.yearTo);
-        if (!institution || !title || !Number.isFinite(yearFrom) || yearFrom < 1950 || yearFrom > 2100) return null;
-        if (yearTo != null && (!Number.isFinite(yearTo) || yearTo < yearFrom || yearTo > 2100)) return null;
-        return { kind, institution, title, yearFrom, yearTo };
-      })
-      .filter(Boolean)
-      .slice(0, 30) as Array<{ kind: string; institution: string; title: string; yearFrom: number; yearTo: number | null }>;
+    if (items.length > 30) {
+      return res.status(400).json({ error: 'Слишком много записей об образовании (макс. 30)' });
+    }
+
+    const errors: string[] = [];
+    const normalized: Array<{
+      kind: string;
+      institution: string;
+      title: string;
+      yearFrom: number;
+      yearTo: number | null;
+    }> = [];
+
+    items.forEach((raw: any, idx: number) => {
+      const n = idx + 1;
+      const kind = ['higher', 'course', 'supervision', 'other'].includes(raw?.kind) ? raw.kind : 'other';
+      const institution = String(raw?.institution || '').trim().slice(0, 200);
+      const title = String(raw?.title || '').trim().slice(0, 200);
+      const yearFromRaw = String(raw?.yearFrom ?? '').trim();
+      const yearToRaw =
+        raw?.yearTo === null || raw?.yearTo === undefined || raw?.yearTo === ''
+          ? ''
+          : String(raw.yearTo).trim();
+      const yearFrom = Number(yearFromRaw);
+      const yearTo = yearToRaw === '' ? null : Number(yearToRaw);
+
+      // Карточка без названия/вуза (в т.ч. только год с «+») — пропускаем
+      if (!institution && !title) return;
+
+      if (!institution || !title) {
+        errors.push(`Запись ${n}: укажите название программы и учебное заведение`);
+        return;
+      }
+      if (!/^\d{4}$/.test(yearFromRaw) || !Number.isFinite(yearFrom) || yearFrom < 1950 || yearFrom > 2100) {
+        errors.push(`Запись ${n}: укажите год начала четырьмя цифрами (например 2018)`);
+        return;
+      }
+      if (
+        yearTo != null &&
+        (!/^\d{4}$/.test(yearToRaw) || !Number.isFinite(yearTo) || yearTo < yearFrom || yearTo > 2100)
+      ) {
+        errors.push(`Запись ${n}: год окончания некорректный (оставьте пустым, если ещё учитесь)`);
+        return;
+      }
+      normalized.push({ kind, institution, title, yearFrom, yearTo });
+    });
+
+    if (errors.length) {
+      return res.status(400).json({ error: errors[0], errors });
+    }
 
     await prisma.profile.upsert({
       where: { userId: req.user!.id },
@@ -482,26 +519,83 @@ router.put('/profile/educations', requireAuth, requireRole(['psychologist', 'adm
       create: { userId: req.user!.id, name: '', interests: [] },
     });
 
+    // Prisma-модель надёжнее сырого SQL (null yearTo, id, timestamps)
+    const edu = (prisma as any).psychologistEducation;
+    if (edu?.deleteMany && edu?.createMany && edu?.findMany) {
+      await prisma.$transaction(async (tx: any) => {
+        const tEdu = tx.psychologistEducation;
+        await tEdu.deleteMany({ where: { userId: req.user!.id } });
+        if (normalized.length) {
+          await tEdu.createMany({
+            data: normalized.map((e) => ({
+              userId: req.user!.id,
+              kind: e.kind,
+              institution: e.institution,
+              title: e.title,
+              yearFrom: e.yearFrom,
+              yearTo: e.yearTo,
+            })),
+          });
+        }
+      });
+      const rows = await edu.findMany({
+        where: { userId: req.user!.id },
+        orderBy: [{ yearFrom: 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, kind: true, institution: true, title: true, yearFrom: true, yearTo: true },
+      });
+      return res.json({
+        educations: (rows || []).map((e: any) => ({
+          id: e.id,
+          kind: e.kind,
+          institution: e.institution,
+          title: e.title,
+          yearFrom: Number(e.yearFrom),
+          yearTo: e.yearTo == null ? null : Number(e.yearTo),
+        })),
+      });
+    }
+
     await prisma.$executeRawUnsafe(`DELETE FROM "PsychologistEducation" WHERE "userId" = ?`, req.user!.id);
     for (const e of normalized) {
-      const id = `edu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO "PsychologistEducation" ("id","userId","kind","institution","title","yearFrom","yearTo","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
-        id,
-        req.user!.id,
-        e.kind,
-        e.institution,
-        e.title,
-        e.yearFrom,
-        e.yearTo
-      );
+      const id = `edu_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      if (e.yearTo == null) {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "PsychologistEducation" ("id","userId","kind","institution","title","yearFrom","yearTo","createdAt","updatedAt") VALUES (?,?,?,?,?,?,NULL,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+          id,
+          req.user!.id,
+          e.kind,
+          e.institution,
+          e.title,
+          e.yearFrom
+        );
+      } else {
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO "PsychologistEducation" ("id","userId","kind","institution","title","yearFrom","yearTo","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+          id,
+          req.user!.id,
+          e.kind,
+          e.institution,
+          e.title,
+          e.yearFrom,
+          e.yearTo
+        );
+      }
     }
 
     const educations = await prisma.$queryRawUnsafe<any[]>(
       `SELECT "id","kind","institution","title","yearFrom","yearTo" FROM "PsychologistEducation" WHERE "userId" = ? ORDER BY "yearFrom" DESC`,
       req.user!.id
     );
-    res.json({ educations });
+    res.json({
+      educations: (educations || []).map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        institution: e.institution,
+        title: e.title,
+        yearFrom: Number(e.yearFrom),
+        yearTo: e.yearTo == null ? null : Number(e.yearTo),
+      })),
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to save educations' });
   }

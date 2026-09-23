@@ -58,10 +58,18 @@ export function MessengerHost() {
 
   const inCabinet = canUseMessengerBubble(user?.role) && !isPublicSurfacePath(location.pathname);
   const onFullMessages = location.pathname === '/messages' || location.pathname === '/chat';
+  /** AI assistant pages already have a composer — hide the messenger FAB so it doesn't cover «Отправить» */
+  const onAiChat =
+    location.pathname.startsWith('/psychologist/ai') ||
+    location.pathname.startsWith('/client/ai');
 
   useEffect(() => {
     if (!inCabinet && open) closeMessenger();
   }, [inCabinet, open, closeMessenger]);
+
+  useEffect(() => {
+    if (onAiChat && open) closeMessenger();
+  }, [onAiChat, open, closeMessenger]);
 
   useEffect(() => {
     try {
@@ -95,7 +103,7 @@ export function MessengerHost() {
     }
   }, []);
 
-  if (!inCabinet || onFullMessages) return null;
+  if (!inCabinet || onFullMessages || onAiChat) return null;
 
   const unread = chat?.unread.total || 0;
   const drawerStyle: CSSProperties | undefined =
